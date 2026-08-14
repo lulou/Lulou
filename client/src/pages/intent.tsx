@@ -1273,8 +1273,12 @@ export default function IntentPage() {
     enabled: !!selectedProfile?.userId && showSpinRoom,
     staleTime: 10 * 60 * 1000,
   });
+  // dnaReasonsData.reasons elements can arrive as {key,text} objects at runtime even
+  // though typed as string[].  Rendering a raw object throws React error #31 ("Objects
+  // are not valid as a React child").  renderText() extracts .text or returns '' for
+  // nullish, so the ?? fallback kicks in for both missing data AND bad-shaped objects.
   const spinRoomInsight: string =
-    dnaReasonsData?.reasons?.[0] ?? t("spin_room_compat_fallback");
+    renderText(dnaReasonsData?.reasons?.[0] as unknown) || t("spin_room_compat_fallback");
 
   // SpinRoom cinematic phase — drives what's visible at each moment
   type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'momentum' | 'reveal' | 'pause' | 'buttons';
@@ -1304,10 +1308,14 @@ export default function IntentPage() {
   const orbitTargetRef  = useRef(0);   // target speed °/s
   const orbitRafRef2    = useRef(0);
   const orbitLastTimeRef = useRef(0);
-  const orbitGlowRef      = useRef<HTMLDivElement>(null);
+  const orbitGlowRef        = useRef<HTMLDivElement>(null);
   // Ref to the momentum-label <p> so logWinnerNode can read its computed styles
   // without needing Safari Web Inspector. Attached via ref={momentumTextRef} in JSX.
-  const momentumTextRef   = useRef<HTMLParagraphElement | null>(null);
+  const momentumTextRef     = useRef<HTMLParagraphElement | null>(null);
+  // Ref to the full-size result photo wrapper so the 'pause' FLIP useLayoutEffect
+  // can apply an initial transform that matches the orbit card's last visible rect,
+  // then animate to full-screen — no visible small-to-large replacement.
+  const winnerPhotoWrapperRef = useRef<HTMLDivElement | null>(null);
   const orbitRingRef2   = useRef<HTMLDivElement>(null);  // kept for type compat
   const landingMarkerRef = useRef<HTMLDivElement>(null); // kept for type compat
   const spinPhaseRef = useRef<SpinPhase>('idle');  // readable inside RAF without stale-closure issues
@@ -2285,6 +2293,86 @@ export default function IntentPage() {
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'arrive') return;
     spinPhaseRef.current = 'arrive';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spinRoomPhase]);
+
+  // ── Pause: FLIP handoff from orbit winner card → full-screen result photo ──
+  // The orbit carousel parent fades to opacity:0 at 'reveal' (1.4 s transition).
+  // By the time 'pause' fires (+2 300 ms after 'reveal'), the orbit card is fully
+  // invisible — but getBoundingClientRect() still returns its real viewport rect
+  // because the card is NOT removed from the DOM.
+  //
+  // We apply an initial FLIP transform to the full-size photo wrapper that matches
+  // the orbit card's last measured position and size.  On the second rAF the
+  // transition target (inset:0, scale:1) is applied, so the photo grows from the
+  // orbit card's footprint to full-screen instead of appearing at full size.
+  //
+  // The orbit card is simultaneously hidden (opacity:0) so there is no double-image
+  // during the transition.
+  useLayoutEffect(() => {
+    if (spinRoomPhase !== 'pause') return;
+
+    const wrapperEl = winnerPhotoWrapperRef.current;
+    if (!wrapperEl) return;
+
+    const winnerIdx = pendingWinnerRef.current?.index ?? 0;
+    const winnerEl  = orbitCardRefs.current[winnerIdx];
+
+    if (!winnerEl) {
+      // Orbit card not available — no FLIP, let photo appear naturally
+      wrapperEl.style.transition = '';
+      wrapperEl.style.transform  = '';
+      wrapperEl.style.opacity    = '1';
+      return;
+    }
+
+    // Capture the orbit card's exact viewport rect (transform-inclusive)
+    const r  = winnerEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Compute the scale factors.  The photo fills the viewport (inset:0), so the
+    // initial scale to match the orbit card is card_dimension / viewport_dimension.
+    // Use the larger scale axis so the orbit card image fills the photo without gaps.
+    const scaleX = r.width  / vw;
+    const scaleY = r.height / vh;
+    const scale  = Math.max(scaleX, scaleY);
+
+    // Translate so the photo's center aligns with the orbit card's center
+    const cardCx = r.left + r.width  / 2;
+    const cardCy = r.top  + r.height / 2;
+    const dx = cardCx - vw / 2;
+    const dy = cardCy - vh / 2;
+
+    // Set the initial state synchronously (no transition, no paint yet)
+    wrapperEl.style.transition    = 'none';
+    wrapperEl.style.transformOrigin = '50% 50%';
+    wrapperEl.style.transform     = `translate(${dx.toFixed(1)}px,${dy.toFixed(1)}px) scale(${scale.toFixed(4)})`;
+    wrapperEl.style.opacity       = '1';
+
+    // Hide orbit card — it was already behind the overlay but make it invisible
+    // so the identical-position photo wrapper performs an imperceptible handoff
+    winnerEl.style.transition = 'none';
+    winnerEl.style.opacity    = '0';
+
+    // Two rAFs: first ensures layout has been calculated, second triggers transition
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        wrapperEl.style.transition = 'transform 1.5s cubic-bezier(0.16,1,0.3,1), opacity 0.5s ease';
+        wrapperEl.style.transform  = 'translate(0,0) scale(1)';
+        wrapperEl.style.opacity    = '1';
+      });
+    });
+
+    logWheelState({
+      event:   'flip_handoff_start',
+      winnerIdx,
+      cardRect:  `${r.x.toFixed(0)},${r.y.toFixed(0)} ${r.width.toFixed(0)}×${r.height.toFixed(0)}`,
+      scale:     scale.toFixed(4),
+      dx:        dx.toFixed(1),
+      dy:        dy.toFixed(1),
+      vw, vh,
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
@@ -3790,14 +3878,20 @@ export default function IntentPage() {
             // ALWAYS fetch fresh from server — never re-use the profile that caused
             // the boundary (it may still have bad data and would throw again on render,
             // causing the stuck-Continue loop).
-            // Use API_BASE so the request reaches Railway on Vercel (relative URL
-            // hits Vercel's SPA rewrite → 200 HTML, not the actual API response).
-            const ac = new AbortController();
-            const timer = setTimeout(() => ac.abort(), 5000);
-            fetch(`${API_BASE}/api/spin/result`, { credentials: 'include', signal: ac.signal })
-              .then(r => { if (!r.ok) throw new Error(`status ${r.status}`); return r.json(); })
+            // Use apiRequest (not bare fetch) so the Authorization header and
+            // X-Session-Id header are included — bare fetch omits them and returns 401.
+            // apiRequest prepends API_BASE internally, so pass a plain path.
+            const timer = setTimeout(() => {
+              setBoundaryRecovering(false);
+              logWheelState({ event: 'retry_result_fetch_failed', reason: 'timeout' });
+              postWheelDiag('state', { event: 'retry_failed', reason: 'timeout' });
+            }, 8000);
+            apiRequest('GET', '/api/spin/result')
+              .then(r => r.json())
               .then((data: { profile: Profile | null }) => {
                 clearTimeout(timer);
+                logWheelState({ event: 'retry_result_response', hasProfile: !!data?.profile?.userId });
+                postWheelDiag('state', { event: 'retry_response', hasProfile: !!data?.profile?.userId });
                 setBoundaryRecovering(false);
                 const p = data?.profile;
                 if (p?.userId) {
@@ -3806,6 +3900,7 @@ export default function IntentPage() {
                   setSelectedProfile(normaliseProfileForRender(p));
                   setSpinRoomPhase('buttons');
                   setBoundaryKey(k => k + 1);
+                  postWheelDiag('state', { event: 'retry_boundary_remount' });
                 } else {
                   // No persisted result — close SpinRoom, return to Intent wheel
                   setSelectedProfile(null);
@@ -3814,12 +3909,14 @@ export default function IntentPage() {
                   setBoundaryKey(k => k + 1);
                 }
               })
-              .catch(() => {
+              .catch((err: unknown) => {
                 clearTimeout(timer);
                 setBoundaryRecovering(false);
-                // Network error or 5 s timeout — re-enable button so user can retry.
+                // Network error or auth error — re-enable button so user can retry.
                 // Do not close SpinRoom; never trap the user on a blank page.
-                logWheelState({ event: 'retry_result_fetch_failed' });
+                const msg = err instanceof Error ? err.message : String(err);
+                logWheelState({ event: 'retry_result_fetch_failed', error: msg });
+                postWheelDiag('state', { event: 'retry_failed', error: msg });
               });
           }}>
             <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
@@ -3831,14 +3928,23 @@ export default function IntentPage() {
                 animation: "srRevealBg 0.8s ease forwards",
               }} />
 
-              {/* ── Photo — cinematic entrance at pause phase ── */}
-              {/* Mounts only at pause/buttons so srWinnerIn animation plays on entry */}
+              {/* ── Photo — FLIP handoff from orbit card → full-screen ── */}
+              {/* Mounts at pause phase. The pause useLayoutEffect sets an initial FLIP  */}
+              {/* transform (matching the orbit card's viewport rect) before the first   */}
+              {/* paint, then on the next two rAFs applies a CSS transition to scale to  */}
+              {/* full-screen. No visible small-to-large jump. srWinnerIn keyframe       */}
+              {/* animation is intentionally removed; FLIP drives the entrance.          */}
               {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
-                <div style={{
-                  position: "absolute", inset: 0,
-                  animation: "srWinnerIn 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards",
-                  transformOrigin: "center 40%",
-                }}>
+                <div
+                  ref={winnerPhotoWrapperRef}
+                  style={{
+                    position: "absolute", inset: 0,
+                    transformOrigin: "50% 50%",
+                    // Initial transform + opacity applied synchronously in useLayoutEffect
+                    // to prevent flash-of-full-size before the FLIP animates in.
+                    // Do NOT add animation or transition here — the effect controls them.
+                  }}
+                >
                   <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
                 </div>
               )}
