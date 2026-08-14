@@ -35,6 +35,10 @@ import { clearAllArmedSessions } from "@/lib/live-call-sessions";
 function logWheelState(entry: Record<string, unknown>): void {
   console.log('[INTENTION_WHEEL_STATE]', entry);
   pushWheelEntry(entry);
+  // Transport to Railway — skip scale_sample (already POSTed as type='scale')
+  if (entry.event !== 'scale_sample') {
+    postWheelDiag('state', entry);
+  }
 }
 
 // ── Telemetry transport — sends critical events to Railway production logs ────
@@ -44,7 +48,7 @@ function logWheelState(entry: Record<string, unknown>): void {
 //   • Replit dev:    API_BASE = "" (same-origin relative URL)
 // The previous fetch('/api/debug/...') used a relative URL which Vercel's SPA
 // rewrite handled with HTTP 405 — it never reached Railway. This fixes that.
-function postWheelDiag(type: 'boundary' | 'scale' | 'orbit', data: Record<string, unknown>): void {
+function postWheelDiag(type: 'boundary' | 'scale' | 'orbit' | 'state' | 'winner_node', data: Record<string, unknown>): void {
   try {
     fetch(`${API_BASE}/api/debug/intention-wheel-error`, {
       method: 'POST',
@@ -1300,7 +1304,10 @@ export default function IntentPage() {
   const orbitTargetRef  = useRef(0);   // target speed °/s
   const orbitRafRef2    = useRef(0);
   const orbitLastTimeRef = useRef(0);
-  const orbitGlowRef    = useRef<HTMLDivElement>(null);
+  const orbitGlowRef      = useRef<HTMLDivElement>(null);
+  // Ref to the momentum-label <p> so logWinnerNode can read its computed styles
+  // without needing Safari Web Inspector. Attached via ref={momentumTextRef} in JSX.
+  const momentumTextRef   = useRef<HTMLParagraphElement | null>(null);
   const orbitRingRef2   = useRef<HTMLDivElement>(null);  // kept for type compat
   const landingMarkerRef = useRef<HTMLDivElement>(null); // kept for type compat
   const spinPhaseRef = useRef<SpinPhase>('idle');  // readable inside RAF without stale-closure issues
@@ -2053,22 +2060,64 @@ export default function IntentPage() {
       return                      1.100; // hold
     };
 
-    // Helper: log [INTENTION_WHEEL_WINNER_NODE] diagnostics per spec Part 6.
-    // The DOM identifier (slot index + userId) must remain unchanged from
-    // winner_locked through photo_build; any change means DOM-node replacement.
-    const logWinnerNode = (checkpoint: string) => {
+    // Helper: log [INTENTION_WHEEL_WINNER_NODE] diagnostics.
+    // Reads computed geometry + opacity so we can verify via Railway logs whether
+    // the orbit card is visible and whether the text is visible at each checkpoint.
+    // No behaviour changes — instrumentation only.
+    const logWinnerNode = (checkpoint: string, label = '') => {
       const el  = orbitCardRefs.current[frontI];
       const xfm = el?.style.transform ?? '(none)';
       const scaleMatch = xfm.match(/scale\(([\d.]+)\)/);
-      console.log('[INTENTION_WHEEL_WINNER_NODE]', {
+      const elCs  = el ? getComputedStyle(el) : null;
+      const elBrc = el ? el.getBoundingClientRect() : null;
+
+      // Text element state — points to the <p> with ref={momentumTextRef}
+      const txtEl  = momentumTextRef.current;
+      const txtCs  = txtEl ? getComputedStyle(txtEl) : null;
+      const txtBrc = txtEl ? txtEl.getBoundingClientRect() : null;
+      // Walk up to check if any ancestor is display:none / visibility:hidden
+      let ancestorHides = false;
+      let node: HTMLElement | null = txtEl ?? null;
+      while (node && node !== document.body) {
+        const cs = getComputedStyle(node);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') {
+          ancestorHides = true; break;
+        }
+        node = node.parentElement;
+      }
+
+      const payload = {
         checkpoint,
-        userId:      winner.userId,
-        slot:        frontI,
-        reactKey:    frontI, // JSX key={i} where i===frontI
-        transform:   xfm,
-        scale:       scaleMatch ? scaleMatch[1] : '?',
-        isConnected: el?.isConnected ?? false,
-      });
+        // Winner card
+        userId:       winner.userId,
+        slot:         frontI,
+        reactKey:     frontI,
+        transform:    xfm,
+        scale:        scaleMatch ? scaleMatch[1] : '?',
+        isConnected:  el?.isConnected ?? false,
+        width:        elBrc ? elBrc.width.toFixed(1)  : '?',
+        height:       elBrc ? elBrc.height.toFixed(1) : '?',
+        cardOpacity:  el?.style.opacity ?? elCs?.opacity ?? '?',
+        cardZIndex:   el?.style.zIndex  ?? elCs?.zIndex  ?? '?',
+        phase:        spinPhaseRef.current,
+        // Text element
+        textContent:  txtEl?.textContent?.trim() ?? '(null)',
+        textLabel:    label,
+        textExists:   !!(txtEl?.isConnected),
+        textOpacity:  txtCs?.opacity     ?? '?',
+        textDisplay:  txtCs?.display     ?? '?',
+        textVisibility: txtCs?.visibility ?? '?',
+        textZIndex:   txtCs?.zIndex      ?? '?',
+        textRect:     txtBrc
+          ? `${txtBrc.x.toFixed(0)},${txtBrc.y.toFixed(0)} ${txtBrc.width.toFixed(0)}×${txtBrc.height.toFixed(0)}`
+          : '?',
+        ancestorHidesText: ancestorHides,
+      };
+
+      // Client console (Safari Web Inspector)
+      console.log('[INTENTION_WHEEL_WINNER_NODE]', payload);
+      // Railway transport — accessible without a physical device
+      postWheelDiag('winner_node', payload);
     };
 
     type Milestone = { t: number; fn: () => void };
@@ -2077,7 +2126,10 @@ export default function IntentPage() {
       { t: 1800, fn: () => {
         setMomentumLabel('There\u2019s something here\u2026');
         logWheelState({ event: 'text_1', elapsed: 1800 });
-        logWinnerNode('text_1');
+        // logWinnerNode reads DOM BEFORE React re-renders, so textContent is
+        // the PREVIOUS label ('Narrowing down…') — that's intentional; it shows
+        // what was actually visible on screen at this moment.
+        logWinnerNode('text_1', 'There\u2019s something here\u2026');
       }},
       // t=3800: TEXT_2 — "Tonight's connection" + go('momentum')
       // go('momentum') keeps the orbit RAF's early-return guard active while
@@ -2086,17 +2138,20 @@ export default function IntentPage() {
         setMomentumLabel('Tonight\u2019s connection');
         setSpinRoomPhase('momentum');
         logWheelState({ event: 'text_2', elapsed: 3800 });
-        logWinnerNode('text_2');
+        // textContent in DOM is still 'There's something here…' at call time
+        logWinnerNode('text_2', 'Tonight\u2019s connection');
       }},
       // t=6200: TEXT_3 still showing — log only (scale 1.04 → 1.075 building)
       { t: 6200, fn: () => {
         logWheelState({ event: 'text_3', elapsed: 6200 });
-        logWinnerNode('text_3');
+        // textContent should be 'Tonight's connection' — still on screen
+        logWinnerNode('text_3', 'Tonight\u2019s connection');
       }},
       // t=8500: PHOTO_BUILD start — scale reaches 1.04; glow strengthening
       { t: 8500, fn: () => {
         logWheelState({ event: 'photo_build', elapsed: 8500 });
-        logWinnerNode('photo_build');
+        // textContent should still be 'Tonight's connection'
+        logWinnerNode('photo_build', 'Tonight\u2019s connection');
       }},
       // t=10500: PHOTO_HOLD — scale at 1.10; hold; no result mount yet
       { t: 10500, fn: () => {
@@ -3655,14 +3710,18 @@ export default function IntentPage() {
                   <p key="approach" style={{ fontSize: 11, fontStyle: "italic", color: "rgba(255,255,255,0.50)", animation: "srTextIn 0.5s ease forwards" }}>Almost there…</p>
                 )}
                 {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive' || spinRoomPhase === 'momentum') && momentumLabel && (
-                  <p key={momentumLabel} style={{
-                    fontFamily: "'Playfair Display', Georgia, serif",
-                    fontSize: 15, fontStyle: "italic",
-                    color: "rgba(255,255,255,0.75)",
-                    letterSpacing: "0.03em",
-                    animation: "srTextIn 0.6s ease both",
-                    textAlign: "center",
-                  }}>{momentumLabel}</p>
+                  <p
+                    key={momentumLabel}
+                    ref={momentumTextRef}
+                    style={{
+                      fontFamily: "'Playfair Display', Georgia, serif",
+                      fontSize: 15, fontStyle: "italic",
+                      color: "rgba(255,255,255,0.75)",
+                      letterSpacing: "0.03em",
+                      animation: "srTextIn 0.6s ease both",
+                      textAlign: "center",
+                    }}
+                  >{momentumLabel}</p>
                 )}
               </div>
             </div>

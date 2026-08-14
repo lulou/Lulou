@@ -5330,6 +5330,10 @@ export async function registerRoutes(
         console.log('[INTENTION_WHEEL_SCALE]', JSON.stringify({ ...rest, timestamp: ts }));
       } else if (type === 'orbit') {
         console.log('[INTENTION_WHEEL_ORBIT_TRACE]', JSON.stringify({ ...rest, timestamp: ts }));
+      } else if (type === 'state') {
+        console.log('[INTENTION_WHEEL_STATE]', JSON.stringify({ ...rest, timestamp: ts }));
+      } else if (type === 'winner_node') {
+        console.log('[INTENTION_WHEEL_WINNER_NODE]', JSON.stringify({ ...rest, timestamp: ts }));
       } else {
         console.log('[INTENTION_WHEEL_DIAG]', JSON.stringify({ type, ...rest, timestamp: ts }));
       }
