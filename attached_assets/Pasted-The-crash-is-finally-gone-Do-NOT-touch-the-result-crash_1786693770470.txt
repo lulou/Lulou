@@ -1,0 +1,297 @@
+The crash is finally gone. Do NOT touch the result crash fix that is now working.
+
+Now fix ONLY the remaining premium-experience issues.
+
+CURRENT PRODUCTION STATE
+
+Working:
+
+spin completes
+result no longer throws “Something slipped away”
+Send Halo flow can complete
+Still wrong:
+
+wheel jitters again near the end
+tick sound is out of sync with visible card movement
+ticking stops before the wheel actually stops
+selected winner photo still jumps to a new full-screen presentation
+the sequence from winner landing → text → enlargement → result → Send Halo feels abrupt and cheap instead of premium
+DO NOT:
+
+change candidate selection
+change spin entitlement
+change Halo logic
+change auth
+change messaging
+change calls
+change settings
+change result crash fix
+change API response shapes
+change database schema
+STRICT FILE SCOPE:
+Prefer only client/src/pages/intent.tsx.
+Use existing wheel debug helper only if needed.
+
+PART 1 — FINAL DECELERATION MUST BE SMOOTH AGAIN
+
+The wheel jitter near the end must be fixed without changing winner selection.
+
+At the start of final approach:
+
+freeze candidate array
+freeze winner index
+freeze winner userId
+capture live visual orbit angle once
+capture exact winner target angle once
+stop normal velocity integration completely
+From that point onward, ONE RAF owns orbit movement.
+
+Use one continuous interpolation:
+
+currentAngle → exactTargetAngle
+
+Do not:
+
+recalculate target mid-approach
+add a second correction
+snap after approach
+switch back to normal velocity
+remount cards
+change winner slot
+add an extra rotation
+At completion:
+
+final frame must already equal target angle
+set WINNER_LOCKED
+orbit angle may never change again
+Log if any write occurs afterward:
+[INTENTION_WHEEL_BUG] orbit_changed_after_lock
+
+PART 2 — TICK SOUND MUST BE DRIVEN BY THE VISUAL WHEEL
+
+The tick sound must use the SAME visual orbit angle that drives card positions.
+
+Remove timer/phase-driven ticking.
+
+Use actual angular crossings.
+
+cardSpacing = 2π / candidateCount
+
+Track:
+previousVisualAngle
+currentVisualAngle
+
+Every time the orbit crosses another card-spacing boundary/front index:
+
+play ONE tick.
+
+Required behaviour:
+
+fast visual spin = fast ticks
+slowing wheel = naturally slowing ticks
+final approach = ticks continue while cards are still moving
+ticking stops EXACTLY when WINNER_LOCKED happens
+never stops early
+never continues after wheel stops
+No independent tick timer.
+
+No setInterval for wheel sound.
+
+Prevent duplicate ticks if one RAF frame skips across multiple boundaries:
+
+either play the correct number with a sensible cap
+or advance the tick boundary state safely
+The visual orbit angle is the single source of truth.
+
+PART 3 — KEEP THE WINNING PHOTO CONTINUOUS
+
+The current visible problem is:
+small winner card
+→ sudden full-size photo
+
+That is not acceptable.
+
+The same winning visual must transform smoothly from the wheel-card geometry into the final hero photo geometry.
+
+Use a proper FLIP-style transition.
+
+At WINNER_LOCKED:
+
+capture winner card rect:
+
+left
+top
+width
+height
+Calculate target final hero rect:
+
+final left
+final top
+final width
+final height
+Then animate continuously over the cinematic reveal.
+
+Do not suddenly mount a large image on top.
+
+Preferred approach:
+
+keep original winner node visible during transformation
+create final result container hidden/invisible
+measure target rect
+animate winner node from start rect to target rect
+when both geometries are pixel-identical, swap ownership invisibly
+then reveal result content
+No visible handoff.
+
+PART 4 — PREMIUM CINEMATIC TIMELINE
+
+After WINNER_LOCKED:
+
+0–1800ms
+
+winner stays at wheel-card size
+no enlargement yet
+side cards remain faint
+show:
+“Narrowing down…”
+1800–3800ms
+
+show:
+“There’s something here…”
+side cards fade gently
+winner gets subtle glow
+winner may begin extremely slight growth
+3800–6200ms
+
+show:
+“Tonight’s connection”
+hold this text clearly
+do NOT jump to large photo
+side cards disappear completely
+6200–9000ms
+
+begin the real card-to-hero transformation
+slowly enlarge winner from wheel size toward final hero size
+smooth translate + scale
+slow glow build
+“Tonight’s connection” can remain for first half of this motion, then gently fade
+9000–10500ms
+
+winner reaches final hero geometry
+hold image
+no result controls yet
+10500–12000ms
+
+fade in:
+
+name
+age/location
+compatibility insight
+Send Halo / action buttons
+The user should feel:
+spin
+→ suspense
+→ recognition
+→ reveal
+→ action
+
+Not:
+spin
+→ sudden giant photo
+→ buttons
+
+PART 5 — RESULT CONTENT MUST FADE IN AFTER THE PHOTO SETTLES
+
+Do not mount all result UI abruptly.
+
+After hero photo reaches final geometry:
+
+Stage 1:
+
+name / age
+Stage 2:
+
+compatibility insight
+Stage 3:
+
+action buttons
+Use short staggered fades around 250–350ms apart.
+
+Do not alter the result data itself.
+
+PART 6 — DO NOT TOUCH THE CRASH FIX
+
+The current production error is gone.
+
+Preserve:
+
+the renderText fix
+result normalization
+Retry auth fix
+API_BASE usage
+error-boundary hardening
+Do not revert or refactor these unless absolutely required.
+
+PART 7 — VERIFY ONE OWNER PER PHASE
+
+Create a transform ownership map:
+
+SPINNING:
+owner = orbit RAF
+
+FINAL_APPROACH:
+owner = approach RAF
+
+WINNER_LOCKED:
+owner = none for orbit movement
+
+CARD_TO_HERO:
+owner = reveal FLIP RAF
+
+RESULT_VISIBLE:
+owner = normal layout
+
+There must never be two transform owners writing the same winner node at once.
+
+PART 8 — REAL IPHONE PASS
+
+Do not report PASS from code inspection.
+
+PASS requires:
+
+normal wheel spin is smooth
+final approach has no jitter
+no second jump-spin
+tick sound matches actual cards passing
+ticks slow naturally
+ticks continue until visual motion ends
+ticks stop exactly at WINNER_LOCKED
+winner lands cleanly
+reveal words appear in sequence
+“Tonight’s connection” is held clearly
+winner photo enlarges gradually
+no small-to-full-screen jump
+same visual transforms into hero
+hero reaches full geometry smoothly
+result text/buttons fade in afterward
+crash does not return
+Send Halo still works
+no unrelated Lulou functionality changes
+FINAL REPORT
+
+Report only:
+
+exact end-jitter root cause
+exact tick-desync root cause
+exact winner-photo jump root cause
+exact animation ownership map
+files changed
+confirmation crash fix preserved
+commit hash
+origin/main hash
+Vercel deployed hash
+real iPhone PASS/FAIL
+Do not redesign pre-spin.
+Do not change business logic.
+Do not touch unrelated parts of Lulou.
+Make the post-spin sequence feel premium and continuous.

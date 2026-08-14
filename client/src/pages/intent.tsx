@@ -1281,7 +1281,10 @@ export default function IntentPage() {
     renderText(dnaReasonsData?.reasons?.[0] as unknown) || t("spin_room_compat_fallback");
 
   // SpinRoom cinematic phase — drives what's visible at each moment
-  type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'momentum' | 'reveal' | 'pause' | 'buttons';
+  // 'growing' = orbit winner card is FLIP-animating from card size to full-screen hero.
+  // 'pause' is removed — the old quote screen is gone; 'growing' is the bridge between
+  // 'momentum' (card stays small) and 'reveal' (hero fills screen, result overlay mounts).
+  type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'momentum' | 'growing' | 'reveal' | 'buttons';
   const [spinRoomPhase, setSpinRoomPhase] = useState<SpinPhase>('idle');
 
   // ── Orbit carousel: 5 stable card slots rotating on an ellipse ─────────────
@@ -1312,10 +1315,9 @@ export default function IntentPage() {
   // Ref to the momentum-label <p> so logWinnerNode can read its computed styles
   // without needing Safari Web Inspector. Attached via ref={momentumTextRef} in JSX.
   const momentumTextRef     = useRef<HTMLParagraphElement | null>(null);
-  // Ref to the full-size result photo wrapper so the 'pause' FLIP useLayoutEffect
-  // can apply an initial transform that matches the orbit card's last visible rect,
-  // then animate to full-screen — no visible small-to-large replacement.
-  const winnerPhotoWrapperRef = useRef<HTMLDivElement | null>(null);
+  // Tracks the orbit angle at the previous RAF frame so the orbit tick-sound detector
+  // can compute how many card-spacing boundaries were crossed in one frame.
+  const prevOrbitAngleRef   = useRef(0);
   const orbitRingRef2   = useRef<HTMLDivElement>(null);  // kept for type compat
   const landingMarkerRef = useRef<HTMLDivElement>(null); // kept for type compat
   const spinPhaseRef = useRef<SpinPhase>('idle');  // readable inside RAF without stale-closure issues
@@ -1650,7 +1652,9 @@ export default function IntentPage() {
     setOrbitCardIds(Array.from({ length: ORBIT_N }, (_, i) => spinItems[i % N].userId));
 
     // Card 0 starts at the front (sin(angle + 0) = 1 → angle = π/2).
-    orbitAngleRef2.current = Math.PI / 2;
+    orbitAngleRef2.current   = Math.PI / 2;
+    prevOrbitAngleRef.current = Math.PI / 2; // tick detector baseline
+    resetTick(Math.PI / 2);                  // sync tick tracker to orbit start angle
 
     // Apply initial transforms instantly (no animation).
     // IMPORTANT: these DOM mutations happen here in the useEffect, NOT in JSX style,
@@ -1716,9 +1720,9 @@ export default function IntentPage() {
           // cubic-ease-out d/dt at t=0 = 3 * corrA / (dur_ms / 1000)
           // → dur_ms = 3000 * corrA / currentSpeed
           const currentSpeed = Math.max(0.05, orbitSpeedRef2.current); // rad/s
-          const dynamicDur   = corrA < 0.05
-            ? 50   // winner already at front — micro-snap, fires pullforward immediately
-            : Math.max(1500, Math.min(5000, Math.round(3000 * corrA / currentSpeed)));
+          // Minimum 400 ms so even a near-front winner decelerates visibly rather
+          // than snapping — eliminated the old corrA<0.05→50ms micro-snap path.
+          const dynamicDur = Math.max(400, Math.min(5000, Math.round(3000 * corrA / currentSpeed)));
           orbitApproachDurationRef.current = dynamicDur;
           const targetA = orbitApproachStartAngleRef.current + corrA;
           logWheelState({
@@ -1749,6 +1753,17 @@ export default function IntentPage() {
         const targetAngleA = orbitApproachStartAngleRef.current + orbitApproachCorrectionRef.current;
         const approachAngle = orbitApproachStartAngleRef.current +
                               orbitApproachCorrectionRef.current * easeApproach;
+        // Tick sound: detect card-spacing crossings during approach deceleration.
+        // Call tickFromAngle once per crossed boundary (cap at 3 per frame).
+        {
+          const _ts = (2 * Math.PI) / N;
+          const _pb = Math.floor(prevOrbitAngleRef.current / _ts);
+          const _cb = Math.floor(approachAngle / _ts);
+          for (let tc = 0; tc < Math.min(_cb - _pb, 3); tc++) {
+            tickFromAngle((_pb + tc + 1) * _ts, _ts);
+          }
+          prevOrbitAngleRef.current = approachAngle;
+        }
         orbitAngleRef2.current = approachAngle;
 
         let frontI2 = 0, frontDepth2 = -1;
@@ -1776,11 +1791,11 @@ export default function IntentPage() {
             `0 0 ${Math.round(14 + frac2 * 44)}px ${Math.round(8 + frac2 * 22)}px rgba(212,92,116,${(0.08 + frac2 * 0.32).toFixed(2)})`;
         }
 
-        // ── Convergence gate: do NOT advance to pullforward until the angular
-        // error is < 0.01 rad.  At tApproach=1, approachAngle==targetAngle exactly
-        // (floating-point delta ≈ 0), so this also fires when the duration ends.
-        const angularError = Math.abs(targetAngleA - approachAngle);
-        if (angularError < 0.01) {
+        // ── Convergence gate: fire pullforward when the approach duration has
+        // fully elapsed (tApproach ≥ 1.0).  This replaces the old angularError<0.01
+        // threshold which fired early when the winner was already near front-centre
+        // (small corrA → error shrank below threshold mid-animation → jitter snap).
+        if (tApproach >= 1.0) {
           // Snap to exact target, then hand off to pullforward.
           orbitAngleRef2.current = targetAngleA;
           // Apply exact final position to winner card
@@ -1793,14 +1808,14 @@ export default function IntentPage() {
           }
           logWheelState({
             event: 'approach_complete',
-            angularError: angularError.toFixed(6),
+            tApproach: tApproach.toFixed(6),
             winnerIndex: wIdxFinal,
             orbitAngle: targetAngleA.toFixed(4),
           });
           postWheelDiag('orbit', {
             event: 'approach_complete',
             currentAngle: targetAngleA.toFixed(4),
-            angularError: angularError.toFixed(6),
+            tApproach: tApproach.toFixed(6),
             winnerLocked: false,
           });
           // Fire pullforward — pullforward useLayoutEffect drives all subsequent timing.
@@ -1815,8 +1830,10 @@ export default function IntentPage() {
 
       // Pause orbit when pullforward/reveal/etc. own the DOM.
       // Returning without rescheduling stops the RAF loop intentionally.
+      // 'growing' is included: the CSS FLIP transition drives the winner card during
+      // the growing phase and the orbit RAF must not overwrite its transform.
       if (phase === 'pullforward' || phase === 'arrive' || phase === 'momentum' ||
-          phase === 'reveal'      || phase === 'pause'  || phase === 'buttons') return;
+          phase === 'growing'     || phase === 'reveal' || phase === 'buttons') return;
 
       // Smooth speed toward target
       const tgt  = orbitTargetRef.current;
@@ -1839,8 +1856,19 @@ export default function IntentPage() {
         // Hard stop — do NOT write to orbitAngle after WINNER_LOCKED.
         return;
       }
+      const _prevAngle = orbitAngleRef2.current;
       orbitAngleRef2.current += orbitSpeedRef2.current * dt;
       const angle = orbitAngleRef2.current;
+      // Tick sound: play once per card-spacing boundary crossed (angle-driven, not timer).
+      {
+        const _ts = (2 * Math.PI) / N;
+        const _pb = Math.floor(_prevAngle / _ts);
+        const _cb = Math.floor(angle      / _ts);
+        for (let tc = 0; tc < Math.min(_cb - _pb, 3); tc++) {
+          tickFromAngle((_pb + tc + 1) * _ts, _ts);
+        }
+        prevOrbitAngleRef.current = angle;
+      }
 
       // Update all 5 card DOM elements in one batch.
       // transform/opacity/filter/zIndex are NOT in the JSX style prop so React
@@ -2025,48 +2053,38 @@ export default function IntentPage() {
     }
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
 
-    // ── Winner-reveal RAF — sole owner of winner card transform 0–11500 ms ──────
+    // ── Winner-reveal RAF — sole owner of winner card transform 0–9000 ms ──────
     //
-    // This RAF is completely separate from the orbit RAF.  It does NOT touch
-    // orbitAngle or orbit velocity — those have already stopped.
+    // CINEMATIC TIMELINE:
+    //   0–1800 ms    scale 1.000      hold — "Narrowing down…"
+    //   1800–3800    scale 1.000→1.010 subtle warmth — "There's something here…"
+    //   3800–6200    scale 1.010→1.020 hold — "Tonight's connection"
+    //   6200 ms      ── GROWING starts: CSS FLIP transition grows winner card
+    //                   from card-size to full-viewport hero (2800 ms transition)
+    //   7600 ms      text cleared (setMomentumLabel(''))
+    //   9000 ms      ── RESULT_READY: orbit card fills screen; result overlay mounts
+    //                   ('reveal') with selectedProfile; 'buttons' fires +1500 ms later
     //
-    // THE SAME ORBIT CARD DOM NODE is the only winner photo on screen during this
-    // entire sequence.  The result UI (IntentResultBoundary / selectedProfile) must
-    // NOT mount before t=11500 ms — see RESULT_READY milestone below.
+    // After t=6200 ms the per-frame transform writes stop (flipStarted=true);
+    // the CSS transition on the orbit card drives the remainder.
     //
-    // Scale (ease-out quadratic, RAF sets transform directly — no CSS transition):
-    //   0–1800 ms     → 1.000                (hold; "Narrowing down…")
-    //   1800–3800 ms  → 1.000 … 1.015        ("There's something here…")
-    //   3800–6200 ms  → 1.015 … 1.040        ("Tonight's connection")
-    //   6200–8500 ms  → 1.040 … 1.075        (keep "Tonight's connection"; glow builds)
-    //   8500–10500 ms → 1.075 … 1.100        (PHOTO_BUILD; glow peaks)
-    //  10500–11500 ms → hold at 1.100        (PHOTO_HOLD; no result yet)
-    //
-    // Loser-card opacity: fade from approach-residual → 0 over first 1800 ms
-    // Card + orb glow:    dim → bright over 0–10500 ms
-    //
-    // Milestones (text labels — fired once; result mounts ONLY at RESULT_READY):
-    //   t =  1800: "There's something here…"       [TEXT_1]
-    //   t =  3800: "Tonight's connection"           [TEXT_2] + go('momentum')
-    //   t =  6200: log only                         [TEXT_3 still visible]
-    //   t =  8500: log only                         [PHOTO_BUILD start]
-    //   t = 10500: log only                         [PHOTO_HOLD start]
-    //   t = 11500: RESULT_READY — mount result UI   [orbit card hidden by overlay]
-    //              pause fires +2300 ms after reveal confirms
-    //              buttons fires +5300 ms after reveal confirms
+    // Loser-card opacity: fade from approach-residual → 0 over first 1800 ms.
     winnerMomentStartRef.current = performance.now();
 
     // Ease-out quadratic: fast start, decelerates to target
     const _eo = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 2;
 
+    // Scale only runs 0–6200 ms; after that flipStarted stops RAF writes.
     const _scale = (elapsed: number): number => {
       if (elapsed < 1800)  return 1.000;
-      if (elapsed < 3800)  return 1.000 + _eo((elapsed - 1800)  / 2000) * 0.015;
-      if (elapsed < 6200)  return 1.015 + _eo((elapsed - 3800)  / 2400) * 0.025;
-      if (elapsed < 8500)  return 1.040 + _eo((elapsed - 6200)  / 2300) * 0.035;
-      if (elapsed < 10500) return 1.075 + _eo((elapsed - 8500)  / 2000) * 0.025;
-      return                      1.100; // hold
+      if (elapsed < 3800)  return 1.000 + _eo((elapsed - 1800) / 2000) * 0.010;
+      if (elapsed < 6200)  return 1.010 + _eo((elapsed - 3800) / 2400) * 0.010;
+      return                      1.020; // hold until FLIP takes over
     };
+
+    // flipStarted: set true at t=6200 ms to stop per-frame RAF scale/glow writes
+    // so the CSS FLIP transition on the winner card is not overridden.
+    let flipStarted = false;
 
     // Helper: log [INTENTION_WHEEL_WINNER_NODE] diagnostics.
     // Reads computed geometry + opacity so we can verify via Railway logs whether
@@ -2130,48 +2148,86 @@ export default function IntentPage() {
 
     type Milestone = { t: number; fn: () => void };
     const milestones: Milestone[] = [
-      // t=1800: TEXT_1 — "There's something here…"
+      // t=1800: "There's something here…"
       { t: 1800, fn: () => {
         setMomentumLabel('There\u2019s something here\u2026');
         logWheelState({ event: 'text_1', elapsed: 1800 });
-        // logWinnerNode reads DOM BEFORE React re-renders, so textContent is
-        // the PREVIOUS label ('Narrowing down…') — that's intentional; it shows
-        // what was actually visible on screen at this moment.
         logWinnerNode('text_1', 'There\u2019s something here\u2026');
       }},
-      // t=3800: TEXT_2 — "Tonight's connection" + go('momentum')
-      // go('momentum') keeps the orbit RAF's early-return guard active while
-      // freeing spinRoomPhase for the text-display JSX check.
+      // t=3800: "Tonight's connection" + go('momentum')
+      // 'momentum' keeps the orbit RAF early-return guard active.
       { t: 3800, fn: () => {
         setMomentumLabel('Tonight\u2019s connection');
         setSpinRoomPhase('momentum');
         logWheelState({ event: 'text_2', elapsed: 3800 });
-        // textContent in DOM is still 'There's something here…' at call time
         logWinnerNode('text_2', 'Tonight\u2019s connection');
       }},
-      // t=6200: TEXT_3 still showing — log only (scale 1.04 → 1.075 building)
+      // t=6200: GROWING — stop per-frame scale writes; start CSS FLIP transition
+      // that grows the orbit winner card from its current card-sized rect to fill
+      // the full viewport over 2800 ms (ends at t=9000).
       { t: 6200, fn: () => {
-        logWheelState({ event: 'text_3', elapsed: 6200 });
-        // textContent should be 'Tonight's connection' — still on screen
-        logWinnerNode('text_3', 'Tonight\u2019s connection');
+        flipStarted = true; // stops per-frame RAF transform/shadow writes
+        setSpinRoomPhase('growing');
+        logWheelState({ event: 'growing_start', elapsed: 6200 });
+        logWinnerNode('growing_start', 'Tonight\u2019s connection');
+
+        if (!winnerEl) return;
+        const cardRect  = winnerEl.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const cardCx   = cardRect.left + cardRect.width  / 2;
+        const cardCy   = cardRect.top  + cardRect.height / 2;
+        // Scale to fill the viewport with no gaps
+        const heroScale = Math.max(vw / cardRect.width, vh / cardRect.height);
+        // Extra translate to align card centre with viewport centre
+        const dx = vw / 2 - cardCx;
+        const dy = vh / 2 - cardCy;
+
+        logWheelState({
+          event: 'flip_start',
+          cardRect: `${cardRect.x.toFixed(0)},${cardRect.y.toFixed(0)} ${cardRect.width.toFixed(0)}x${cardRect.height.toFixed(0)}`,
+          heroScale: heroScale.toFixed(4), dx: dx.toFixed(1), dy: dy.toFixed(1), vw, vh,
+        });
+        postWheelDiag('state', {
+          event: 'flip_start', heroScale: heroScale.toFixed(4),
+          dx: dx.toFixed(1), dy: dy.toFixed(1),
+        });
+
+        // Lift winner card above all other orbit cards
+        winnerEl.style.zIndex = '90';
+
+        // Two nested rAFs flush the style engine so the CURRENT transform is
+        // painted as the starting keyframe before the transition fires.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!winnerEl) return;
+            winnerEl.style.transition = [
+              'transform 2.8s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              'border-radius 2.8s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+              'box-shadow 1.0s ease',
+            ].join(', ');
+            winnerEl.style.borderRadius = '0px';
+            winnerEl.style.boxShadow    = 'none';
+            // Growing transform: orbit-card anchor stays at left/top 50% of its
+            // container; translate(-50%,-50%) centres it there; we add dx/dy to
+            // shift the card centre to the viewport centre, then scale to hero size.
+            winnerEl.style.transform =
+              `translate(calc(-50% + ${dx.toFixed(1)}px), calc(-50% + ${dy.toFixed(1)}px)) scale(${heroScale.toFixed(4)})`;
+          });
+        });
       }},
-      // t=8500: PHOTO_BUILD start — scale reaches 1.04; glow strengthening
-      { t: 8500, fn: () => {
-        logWheelState({ event: 'photo_build', elapsed: 8500 });
-        // textContent should still be 'Tonight's connection'
-        logWinnerNode('photo_build', 'Tonight\u2019s connection');
+      // t=7600: Text fades out (midway through the FLIP grow)
+      { t: 7600, fn: () => {
+        setMomentumLabel('');
+        logWheelState({ event: 'text_fade_out', elapsed: 7600 });
       }},
-      // t=10500: PHOTO_HOLD — scale at 1.10; hold; no result mount yet
-      { t: 10500, fn: () => {
-        logWheelState({ event: 'photo_hold', elapsed: 10500 });
-      }},
-      // t=11500: RESULT_READY — all guards must pass before result UI mounts.
-      // Per spec Part 7: WINNER_LOCKED ∧ elapsed≥11500 ∧ persist succeeded
-      //                  ∧ selectedProfile ∧ userId match ∧ fields valid.
-      // pause fires +2300 ms after reveal confirms; buttons fires +5300 ms.
-      { t: 11500, fn: () => {
-        // Retry up to 15 × 200 ms (3 s extra) if persist hasn't confirmed yet.
-        // After 15 attempts proceed anyway — never block the user indefinitely.
+      // t=9000: RESULT_READY — orbit card fills viewport; mount result overlay.
+      // Retry up to 15 × 200 ms if persist hasn't confirmed yet; after 15
+      // attempts proceed anyway (never block the user indefinitely).
+      { t: 9000, fn: () => {
+        logWheelState({ event: 'result_start', elapsed: 9000 });
+        logWinnerNode('result_start', '');
+
         const revealAttempt = (attempt: number) => {
           if (!saveSpinSucceededRef.current && attempt < 15) {
             logWheelState({ event: 'result_waiting_for_persist', attempt });
@@ -2184,51 +2240,50 @@ export default function IntentPage() {
             setShowSpinRoom(false);
             return;
           }
-          // Normalise ALL directly-rendered fields (firstName, location, arrays)
-          // before setting state — prevents React error #31.
+          // Normalise ALL directly-rendered fields — prevents React error #31.
           const normProfile = normaliseProfileForRender(profileNow);
           logWheelState({
             event: 'result_ready',
             selectedProfileUserId: profileNow.userId,
-            pendingWinnerUserId:   profileNow.userId,
             saveSucceeded:         saveSpinSucceededRef.current,
           });
           logWinnerNode('result_ready');
           setSelectedIndex(pendingWinnerRef.current?.index ?? frontI);
           setSelectedProfile(normProfile);
           setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
-          // Mount the result overlay — orbit card is now hidden behind it.
+          // Mount result overlay with photo (imperceptible handoff: same image,
+          // same screen position as the now-full-size orbit card).
           setSpinRoomPhase('reveal');
           if (!muted) playChime();
           try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
-          // Schedule subsequent phase transitions; no more RAF milestones needed.
-          setTimeout(() => setSpinRoomPhase('pause'),   2300);
+          // Profile text + buttons fade in 1500 ms after the overlay mounts.
           setTimeout(() => {
             setSpinRoomPhase('buttons');
             console.log('[WHEEL] BUTTONS_VISIBLE');
-          }, 5300);
+          }, 1500);
         };
         revealAttempt(0);
       }},
     ];
 
     let mI = 0;
-    let _scaleLogBucket = -1; // tracks last 500ms bucket we logged a scale sample
+    let _scaleLogBucket = -1;
     const momentumTick = (now: number) => {
       const elapsed = now - winnerMomentStartRef.current;
 
-      // ── Per-frame interpolation — RAF exclusively owns these DOM properties ──
-      if (winnerEl) {
+      // ── Per-frame DOM writes — stop once CSS FLIP takes over at t=6200 ms ──
+      if (!flipStarted && winnerEl) {
         const computedScale = _scale(elapsed);
-        // Scale: continuous ease-out quadratic; no CSS transition → no snap-jumps
+        // Scale: continuous ease-out quadratic; no CSS transition → no snap-jumps.
         winnerEl.style.transform = `translate(-50%, -50%) scale(${computedScale.toFixed(4)})`;
-        // Card glow: dim (t=0) → bright (t=10500, when scale peaks)
-        const gt  = Math.min(1, elapsed / 10500);
-        const gr  = Math.round(18 + gt * 62);
-        const gsp = Math.round(4  + gt * 20);
-        winnerEl.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.44).toFixed(3)}), 0 6px ${Math.round(24 + gt * 16)}px rgba(0,0,0,${(0.50 + gt * 0.18).toFixed(3)})`;
-        // ── Scale diagnostic: log every 500 ms so we can compare computedScale
-        // against actualComputedTransform to find any override ─────────────────
+        // Card glow builds gently until the FLIP starts (max at t=6200).
+        const gt  = Math.min(1, elapsed / 6200);
+        const gr  = Math.round(18 + gt * 28);
+        const gsp = Math.round(4  + gt * 8);
+        winnerEl.style.boxShadow =
+          `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.22).toFixed(3)}), ` +
+          `0 6px ${Math.round(24 + gt * 8)}px rgba(0,0,0,${(0.50 + gt * 0.10).toFixed(3)})`;
+        // Scale diagnostic every 500 ms (compare RAF value vs actual CSS)
         const scaleBucket = Math.floor(elapsed / 500);
         if (scaleBucket > _scaleLogBucket) {
           _scaleLogBucket = scaleBucket;
@@ -2244,7 +2299,6 @@ export default function IntentPage() {
             computedScale: computedScale.toFixed(4),
             actualComputedTransform: actualT,
           });
-          // Transport scale sample to Railway — console.log is device-only.
           postWheelDiag('scale', {
             elapsed: Math.round(elapsed),
             computedScale: computedScale.toFixed(4),
@@ -2254,15 +2308,16 @@ export default function IntentPage() {
           });
         }
       }
-      // Ambient orb glow
-      if (orbitGlowRef.current) {
-        const gt  = Math.min(1, elapsed / 10500);
-        const gr  = Math.round(18 + gt * 62);
-        const gsp = Math.round(4  + gt * 24);
-        orbitGlowRef.current.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.38).toFixed(3)}), 0 0 ${gr * 2}px ${gsp * 2}px rgba(212,92,116,${(0.0 + gt * 0.20).toFixed(3)})`;
+      // Ambient orb glow (only while RAF owns the card geometry)
+      if (!flipStarted && orbitGlowRef.current) {
+        const gt  = Math.min(1, elapsed / 6200);
+        const gr  = Math.round(18 + gt * 42);
+        const gsp = Math.round(4  + gt * 16);
+        orbitGlowRef.current.style.boxShadow =
+          `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.30).toFixed(3)}), ` +
+          `0 0 ${gr * 2}px ${gsp * 2}px rgba(212,92,116,${(0.0 + gt * 0.15).toFixed(3)})`;
       }
-      // Loser cards: fade from approach-residual opacity → 0 over first 1500 ms.
-      // loserStartAlpha[i] was captured from the DOM at pullforward start.
+      // Loser cards: fade from approach-residual opacity → 0 over first 1800 ms.
       const loserT = elapsed < 1800 ? Math.max(0, 1 - elapsed / 1800) : 0;
       for (let i = 0; i < ORBIT_N; i++) {
         if (i === frontI) continue;
@@ -2274,16 +2329,15 @@ export default function IntentPage() {
         }
       }
 
-      // ── Milestone triggers (text + phase changes) ─────────────────────────
+      // ── Milestone triggers ─────────────────────────────────────────────────
       while (mI < milestones.length && elapsed >= milestones[mI].t) {
         milestones[mI].fn();
         mI++;
       }
       if (mI < milestones.length) {
-        // Store handle in orbitRafRef2 so the orbit-RAF useEffect cleanup cancels
-        // it when showSpinRoom = false (user closes SpinRoom mid-momentum).
         orbitRafRef2.current = requestAnimationFrame(momentumTick);
       }
+      // RAF naturally stops after the last milestone (t=9000) fires.
     };
     orbitRafRef2.current = requestAnimationFrame(momentumTick);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2296,85 +2350,10 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
-  // ── Pause: FLIP handoff from orbit winner card → full-screen result photo ──
-  // The orbit carousel parent fades to opacity:0 at 'reveal' (1.4 s transition).
-  // By the time 'pause' fires (+2 300 ms after 'reveal'), the orbit card is fully
-  // invisible — but getBoundingClientRect() still returns its real viewport rect
-  // because the card is NOT removed from the DOM.
-  //
-  // We apply an initial FLIP transform to the full-size photo wrapper that matches
-  // the orbit card's last measured position and size.  On the second rAF the
-  // transition target (inset:0, scale:1) is applied, so the photo grows from the
-  // orbit card's footprint to full-screen instead of appearing at full size.
-  //
-  // The orbit card is simultaneously hidden (opacity:0) so there is no double-image
-  // during the transition.
-  useLayoutEffect(() => {
-    if (spinRoomPhase !== 'pause') return;
-
-    const wrapperEl = winnerPhotoWrapperRef.current;
-    if (!wrapperEl) return;
-
-    const winnerIdx = pendingWinnerRef.current?.index ?? 0;
-    const winnerEl  = orbitCardRefs.current[winnerIdx];
-
-    if (!winnerEl) {
-      // Orbit card not available — no FLIP, let photo appear naturally
-      wrapperEl.style.transition = '';
-      wrapperEl.style.transform  = '';
-      wrapperEl.style.opacity    = '1';
-      return;
-    }
-
-    // Capture the orbit card's exact viewport rect (transform-inclusive)
-    const r  = winnerEl.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    // Compute the scale factors.  The photo fills the viewport (inset:0), so the
-    // initial scale to match the orbit card is card_dimension / viewport_dimension.
-    // Use the larger scale axis so the orbit card image fills the photo without gaps.
-    const scaleX = r.width  / vw;
-    const scaleY = r.height / vh;
-    const scale  = Math.max(scaleX, scaleY);
-
-    // Translate so the photo's center aligns with the orbit card's center
-    const cardCx = r.left + r.width  / 2;
-    const cardCy = r.top  + r.height / 2;
-    const dx = cardCx - vw / 2;
-    const dy = cardCy - vh / 2;
-
-    // Set the initial state synchronously (no transition, no paint yet)
-    wrapperEl.style.transition    = 'none';
-    wrapperEl.style.transformOrigin = '50% 50%';
-    wrapperEl.style.transform     = `translate(${dx.toFixed(1)}px,${dy.toFixed(1)}px) scale(${scale.toFixed(4)})`;
-    wrapperEl.style.opacity       = '1';
-
-    // Hide orbit card — it was already behind the overlay but make it invisible
-    // so the identical-position photo wrapper performs an imperceptible handoff
-    winnerEl.style.transition = 'none';
-    winnerEl.style.opacity    = '0';
-
-    // Two rAFs: first ensures layout has been calculated, second triggers transition
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        wrapperEl.style.transition = 'transform 1.5s cubic-bezier(0.16,1,0.3,1), opacity 0.5s ease';
-        wrapperEl.style.transform  = 'translate(0,0) scale(1)';
-        wrapperEl.style.opacity    = '1';
-      });
-    });
-
-    logWheelState({
-      event:   'flip_handoff_start',
-      winnerIdx,
-      cardRect:  `${r.x.toFixed(0)},${r.y.toFixed(0)} ${r.width.toFixed(0)}×${r.height.toFixed(0)}`,
-      scale:     scale.toFixed(4),
-      dx:        dx.toFixed(1),
-      dy:        dy.toFixed(1),
-      vw, vh,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spinRoomPhase]);
+  // 'pause' phase removed — the FLIP from orbit card to hero is now driven by the
+  // momentum RAF at t=6200 ms using a CSS transition directly on the winner orbit
+  // card element.  The separate winnerPhotoWrapperRef / 'pause' useLayoutEffect
+  // handoff is no longer needed.
 
   useEffect(() => { return () => cancelAnimationFrame(animFrame.current); }, []);
   useEffect(() => {
@@ -3664,9 +3643,12 @@ export default function IntentPage() {
             position: "absolute", inset: 0,
             display: "flex", flexDirection: "column",
             alignItems: "center",
-            opacity: (spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') ? 0 : 1,
+            // Carousel fades to 0 at 'reveal'/'buttons' — by then the result overlay's
+            // ProfilePhoto (same image, same position) is the visible hero.
+            // During 'growing' the orbit card IS the hero; carousel must stay opaque.
+            opacity: (spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') ? 0 : 1,
             transition: "opacity 1.4s cubic-bezier(0.4,0,0.2,1)",
-            pointerEvents: (spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') ? "none" : "auto",
+            pointerEvents: (spinRoomPhase === 'growing' || spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') ? "none" : "auto",
           }}>
             {/* ── Build marker — always visible during spin to confirm live build ── */}
             {/* Shows commit, phase, and winner IDs so any device can self-report */}
@@ -3797,7 +3779,7 @@ export default function IntentPage() {
                 {spinRoomPhase === 'approach' && (
                   <p key="approach" style={{ fontSize: 11, fontStyle: "italic", color: "rgba(255,255,255,0.50)", animation: "srTextIn 0.5s ease forwards" }}>Almost there…</p>
                 )}
-                {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive' || spinRoomPhase === 'momentum') && momentumLabel && (
+                {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive' || spinRoomPhase === 'momentum' || spinRoomPhase === 'growing') && momentumLabel && (
                   <p
                     key={momentumLabel}
                     ref={momentumTextRef}
@@ -3843,8 +3825,11 @@ export default function IntentPage() {
             >🌙</button>
           </div>
 
-          {/* ── REVEAL STAGE — 3 phases: quote → photo → introduction ── */}
-          {(spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
+          {/* ── REVEAL STAGE — orbit card fills screen, then result overlay mounts ── */}
+          {/* 'growing': orbit card is FLIP-animating (no overlay yet)               */}
+          {/* 'reveal' : result overlay mounts; ProfilePhoto covers orbit card        */}
+          {/* 'buttons': profile text + CTAs fade in (1.5 s after reveal)            */}
+          {(spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') && selectedProfile && (
           <IntentResultBoundary
             key={boundaryKey}
             recovering={boundaryRecovering}
@@ -3919,38 +3904,25 @@ export default function IntentPage() {
                 postWheelDiag('state', { event: 'retry_failed', error: msg });
               });
           }}>
-            <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
+            {/* zIndex:110 puts the overlay above the orbit winner card (zIndex:90 at
+                growing phase) so the ProfilePhoto here creates an imperceptible
+                handoff: same image, same screen position, carousel parent then fades. */}
+            <div style={{ position: "absolute", inset: 0, zIndex: 110 }}>
 
-              {/* ── Dark base — always fills screen ── */}
-              <div style={{
-                position: "absolute", inset: 0,
-                background: "linear-gradient(160deg, #0d0812 0%, #1a0a2e 55%, #12091e 100%)",
-                animation: "srRevealBg 0.8s ease forwards",
-              }} />
-
-              {/* ── Photo — FLIP handoff from orbit card → full-screen ── */}
-              {/* Mounts at pause phase. The pause useLayoutEffect sets an initial FLIP  */}
-              {/* transform (matching the orbit card's viewport rect) before the first   */}
-              {/* paint, then on the next two rAFs applies a CSS transition to scale to  */}
-              {/* full-screen. No visible small-to-large jump. srWinnerIn keyframe       */}
-              {/* animation is intentionally removed; FLIP drives the entrance.          */}
-              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
-                <div
-                  ref={winnerPhotoWrapperRef}
-                  style={{
-                    position: "absolute", inset: 0,
-                    transformOrigin: "50% 50%",
-                    // Initial transform + opacity applied synchronously in useLayoutEffect
-                    // to prevent flash-of-full-size before the FLIP animates in.
-                    // Do NOT add animation or transition here — the effect controls them.
-                  }}
-                >
+              {/* ── Photo — appears at reveal; imperceptible handoff from orbit card ── */}
+              {/* The orbit card FLIP-grew to full-screen (growing phase, ~2800 ms CSS  */}
+              {/* transition).  At 'reveal' we mount this ProfilePhoto at full size here  */}
+              {/* so the carousel parent (containing the orbit card) can safely fade to  */}
+              {/* opacity:0 without the hero photo disappearing.  Because both images     */}
+              {/* show the same userId and are pixel-aligned, the swap is invisible.      */}
+              {selectedProfile && (
+                <div style={{ position: "absolute", inset: 0 }}>
                   <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
                 </div>
               )}
 
               {/* ── Rose-gold glow — radial bloom behind the photo ── */}
-              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
+              {(spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') && selectedProfile && (
                 <div style={{
                   position: "absolute", top: "38%", left: "50%",
                   transform: "translate(-50%, -50%)",
@@ -3969,7 +3941,7 @@ export default function IntentPage() {
               }} />
 
               {/* ── Bottom gradient — protects the lower 42% where all text lives ── */}
-              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
+              {(spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') && selectedProfile && (
                 <div style={{
                   position: "absolute", bottom: 0, left: 0, right: 0, height: "44%",
                   background: "linear-gradient(transparent 0%, rgba(13,8,18,0.78) 32%, rgba(13,8,18,0.97) 65%, #0d0812 100%)",
@@ -3978,44 +3950,14 @@ export default function IntentPage() {
               )}
 
               {/* ── Subtle rose bloom over upper photo ── */}
-              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
+              {(spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') && selectedProfile && (
                 <div style={{
                   position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none",
                   background: "radial-gradient(ellipse 80% 50% at 50% 22%, rgba(212,92,116,0.14) 0%, transparent 62%)",
                 }} />
               )}
 
-              {/* ── PHASE 1: QUOTE — centered on dark screen, only during reveal ── */}
-              {spinRoomPhase === 'reveal' && (
-                <div style={{
-                  position: "absolute", inset: 0, zIndex: 5,
-                  display: "flex", flexDirection: "column",
-                  alignItems: "center", justifyContent: "center",
-                  padding: "0 44px",
-                  pointerEvents: "none",
-                }}>
-                  <p style={{
-                    fontFamily: "'Playfair Display', Georgia, serif",
-                    fontSize: 19, fontStyle: "italic",
-                    color: "rgba(255,255,255,0.80)",
-                    letterSpacing: "0.01em", lineHeight: 1.65,
-                    textShadow: "0 2px 32px rgba(0,0,0,0.55)",
-                    animation: "srTextIn 1.2s 0.3s ease both",
-                    textAlign: "center", margin: 0,
-                  }}>
-                    "{revealQuote ? t(revealQuote as Parameters<typeof t>[0]) : '\u2026'}"
-                  </p>
-                  <p style={{
-                    fontSize: 10, fontWeight: 700, letterSpacing: "0.26em",
-                    textTransform: "uppercase", color: "rgba(212,92,116,0.85)",
-                    marginTop: 14,
-                    animation: "srTextIn 0.65s 1.55s ease both",
-                    textShadow: "0 0 18px rgba(212,92,116,0.50)",
-                  }}>— Lulou</p>
-                </div>
-              )}
-
-              {/* ── PHASE 3: PROFILE TEXT + CTA — bottom 33%, appears at buttons phase ── */}
+              {/* ── PROFILE TEXT + CTA — bottom 33%, appears at buttons phase ── */}
               {/* Mounts fresh at buttons phase so all animation-delays start from zero */}
               {spinRoomPhase === 'buttons' && selectedProfile && (
                 <div style={{
