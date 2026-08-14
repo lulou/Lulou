@@ -39,3 +39,4 @@
 - [Supabase matches.id is TEXT](supabase-matches-id-type.md) — matches.id is TEXT not UUID; RPC params must use TEXT or "operator does not exist: text = uuid" at runtime.
 - [WAL refetch race causes badge snap-back](wal-refetch-race.md) — message insert WAL → useUnreadCounts invalidates match-detail → refetch races counter update → reads 0 → snaps badge to 15. Fix: increment counter BEFORE inserting message.
 - [Replit blocked from Supabase PostgreSQL](replit-supabase-connectivity.md) — Management API 401 (sbp_ PAT unauthorized), direct TCP DNS-blocked (even with DoH). Only HTTP to PostgREST works. DDL must be applied manually via Supabase SQL editor.
+- [SpinRoom proven production bugs](spinroom-proven-bugs.md) — React #31=dnaReasons[0] is {key,text} object; photo jump=FLIP handoff at pause; Retry 401=bare fetch omits auth headers; text invisible=under investigation pending winner_node logs.

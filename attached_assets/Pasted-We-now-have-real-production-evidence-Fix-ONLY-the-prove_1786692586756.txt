@@ -1,0 +1,204 @@
+We now have real production evidence. Fix ONLY the proven issues below.
+
+Do not change orbit speed.
+Do not change scale timing.
+Do not change winner selection.
+Do not change unrelated app systems.
+
+PRODUCTION EVIDENCE
+
+Boundary error:
+React error #31
+object with keys {key, text}
+
+Component stack begins:
+p → div → div → result component
+
+Therefore a value shaped like:
+{ key, text }
+
+is being rendered directly inside a  in the result/reveal JSX.
+
+Scale telemetry proves the existing winner scale RAF works correctly:
+
+4508ms → computedScale 1.0276
+actual transform → 1.0276
+
+5008ms → 1.0338
+actual → 1.0338
+
+5508ms → 1.0379
+actual → 1.0379
+
+6008ms → 1.0398
+actual → 1.0398
+
+7008ms → 1.0603
+actual → 1.0603
+
+So DO NOT alter the scale interpolation again.
+
+Retry Result failure:
+
+GET /api/spin/result
+401
+hasAuthHeader=false
+
+So Retry is calling the backend without Authorization.
+
+Also:
+text_3 event fired at 6200ms, proving the text state machine reached the final text milestone.
+
+Therefore the words are being hidden/not rendered/covered, not skipped by the timer.
+
+PART 1 — FIX THE EXACT REACT #31 CRASH
+
+Search every  inside the final result/reveal component.
+
+For every rendered child expression inside those  elements, inspect its runtime type.
+
+Find the exact field arriving as:
+
+{ key: …, text: … }
+
+Fix that exact field so the rendered value is a primitive string.
+
+Use the existing renderText()/safeStr helper if appropriate.
+
+Do not blanket-normalize unrelated data.
+
+Report the exact JSX expression that threw.
+
+PART 2 — STOP THE SECOND PHOTO MOUNT JUMP
+
+The current scale RAF is proven correct.
+
+The visible jump occurs because the gradually scaling orbit winner is replaced/covered by a different full-size result photo.
+
+Fix the handoff.
+
+Required behaviour:
+
+winner orbit card remains the ONLY visible winner photo during the whole cinematic build
+do not mount the final full-size result photo while the orbit winner is still visible
+grow the same visible winner DOM node toward the final presentation geometry
+If a second result photo must eventually mount:
+
+wait until the winner growth is completely finished
+measure the final orbit-winner rect
+mount the result photo at pixel-identical position/size
+perform an invisible handoff
+only then remove/hide the orbit card
+No visible small-photo → large-photo replacement.
+
+Do not change the scale timing.
+
+PART 3 — FIX RETRY RESULT AUTH
+
+Retry Result must use the normal authenticated API request path.
+
+Do not use bare fetch for:
+
+/api/spin/result
+
+Use the existing authenticated apiRequest/queryClient infrastructure so the Bearer token and session headers are included.
+
+Production PASS for Retry requires:
+
+GET /api/spin/result
+→ hasAuthHeader=true
+→ HTTP 200
+
+Never 401 due to missing Authorization.
+
+PART 4 — FIND WHY THE WORDS ARE INVISIBLE
+
+We know text_3 fired at 6200ms.
+
+Instrument/read the visible text DOM at:
+
+text_1
+text_2
+text_3
+
+For each checkpoint report:
+
+momentumLabel value
+text DOM exists?
+computed opacity
+computed visibility
+computed display
+z-index
+bounding rect
+overlay above it, if any
+Then fix the exact visibility/conditional-render issue.
+
+Do not change milestone timings unless the telemetry proves timing is the issue.
+
+The text container must remain visible through the full winner build.
+
+PART 5 — DO NOT TOUCH THE SCALE RAF
+
+Do not change:
+
+scale breakpoints
+interpolation
+winnerReveal timing
+computedScale math
+Telemetry proves computed scale === actual DOM scale.
+
+The problem is the photo handoff, not the scale calculation.
+
+PART 6 — END-SPIN JITTER
+
+Keep collecting orbit telemetry.
+
+Do not change the orbit again unless logs prove the exact second writer/jump path.
+
+If logs show orbit_changed_after_lock:
+fix the exact writer.
+
+If not:
+inspect approach angle trace before changing anything.
+
+PART 7 — STRICT FILE SCOPE
+
+Preferred files only:
+
+client/src/pages/intent.tsx
+
+server/routes.ts only if diagnostics require it
+
+Do not touch:
+
+auth
+messages
+calls
+profiles
+payments
+settings
+navigation
+database schema
+Vercel config
+Railway config
+
+PART 8 — FINAL REPORT
+
+Report:
+
+exact  expression causing React error #31
+exact field containing {key,text}
+exact fix
+exact component causing second-photo handoff
+exact handoff fix
+Retry Result request path before/after
+confirmation auth header is present
+exact reason text DOM was invisible
+files changed
+commit hash
+origin/main hash
+Vercel deployed hash
+Railway deployed hash
+real iPhone PASS/FAIL
+Do not claim fixed from code inspection alone.
+
