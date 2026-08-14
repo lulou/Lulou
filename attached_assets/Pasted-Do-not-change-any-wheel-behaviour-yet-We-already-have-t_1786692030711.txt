@@ -1,0 +1,104 @@
+Do not change any wheel behaviour yet.
+
+We already have two proven code issues:
+
+Tick sound is timer/phase-driven instead of orbit-angle-driven.
+Winner photo only scales about 10%, then a second full-size photo mounts, causing the visible jump.
+Do NOT fix those yet.
+
+First make the remaining diagnostics readable from Railway so I do not need Safari Web Inspector.
+
+The existing Railway debug endpoint already accepts Intention Wheel diagnostics.
+
+Send these existing client diagnostics to Railway as well:
+
+[INTENTION_WHEEL_WINNER_NODE]
+
+[INTENTION_WHEEL_SCALE]
+
+[INTENTION_WHEEL_ORBIT_TRACE]
+
+[INTENTION_WHEEL_STATE]
+
+For winner-node telemetry send:
+
+checkpoint name
+winner userId
+slot/index
+DOM identifier
+current transform
+computed width
+computed height
+opacity
+zIndex
+isConnected
+current spinRoomPhase
+current momentumLabel/text
+For text-state telemetry send at:
+
+text_1
+text_2
+text_3
+photo_build
+result_ready
+Include:
+
+expected text
+actual momentumLabel
+whether text DOM exists
+computed opacity
+computed display
+computed visibility
+z-index
+bounding rect
+This will prove whether the words:
+
+never render
+render with opacity 0
+are covered by another layer
+disappear because phase changes
+Do not send every RAF frame.
+
+Throttle diagnostics so production logs are reasonable.
+
+Keep the existing boundary-error transport.
+
+Do not alter:
+
+orbit timing
+spin speed
+approach
+reveal timing
+scaling
+ticking
+candidate selection
+result flow
+Instrumentation only.
+
+After commit and deploy, I will perform one production iPhone spin.
+
+Then read Railway logs and return:
+
+exact boundary exception
+winner-node checkpoints
+text visibility checkpoints
+scale telemetry
+orbit trace
+No behaviour changes until those logs are available.
+
+Strict file scope:
+
+client/src/pages/intent.tsx
+existing Intention Wheel debug endpoint in server/routes.ts only if extra fields/types are required
+No unrelated files.
+No schema changes.
+No auth changes.
+No shared API changes.
+
+Report:
+
+files changed
+commit hash
+origin/main hash
+Vercel deployed hash
+Railway deployed hash
