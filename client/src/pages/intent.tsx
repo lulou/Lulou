@@ -2018,12 +2018,10 @@ export default function IntentPage() {
   // Required timing (user spec):
   //   0–1500 ms:    "Narrowing down…"   (set by approach RAF before firing this phase)
   //   1500–3200 ms: "There's something here…" + scale 1.000 → 1.015
-  //   3200–5200 ms: "Tonight's connection" + scale 1.015 → 1.040 + go('momentum')
-  //   5200–7200 ms: keep "Tonight's connection"; scale 1.040 → 1.075
-  //   7200–9000 ms: scale 1.075 → 1.100; hold
-  //   9000 ms:      reveal mounts (selectedProfile set, revealQuote set, go('reveal'))
-  //   11300 ms:     go('pause')
-  //   14300 ms:     go('buttons')
+  //   3800–7000 ms: "Tonight's connection" holds while the room darkens
+  //   7000–13200 ms: original winner geometry grows from card → hero
+  //   13200–14000 ms: full hero geometry holds before the guarded handoff
+  //   14000 ms:      result mounts only after geometry verification
   //
   // CLEANUP: The RAF is self-terminating (stops when all milestones fire) and is
   // also cancelled by the orbit RAF useEffect's cleanup when showSpinRoom = false.
@@ -2231,17 +2229,17 @@ export default function IntentPage() {
         logWheelState({ event: 'text_2', elapsed: 3800 });
         logWinnerNode('text_2', 'Tonight\u2019s connection');
       }},
-      // t=6200: GROWING — preserve the existing text timing, then hold the locked
-      // card briefly before the real 6.2 second geometry enlargement starts.
-      { t: 6200, fn: () => {
+      // t=7000: GROWING — the final words have held for a readable beat before
+      // the existing 6.2 second geometry enlargement begins.
+      { t: 7000, fn: () => {
         setSpinRoomPhase('growing');
-        logWheelState({ event: 'growing_start', elapsed: 6200 });
+        logWheelState({ event: 'growing_start', elapsed: 7000 });
         logWinnerNode('growing_start', 'Tonight\u2019s connection');
       }},
-      // t=7600: Preserve the established text fade timing.
-      { t: 7600, fn: () => {
+      // t=7000: clear the final words as the existing enlargement starts.
+      { t: 7000, fn: () => {
         setMomentumLabel('');
-        logWheelState({ event: 'text_fade_out', elapsed: 7600 });
+        logWheelState({ event: 'text_fade_out', elapsed: 7000 });
       }},
       // t=14000: Result may only take over after the original winner has held the
       // target geometry and its measured rectangle matches the measured hero target.
@@ -2987,6 +2985,10 @@ export default function IntentPage() {
           0%, 100% { opacity: 0.45; transform: translate(-50%,-50%) scale(1.00); }
           50%       { opacity: 0.80; transform: translate(-50%,-50%) scale(1.08); }
         }
+        @keyframes spinRoomTensionDarken {
+          from { opacity: 0; }
+          to   { opacity: 0.34; }
+        }
       `}</style>
 
       {/* ── Header ── */}
@@ -3097,9 +3099,10 @@ export default function IntentPage() {
             </div>
           )}
 
-          {/* 3D carousel — only mounted once the spin starts; suppressed pre-spin so
-               no ProfilePhoto components exist in the DOM before the user taps Spin */}
-          {(isSpinning || dispersed) && (
+          {/* 3D carousel — the same existing candidate cards are visible in their
+               resting positions before Spin, then remain the legacy wheel behind
+               the cinematic SpinRoom overlay. */}
+          {!dispersed && (
             <div
               className="absolute left-1/2 top-1/2"
               style={{
@@ -3139,6 +3142,9 @@ export default function IntentPage() {
                         ? `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${(cardScale * 1.10).toFixed(3)})`
                         : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
                       opacity: dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
+                      filter: !isSpinning && depthFactor < 0.92
+                        ? `blur(${((1 - depthFactor) * 3.5).toFixed(1)}px)`
+                        : undefined,
                       zIndex: Math.round(depthFactor * 100),
                       boxShadow,
                       animation: isSelected && !dispersed ? "winnerGlow 1.6s ease-in-out infinite" : undefined,
@@ -3206,79 +3212,6 @@ export default function IntentPage() {
             </div>
           )}
 
-          {/* ── Pre-spin mystery hero — fully opaque, no ProfilePhoto in DOM ── */}
-          {/* Carousel is unmounted pre-spin so this is the only thing visible.  */}
-          {!isSpinning && !dispersed && (
-            <div style={{
-              position: "absolute", inset: 0, zIndex: 10,
-              pointerEvents: "none",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              {/* Left decorative shadow deck — pure CSS gradient, no image */}
-              <div style={{
-                position: "absolute",
-                left: `calc(50% - ${Math.round(itemWidth / 2) + 10 + Math.round(itemWidth * 0.46)}px)`,
-                top: "50%",
-                transform: "translateY(-48%) rotate(-4deg)",
-                width: Math.round(itemWidth * 0.46),
-                height: Math.round(itemHeight * 0.62),
-                borderRadius: 14,
-                background: "linear-gradient(155deg, #2a0e28 0%, #1a0a2e 55%, #26122a 100%)",
-                border: "1px solid rgba(212,92,116,0.10)",
-                boxShadow: "0 12px 32px rgba(0,0,0,0.55)",
-                opacity: 0.52,
-              }} />
-              {/* Right decorative shadow deck — pure CSS gradient, no image */}
-              <div style={{
-                position: "absolute",
-                left: `calc(50% + ${Math.round(itemWidth / 2) + 10}px)`,
-                top: "50%",
-                transform: "translateY(-48%) rotate(4deg)",
-                width: Math.round(itemWidth * 0.46),
-                height: Math.round(itemHeight * 0.62),
-                borderRadius: 14,
-                background: "linear-gradient(155deg, #26122a 0%, #1a0a2e 55%, #2a0e28 100%)",
-                border: "1px solid rgba(212,92,116,0.10)",
-                boxShadow: "0 12px 32px rgba(0,0,0,0.55)",
-                opacity: 0.52,
-              }} />
-              {/* Centre mystery card — solid opaque gradient, Lulou monogram, zero photos */}
-              <div style={{
-                position: "absolute", left: "50%", top: "50%",
-                transform: "translate(-50%, -50%)",
-                width: itemWidth, height: itemHeight, borderRadius: 22,
-                display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center", gap: 12,
-                /* Fully opaque plum-rose gradient — nothing can show through */
-                background: "linear-gradient(155deg, #2d0f2b 0%, #3d1535 28%, #4a1c3f 52%, #3a1030 78%, #230c22 100%)",
-                border: "1px solid rgba(212,92,116,0.22)",
-                boxShadow: "0 20px 56px rgba(0,0,0,0.68), 0 0 36px rgba(212,92,116,0.10), inset 0 1px 0 rgba(255,255,255,0.06)",
-              }}>
-                {/* Inner glow ring */}
-                <div style={{
-                  position: "absolute", inset: 18, borderRadius: 14,
-                  border: "1px solid rgba(212,92,116,0.10)",
-                  pointerEvents: "none",
-                }} />
-                {/* Lulou monogram */}
-                <div style={{ width: 42, height: 42, opacity: 0.55, position: "relative", zIndex: 1 }}>
-                  <LulouFlowerIcon className="w-full h-full text-primary" />
-                </div>
-                {/* Crescent accent */}
-                <div style={{
-                  fontSize: 18, lineHeight: 1, opacity: 0.22,
-                  position: "relative", zIndex: 1, letterSpacing: 0,
-                }}>🌙</div>
-                {/* Label */}
-                <p style={{
-                  fontSize: 7, fontWeight: 900, letterSpacing: "0.50em",
-                  textTransform: "uppercase",
-                  color: "rgba(212,92,116,0.55)",
-                  margin: 0, position: "relative", zIndex: 1,
-                }}>Tonight</p>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ── Candidates preview strip ── */}
@@ -3816,6 +3749,20 @@ export default function IntentPage() {
               <div>selected: {selectedProfile?.userId?.slice(-6) ?? '—'}</div>
             </div>
 
+            {/* The tension veil darkens the complete room after the wheel has
+                stopped, while all carousel content remains above it. */}
+            {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'momentum' || spinRoomPhase === 'growing') && (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute", inset: 0, zIndex: 1,
+                  background: "rgba(0,0,0,0.34)",
+                  pointerEvents: "none",
+                  animation: "spinRoomTensionDarken 3.2s ease forwards",
+                }}
+              />
+            )}
+
             {/* Deep ambient radial glow behind carousel */}
             <div style={{
               position: "absolute", top: "48%", left: "50%",
@@ -3925,7 +3872,7 @@ export default function IntentPage() {
               </div>
 
               {/* Phase status text */}
-              <div style={{ marginTop: 32, textAlign: "center", minHeight: 30 }}>
+              <div style={{ position: "relative", zIndex: 2, marginTop: 32, textAlign: "center", minHeight: 30 }}>
                 {spinRoomPhase === 'accelerate' && (
                   <p key="acc" style={{ fontSize: 11, color: "rgba(255,255,255,0.40)", letterSpacing: "0.16em", textTransform: "uppercase", animation: "srTextIn 0.5s ease forwards, srSubtitlePulse 2.2s ease-in-out 0.6s infinite" }}>
                     Finding tonight's connection…
