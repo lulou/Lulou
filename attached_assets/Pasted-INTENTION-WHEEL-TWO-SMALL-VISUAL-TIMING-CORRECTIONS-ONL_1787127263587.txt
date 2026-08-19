@@ -1,0 +1,183 @@
+INTENTION WHEEL — TWO SMALL VISUAL/TIMING CORRECTIONS ONLY
+
+The latest production version is substantially better. DO NOT redesign the Intention Wheel and DO NOT touch the working spin/stop mechanics.
+
+There are only TWO things to correct from the latest real iPhone test.
+
+Before editing:
+1. git fetch origin
+2. Confirm HEAD == origin/main
+3. Confirm working tree is clean
+4. Inspect the current implementation from commit c8e85b72 or whatever newer commit is now origin/main.
+
+==================================================
+1. PRE-SPIN PROFILE CARDS ARE NOW TOO SQUASHED
+==================================================
+
+The previous change successfully brought the outside cards inside the iPhone viewport, BUT it has compressed the carousel too much.
+
+On the real iPhone screenshot, the candidate cards are overlapping heavily and look like narrow vertical strips.
+
+That is NOT the desired result.
+
+I want a premium 3D carousel where:
+
+- centre card is clearly visible at normal proportions
+- immediate left/right cards are clearly identifiable profile cards
+- cards retain their correct portrait aspect ratio
+- cards must NOT be horizontally squashed
+- cards must NOT be transformed into narrow strips
+- some natural overlap/perspective is fine
+- outside cards must still remain inside the phone viewport
+- centre card remains dominant
+- side cards can be slightly smaller and angled in 3D
+- spacing should look intentional and premium
+
+IMPORTANT:
+
+Do NOT resize the actual image content disproportionately.
+
+Preserve each card's aspect ratio.
+
+If fitting everything inside ~390px requires adjustment, change the PRE-SPIN layout using a combination of:
+
+- smaller card dimensions
+- smaller resting radius
+- perspective
+- side-card scale
+- controlled overlap
+
+Do NOT achieve it by compressing the X-axis of the cards.
+
+This adjustment applies to the RESTING/PRE-SPIN carousel only.
+
+Do NOT modify the actual spinning orbit geometry, spin-room card geometry, winner selection, deceleration or stopping behaviour.
+
+Target visual:
+
+Instead of:
+
+|||| |||| ||||
+
+I want something visually closer to:
+
+  /CARD/   [ CENTRE CARD ]   \CARD\
+
+with each photo still looking like a proper portrait card.
+
+==================================================
+2. WINNER PHOTO ENLARGEMENT IS NOW SLIGHTLY TOO SLOW
+==================================================
+
+The winner-card → full hero enlargement is now smooth and working correctly.
+
+DO NOT replace it.
+DO NOT bring back the old jump.
+DO NOT change the geometry handoff architecture.
+
+It is simply taking slightly too long.
+
+Speed up ONLY the winner-card enlargement by a modest amount.
+
+Current implementation was previously described as approximately 6.2 seconds.
+
+Target approximately:
+
+4.8–5.2 seconds
+
+Use around 5 seconds unless inspection of the current implementation shows a slightly different duration would preserve the existing easing better.
+
+IMPORTANT:
+
+The enlargement must still:
+
+- begin from the exact selected winner card geometry
+- remain continuous
+- grow progressively
+- feel cinematic
+- have no jump
+- have no second-photo flash
+- reach the exact hero rectangle
+- preserve the ≤1px geometry handoff protection
+- keep the same easing character
+- only complete the result-layer handoff after geometry matches
+
+Do NOT speed up the cinematic words just because the enlargement is faster.
+
+The sequence should remain:
+
+wheel completely stops
+→ dark cinematic stage
+→ “Narrowing down…”
+→ “There’s something here…”
+→ “Tonight’s connection”
+→ short tension hold
+→ winner begins enlarging
+→ smooth ~5 second enlargement
+→ seamless hero handoff
+→ result content/buttons
+
+==================================================
+STRICT REGRESSION PROTECTION
+==================================================
+
+DO NOT alter:
+
+- wheel spin speed
+- orbit maths
+- approach
+- deceleration
+- final stopping behaviour
+- tick synchronization
+- winner selection
+- candidate selection
+- cinematic text order
+- dark Intention Wheel environment
+- manual-drag lock
+- Retry Result
+- Send Halo
+- API calls
+- auth
+- database
+- schema
+- Discover
+- Likes
+- Connections
+- Profile
+- navigation
+
+The current wheel mechanics are working.
+
+This is NOT a wheel-engine rewrite.
+
+Make the smallest possible changes.
+
+==================================================
+VERIFY
+==================================================
+
+After implementation:
+
+1. npm run build
+2. git diff --check
+3. Inspect the diff and explicitly verify that spin/deceleration/orbit/winner-selection code was not modified.
+4. Commit.
+5. Push origin main.
+6. Verify HEAD == origin/main.
+
+REPORT:
+
+- exact cause of the squashed pre-spin cards
+- exact layout values changed
+- old winner enlargement duration
+- new winner enlargement duration
+- confirmation geometry handoff protection remains intact
+- files changed
+- build result
+- commit hash
+- origin/main hash
+
+Do not claim real-iPhone PASS unless actually tested on a real iPhone.
+
+MOST IMPORTANT:
+Fix these two details without disturbing everything we have finally got working.
