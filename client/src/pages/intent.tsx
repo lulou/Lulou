@@ -1389,13 +1389,19 @@ export default function IntentPage() {
   const isCompact = viewportH < 700;
   const itemWidth  = viewportW < 380 ? 118 : viewportW < 430 ? 136 : ITEM_WIDTH;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
-  // The main wheel is a static preview until Spin is pressed. Keep its outer
-  // cards inside a phone viewport without changing the spin-time wheel radius.
+  // The main wheel is a static preview until Spin is pressed. Its resting layout
+  // uses a wider, controlled card spread; the actual spin-time wheel radius and
+  // transforms remain unchanged below.
   const restingCarouselRadius = Math.min(
     radius,
-    Math.max(104, Math.floor((viewportW - itemWidth - 24) / 2)),
+    Math.max(116, Math.floor(viewportW * 0.36)),
   );
   const carouselRadius = (isSpinning || dispersed) ? radius : restingCarouselRadius;
+  // Explicit resting slots prevent the 72° five-card ring from turning side
+  // portraits into foreshortened strips on narrow phones. Side cards use
+  // uniform scale plus a modest Y tilt, preserving their portrait ratio.
+  const restingSideOffset = Math.min(102, Math.max(92, Math.floor(viewportW * 0.26)));
+  const restingOuterOffset = Math.min(140, Math.max(116, Math.floor(viewportW * 0.36)));
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
   const wheelBufferY = isCompact ? 110 : viewportW < 380 ? 144 : 170;
@@ -2026,9 +2032,9 @@ export default function IntentPage() {
   //   0–1500 ms:    "Narrowing down…"   (set by approach RAF before firing this phase)
   //   1500–3200 ms: "There's something here…" + scale 1.000 → 1.015
   //   3800–7000 ms: "Tonight's connection" holds while the room darkens
-  //   7000–13200 ms: original winner geometry grows from card → hero
-  //   13200–14000 ms: full hero geometry holds before the guarded handoff
-  //   14000 ms:      result mounts only after geometry verification
+  //   7000–12000 ms: original winner geometry grows from card → hero
+  //   12000–12800 ms: full hero geometry holds before the guarded handoff
+  //   12800 ms:      result mounts only after geometry verification
   //
   // CLEANUP: The RAF is self-terminating (stops when all milestones fire) and is
   // also cancelled by the orbit RAF useEffect's cleanup when showSpinRoom = false.
@@ -2145,16 +2151,16 @@ export default function IntentPage() {
     // CINEMATIC TIMELINE:
     //   0–6200 ms     locked card stays at its actual start rect; copy and glow build
     //   6200–7000 ms  "Tonight's connection" holds; hero geometry stays still
-    //   7000–13200 ms original card interpolates startRect → targetRect (6.2 seconds)
-    //   13200–14000   full hero geometry holds
-    //   14000 ms      geometry-checked result handoff; buttons fire +1500 ms later
+    //   7000–12000 ms original card interpolates startRect → targetRect (5 seconds)
+    //   12000–12800   full hero geometry holds
+    //   12800 ms      geometry-checked result handoff; buttons fire +1500 ms later
     //
     // Loser-card opacity: fade from approach-residual → 0 over first 1800 ms.
     winnerMomentStartRef.current = performance.now();
 
     const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
     const geometryProgress = (elapsed: number) => {
-      const raw = Math.min(1, Math.max(0, (elapsed - 7000) / 6200));
+      const raw = Math.min(1, Math.max(0, (elapsed - 7000) / 5000));
       // The gentle front-load reaches ~38% and ~73% at the requested checkpoints,
       // then eases a little more slowly into the final hero rectangle.
       return raw + 0.10 * raw * (1 - raw);
@@ -2237,7 +2243,7 @@ export default function IntentPage() {
         logWinnerNode('text_2', 'Tonight\u2019s connection');
       }},
       // t=7000: GROWING — the final words have held for a readable beat before
-      // the existing 6.2 second geometry enlargement begins.
+      // the existing geometry enlargement begins.
       { t: 7000, fn: () => {
         setSpinRoomPhase('growing');
         logWheelState({ event: 'growing_start', elapsed: 7000 });
@@ -2248,10 +2254,10 @@ export default function IntentPage() {
         setMomentumLabel('');
         logWheelState({ event: 'text_fade_out', elapsed: 7000 });
       }},
-      // t=14000: Result may only take over after the original winner has held the
+      // t=12800: Result may only take over after the original winner has held the
       // target geometry and its measured rectangle matches the measured hero target.
-      { t: 14000, fn: () => {
-        logWheelState({ event: 'result_start', elapsed: 14000 });
+      { t: 12800, fn: () => {
+        logWheelState({ event: 'result_start', elapsed: 12800 });
         logWinnerNode('result_start', '');
 
         const revealAttempt = (attempt: number) => {
@@ -3146,6 +3152,19 @@ export default function IntentPage() {
                 const depthFactor = (cosVal + 1) / 2;
                 const cardScale = 0.60 + depthFactor * 0.40;
                 const glowAlpha = Math.max(0, Math.pow(cosVal, 2.5));
+                const isResting = !isSpinning && !dispersed;
+                // Resting order is centre, left, right, outer-left, outer-right.
+                // Cards beyond the visible five stay mounted for the existing
+                // wheel data flow but are hidden from this compact preview.
+                const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
+                const restingDistance = Math.abs(restingSlot);
+                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.84 : 0.66;
+                const restingX = restingSlot === 0
+                  ? 0
+                  : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
+                const restingTilt = restingSlot === 0 ? 0 : restingSlot < 0 ? 14 : -14;
+                const restingZ = Math.round(restingCarouselRadius * (restingDistance === 0 ? 0.28 : restingDistance === 1 ? 0.18 : 0.08));
+                const restingVisible = restingDistance <= 2;
 
                 const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 900 : 0;
                 const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
@@ -3163,19 +3182,29 @@ export default function IntentPage() {
                       width: itemWidth, height: itemHeight,
                       borderRadius: 20, overflow: "hidden",
                       position: "absolute", left: 0, top: 0,
-                      transform: dispersed && !isSelected
+                      transform: isResting
+                        ? `translateX(${restingX}px) translateZ(${restingZ}px) rotateY(${restingTilt}deg) scale(${restingScale})`
+                        : dispersed && !isSelected
                          ? `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
                         : isSelected && !dispersed
                          ? `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) scale(${(cardScale * 1.10).toFixed(3)})`
                          : `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) scale(${cardScale})`,
-                      opacity: dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
-                      filter: !isSpinning && depthFactor < 0.92
+                      opacity: isResting
+                        ? (restingVisible ? (restingDistance === 0 ? 1 : restingDistance === 1 ? 0.86 : 0.66) : 0)
+                        : dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
+                      filter: isResting
+                        ? (restingVisible && restingDistance === 2 ? "blur(0.7px)" : undefined)
+                        : !isSpinning && depthFactor < 0.92
                         ? `blur(${((1 - depthFactor) * 3.5).toFixed(1)}px)`
                         : undefined,
-                      zIndex: Math.round(depthFactor * 100),
+                      zIndex: isResting
+                        ? (restingDistance === 0 ? 100 : restingDistance === 1 ? 80 : 60)
+                        : Math.round(depthFactor * 100),
                       boxShadow,
                       animation: isSelected && !dispersed ? "winnerGlow 1.6s ease-in-out infinite" : undefined,
-                      transition: dispersed ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)" : "box-shadow 0.3s ease",
+                      transition: dispersed
+                        ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)"
+                        : isResting ? "transform 0.35s ease, opacity 0.35s ease, filter 0.35s ease, box-shadow 0.3s ease" : "box-shadow 0.3s ease",
                     }}
                     data-testid={`intent-profile-${i}`}
                   >
