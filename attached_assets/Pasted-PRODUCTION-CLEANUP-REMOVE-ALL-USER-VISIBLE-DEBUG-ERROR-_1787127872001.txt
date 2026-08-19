@@ -1,0 +1,198 @@
+PRODUCTION CLEANUP — REMOVE ALL USER-VISIBLE DEBUG / ERROR UI
+
+The Intention Wheel is now working well enough that the production app should no longer show internal diagnostics to users.
+
+Current production screenshot shows a large black:
+
+WHEEL LOG · <commit> · events
+
+panel covering the app after the Intention Wheel completes.
+
+REMOVE THIS FROM THE USER INTERFACE.
+
+IMPORTANT:
+Do NOT remove useful background diagnostics unless they are truly obsolete.
+
+The goal is:
+
+USER SEES:
+- normal Lulou UI
+- normal success states
+- polished recovery UI only if a genuine user-facing failure occurs
+
+DEVELOPERS CAN STILL GET:
+- Railway diagnostic logs
+- console diagnostics where useful
+- telemetry endpoint data
+- boundary/error information
+
+==================================================
+1. REMOVE WHEEL DEBUG PANEL FROM PRODUCTION UI
+==================================================
+
+Find the component that renders:
+
+WHEEL LOG
+
+and any similar visible diagnostic panel.
+
+Do not render it in production.
+
+Preferred options:
+
+- remove the panel entirely from production JSX
+OR
+- DEV-only gate it behind import.meta.env.DEV
+
+Normal users must never see:
+
+- commit hashes
+- internal event names
+- user IDs
+- orbit rectangles
+- handoff geometry
+- scale values
+- boundary stack information
+- debug JSON
+
+Do NOT expose internal IDs or telemetry on screen.
+
+==================================================
+2. KEEP BACKGROUND TELEMETRY
+==================================================
+
+Preserve useful silent diagnostics such as:
+
+[INTENTION_WHEEL_BOUNDARY_ERROR]
+[INTENTION_WHEEL_ORBIT_TRACE]
+[INTENTION_WHEEL_SCALE]
+[INTENTION_WHEEL_WINNER_NODE]
+[INTENTION_WHEEL_HANDOFF]
+
+where they are still useful.
+
+These may continue going to Railway / developer console.
+
+Do not remove working diagnostics simply because the visible panel is removed.
+
+==================================================
+3. REMOVE OTHER USER-VISIBLE DEVELOPMENT OVERLAYS
+==================================================
+
+Search the app for any UI that exposes things like:
+
+- DEBUG
+- WHEEL LOG
+- commit/build hash
+- diagnostic state
+- raw error messages
+- JSON
+- internal IDs
+- latency/debug panels
+- developer-only controls
+
+Do NOT blindly delete legitimate user-facing error messages.
+
+Only remove development/debug UI that should never ship to customers.
+
+If you find another one, report it before removing if it is not obviously developer-only.
+
+==================================================
+4. USER-FACING ERROR EXPERIENCE
+==================================================
+
+Do NOT expose raw React errors, stack traces, API responses, or internal diagnostics to users.
+
+If a genuine recoverable error occurs, show only polished Lulou wording and useful actions.
+
+Examples:
+
+“Something didn’t quite load.”
+Retry
+Back to Lulou
+
+But keep the full technical error silently logged for developers.
+
+The successful Intention Wheel flow should not show an error screen at all.
+
+==================================================
+5. DO NOT TOUCH WORKING WHEEL BEHAVIOUR
+==================================================
+
+CRITICAL:
+
+DO NOT change:
+
+- pre-spin card layout
+- dark Intention Wheel theme
+- spin physics
+- orbit math
+- slowdown
+- ticking
+- winner selection
+- cinematic text
+- winner enlargement
+- hero handoff
+- Halo flow
+- Retry auth
+- result persistence
+
+This task is DEBUG/ERROR UI CLEANUP ONLY.
+
+==================================================
+6. STRICT SCOPE
+==================================================
+
+Prefer:
+
+client/src/pages/intent.tsx
+
+If other obvious developer overlays exist elsewhere, list them before changing them.
+
+Do not touch:
+- auth
+- messaging
+- calls
+- profiles
+- settings
+- payments
+- APIs
+- database schema
+- Vercel config
+- Railway config
+
+==================================================
+7. VERIFY
+==================================================
+
+Before editing:
+
+git fetch origin
+confirm HEAD == origin/main
+git status
+
+After editing:
+
+npm run build
+git diff --check
+git diff --stat
+inspect diff for accidental animation changes
+
+Then:
+
+commit
+push origin main
+verify HEAD == origin/main
+
+REPORT:
+
+- exact debug UI removed
+- whether background telemetry remains
+- any other developer-only overlays found
+- files changed
+- build result
+- commit hash
+- origin/main hash
+- Vercel deploy status if verifiable
+
+Do not claim real iPhone PASS unless tested on a real iPhone.
