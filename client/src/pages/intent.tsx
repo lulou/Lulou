@@ -1254,6 +1254,7 @@ export default function IntentPage() {
 
   // Spin room + Halo state
   const [showSpinRoom, setShowSpinRoom] = useState(false);
+  const [heroHandoffComplete, setHeroHandoffComplete] = useState(false);
   const [sparkSent, setSparkSent] = useState(false);
   // boundaryKey: incrementing remounts IntentResultBoundary with fresh hasError=false state.
   // boundaryRecovering: true while onReset fetch is in-flight — disables Continue button.
@@ -1281,10 +1282,11 @@ export default function IntentPage() {
     renderText(dnaReasonsData?.reasons?.[0] as unknown) || t("spin_room_compat_fallback");
 
   // SpinRoom cinematic phase — drives what's visible at each moment
-  // 'growing' = orbit winner card is FLIP-animating from card size to full-screen hero.
-  // 'pause' is removed — the old quote screen is gone; 'growing' is the bridge between
-  // 'momentum' (card stays small) and 'reveal' (hero fills screen, result overlay mounts).
+  // 'growing' = the locked orbit winner is being directly resized from its measured
+  // card rect into the measured full-screen hero rect. The original DOM node stays
+  // visible until the result photo has a geometry-identical handoff.
   type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'momentum' | 'growing' | 'reveal' | 'buttons';
+  type HeroRect = { left: number; top: number; width: number; height: number };
   const [spinRoomPhase, setSpinRoomPhase] = useState<SpinPhase>('idle');
 
   // ── Orbit carousel: 5 stable card slots rotating on an ellipse ─────────────
@@ -1312,6 +1314,8 @@ export default function IntentPage() {
   const orbitRafRef2    = useRef(0);
   const orbitLastTimeRef = useRef(0);
   const orbitGlowRef        = useRef<HTMLDivElement>(null);
+  const heroTargetMeasureRef = useRef<HTMLDivElement>(null);
+  const resultPhotoWrapperRef = useRef<HTMLDivElement>(null);
   // Ref to the momentum-label <p> so logWinnerNode can read its computed styles
   // without needing Safari Web Inspector. Attached via ref={momentumTextRef} in JSX.
   const momentumTextRef     = useRef<HTMLParagraphElement | null>(null);
@@ -1326,8 +1330,18 @@ export default function IntentPage() {
   const orbitApproachCorrectionRef  = useRef(0);  // total angular distance (always positive/forward)
   const orbitApproachStartAngleRef  = useRef(0);  // orbit angle at approach start
   const orbitApproachStartTimeRef   = useRef(0);  // RAF timestamp when approach began (0 = not yet)
-  // Computed on approach first tick to match current orbit speed — prevents jump.
+  // Computed on the guided-stop first tick to match current orbit speed — prevents jump.
   const orbitApproachDurationRef    = useRef(2400); // ms; overwritten per-spin
+  // Turns the existing slow phase into a winner-planned guided stop. Starting this
+  // while the orbit is still moving quickly avoids a distinct late correction spin.
+  const orbitGuidedStopRef          = useRef(false);
+  const heroTargetRectRef           = useRef<HeroRect | null>(null);
+  // Becomes true only after the winning card's resting viewport rect has been
+  // measured. JSX then stops writing its geometry until the handoff completes.
+  const winnerHeroDomOwnedRef       = useRef(false);
+  const spinGenerationRef           = useRef(0);
+  const spinTimeoutIdsRef           = useRef<Set<number>>(new Set());
+  const handoffRafRef               = useRef(0);
   // Set true when pullforward fires; any subsequent orbit angle change is a bug.
   const orbitLockedRef              = useRef(false);
   const winnerMomentStartRef        = useRef(0);  // performance.now() at pullforward; momentum RAF derives elapsed from this
@@ -1341,6 +1355,28 @@ export default function IntentPage() {
   const angleStep = count > 0 ? 360 / count : 0;
   const radius = count > 4 ? Math.max(188, count * 26) : 172;
   const canSpin = spinStatus?.canSpin ?? false;
+
+  const cancelWheelAsync = () => {
+    spinTimeoutIdsRef.current.forEach(id => clearTimeout(id));
+    spinTimeoutIdsRef.current.clear();
+    cancelAnimationFrame(handoffRafRef.current);
+    handoffRafRef.current = 0;
+  };
+  const scheduleWheelTimeout = (generation: number, callback: () => void, delay: number) => {
+    const id = window.setTimeout(() => {
+      spinTimeoutIdsRef.current.delete(id);
+      if (spinGenerationRef.current === generation) callback();
+    }, delay);
+    spinTimeoutIdsRef.current.add(id);
+    return id;
+  };
+  const scheduleHandoffFrame = (generation: number, callback: () => void) => {
+    cancelAnimationFrame(handoffRafRef.current);
+    handoffRafRef.current = requestAnimationFrame(() => {
+      handoffRafRef.current = 0;
+      if (spinGenerationRef.current === generation) callback();
+    });
+  };
 
   // Responsive wheel card dimensions — shrink on narrow phones to prevent clipping
   const [viewportW, setViewportW] = useState(() => typeof window !== "undefined" ? window.innerWidth : 390);
@@ -1500,6 +1536,9 @@ export default function IntentPage() {
 
   const spinWheel = () => {
     if (isSpinning || count === 0 || !canSpin) return;
+    cancelWheelAsync();
+    spinGenerationRef.current += 1;
+    setHeroHandoffComplete(false);
     ensureCtx();
     try { (navigator as any).vibrate?.([30]); } catch {}
     // Reset dedup guard so this fresh spin can record
@@ -1507,6 +1546,7 @@ export default function IntentPage() {
     saveSpinSucceededRef.current = false;
     pendingWinnerRef.current = null;
     orbitLockedRef.current = false;
+    winnerHeroDomOwnedRef.current = false;
     console.log("[INTENTION_WHEEL] spin_request_started", { candidateCount: count });
     setShowSpinRoom(true);
     setIsSpinning(true);
@@ -1578,6 +1618,9 @@ export default function IntentPage() {
   };
 
   const closeProfile = () => {
+    cancelWheelAsync();
+    spinGenerationRef.current += 1;
+    setHeroHandoffComplete(false);
     // Delete the server-persisted result when the user explicitly acts on it.
     deleteSpinResult.mutate();
     pendingWinnerRef.current = null;
@@ -1594,18 +1637,18 @@ export default function IntentPage() {
 
   // ── SpinRoom phase timeline ─────────────────────────────────────────────────
   // Runs entirely independently of the underlying wheel animation so the
-  // Timeline: velocity phases up to approach.
-  // After approach (t=7000 ms), the approach RAF fires 'pullforward' when the
-  // orbit converges (angular error < 0.01 rad).  All subsequent timing
+   // Timeline: velocity phases up to the winner-planned guided stop.
+   // The stop begins at 5000 ms while the orbit is still fast, so the remaining
+   // travel naturally decelerates onto the known winner instead of correcting late.
+   // The guided RAF fires 'pullforward' when the orbit converges. All subsequent timing
   // (momentum labels, reveal, pause, buttons) runs from the pullforward
   // useLayoutEffect via a single winnerMomentStart RAF — not from here.
   //
   // Timeline (ms from spin start):
   //   0      accelerate → 1.6 rad/s
   //   2000   fast       → 4.2 rad/s
-  //   5000   slow       → 0.8 rad/s
-  //   7000   approach   → RAF switches to guided cubic-ease deceleration
-  //   ~9400  approach RAF detects angularError<0.01 → fires 'pullforward' automatically
+   //   5000   slow       → guided cubic deceleration to the frozen winner target
+   //   ~5000+ guided RAF reaches target → fires 'pullforward' automatically
   //   then → pullforward useLayoutEffect drives all timing via winnerMomentStart RAF
   useEffect(() => {
     if (!showSpinRoom) {
@@ -1622,9 +1665,16 @@ export default function IntentPage() {
     console.log('[WHEEL] SPIN_START');
     const ts = [
       setTimeout(() => { go('fast', 4.2); console.log('[WHEEL] FAST_PHASE');  }, 2000),
-      setTimeout(() => { go('slow', 0.8); console.log('[WHEEL] SLOW_PHASE');  }, 5000),
-      // Approach: RAF computes correction from live angle on first tick (no stale snapshot).
-      setTimeout(() => { go('approach', 0); console.log('[WHEEL] WINNER_APPROACH'); }, 7000),
+      setTimeout(() => {
+        // Freeze the candidate order, winner, and live visual angle on the next RAF.
+        // No extra turn is added: it uses only the natural forward distance remaining.
+        orbitGuidedStopRef.current = true;
+        orbitApproachStartTimeRef.current = 0;
+        orbitApproachStartAngleRef.current = 0;
+        orbitApproachCorrectionRef.current = 0;
+        go('slow', 0);
+        console.log('[WHEEL] GUIDED_STOP_PHASE');
+      }, 5000),
     ];
     return () => ts.forEach(clearTimeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1642,6 +1692,9 @@ export default function IntentPage() {
       orbitAngleRef2.current   = 0;
       orbitLastTimeRef.current = 0;
       orbitLockedRef.current   = false;
+      orbitGuidedStopRef.current = false;
+      heroTargetRectRef.current = null;
+      winnerHeroDomOwnedRef.current = false;
       return;
     }
     const N = Math.min(items.length, ORBIT_N);
@@ -1655,6 +1708,9 @@ export default function IntentPage() {
     orbitAngleRef2.current   = Math.PI / 2;
     prevOrbitAngleRef.current = Math.PI / 2; // tick detector baseline
     resetTick(Math.PI / 2);                  // sync tick tracker to orbit start angle
+    orbitGuidedStopRef.current = false;
+    heroTargetRectRef.current = null;
+    winnerHeroDomOwnedRef.current = false;
 
     // Apply initial transforms instantly (no animation).
     // IMPORTANT: these DOM mutations happen here in the useEffect, NOT in JSX style,
@@ -1662,6 +1718,18 @@ export default function IntentPage() {
     for (let i = 0; i < ORBIT_N; i++) {
       const el = orbitCardRefs.current[i];
       if (!el) continue;
+      // Reset every direct winner-to-hero mutation from the prior spin before the
+      // orbit begins. These geometry properties deliberately stay out of JSX so
+      // React renders cannot interrupt the RAF-owned transition.
+      el.style.position = 'absolute';
+      el.style.left = '50%';
+      el.style.top = '50%';
+      el.style.width = '152px';
+      el.style.height = '228px';
+      el.style.visibility = 'visible';
+      el.style.borderRadius = '18px';
+      el.style.boxShadow = '';
+      el.style.willChange = 'transform, opacity, filter, box-shadow, left, top, width, height';
       const theta  = orbitAngleRef2.current + (2 * Math.PI / N) * i;
       const sinT   = Math.sin(theta);
       const cosT   = Math.cos(theta);
@@ -1695,9 +1763,9 @@ export default function IntentPage() {
       // (orbitAngleRef2) as the start and compute the exact correction from it.
       // This prevents the stale-angle jump that occurred when the useLayoutEffect
       // computed correction from a React-render snapshot (a few ms behind the RAF).
-      if (phase === 'approach') {
+       if (orbitGuidedStopRef.current) {
         if (orbitApproachStartTimeRef.current === 0) {
-          // First approach tick — initialise from live RAF state.
+          // First guided-stop tick — initialise from live RAF state.
           // IMPORTANT: read angle and speed from refs (RAF values), NOT from React state
           // (which is a few ms stale at render time).
           orbitApproachStartTimeRef.current  = now;
@@ -1707,22 +1775,20 @@ export default function IntentPage() {
           const thetaWinA  = orbitAngleRef2.current + (2 * Math.PI / N) * winnerIdxA;
           let corrA = (Math.PI / 2 - thetaWinA) % (2 * Math.PI);
           if (corrA < 0) corrA += 2 * Math.PI;
-          // ── ROOT CAUSE OF "SECOND SPIN/JUMP" ──────────────────────────────────
-          // The old guard `if (corrA < 1.0) corrA += 2π` was here.  When the winner
-          // was near front-centre (corrA ≈ 0.3 rad), it added a full extra rotation,
-          // making corrA ≈ 6.58 rad.  With APPROACH_DUR = 2400 ms, the cubic-ease-out
-          // initial velocity = 3 * 6.58 / 2.4 s = 8.2 rad/s — 10× the orbit's ~0.8 rad/s.
-          // That caused the visible acceleration jump.  Guard removed.
-          // ──────────────────────────────────────────────────────────────────────
+          // `corrA` is the one natural forward distance to the winner. Never add a
+          // full turn here: doing so was the production root cause of the earlier
+          // jump-spin. Starting at 5000 ms means even a large correction happens
+          // while the wheel is visibly fast rather than after it appears stopped.
           orbitApproachCorrectionRef.current = corrA;
-          // Compute approach duration so its initial cubic-ease velocity exactly matches
-          // the current orbit speed — guaranteeing ONE continuous deceleration.
+          // Compute a duration that never makes the first guided frame faster than
+          // the previous visual frame. Cubic-ease-out has v(0)=3*distance/duration.
           // cubic-ease-out d/dt at t=0 = 3 * corrA / (dur_ms / 1000)
           // → dur_ms = 3000 * corrA / currentSpeed
           const currentSpeed = Math.max(0.05, orbitSpeedRef2.current); // rad/s
-          // Minimum 400 ms so even a near-front winner decelerates visibly rather
-          // than snapping — eliminated the old corrA<0.05→50ms micro-snap path.
-          const dynamicDur = Math.max(400, Math.min(5000, Math.round(3000 * corrA / currentSpeed)));
+          // The 800 ms floor can only reduce initial velocity; it cannot accelerate
+          // a near-front winner. The upper bound leaves enough room for a natural
+          // stop without adding an artificial extra revolution.
+          const dynamicDur = Math.max(800, Math.min(6500, Math.ceil(3000 * corrA / currentSpeed)));
           orbitApproachDurationRef.current = dynamicDur;
           const targetA = orbitApproachStartAngleRef.current + corrA;
           logWheelState({
@@ -1733,6 +1799,7 @@ export default function IntentPage() {
             winnerIndex: winnerIdxA,
             approachDurMs: dynamicDur,
             orbitSpeedRads: currentSpeed.toFixed(3),
+            guidedAtMs: Math.round(now - orbitStartMs),
             pendingWinnerUserId: pendingWinnerRef.current?.profile?.userId ?? null,
           });
           // Transport to Railway so production orbit trace is readable without Safari console.
@@ -1743,6 +1810,7 @@ export default function IntentPage() {
             correctionRad: corrA.toFixed(4),
             approachDuration: dynamicDur,
             orbitSpeed: currentSpeed.toFixed(3),
+            guidedAtMs: Math.round(now - orbitStartMs),
             winnerLocked: false,
           });
         }
@@ -1818,6 +1886,7 @@ export default function IntentPage() {
             tApproach: tApproach.toFixed(6),
             winnerLocked: false,
           });
+          orbitGuidedStopRef.current = false;
           // Fire pullforward — pullforward useLayoutEffect drives all subsequent timing.
           setSpinRoomPhase('pullforward');
           setMomentumLabel('Narrowing down\u2026');
@@ -1941,22 +2010,6 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── Approach phase: only set spinPhaseRef; RAF computes correction on 1st tick ──
-  // Correction MUST be computed from the live orbit angle inside the RAF (not here)
-  // to avoid a stale-angle jump: the useLayoutEffect fires at React-render time, but
-  // orbitAngleRef2 was last written in the previous RAF frame — a few ms earlier.
-  // Computing in the RAF's first approach tick guarantees start angle == last RAF frame.
-  useLayoutEffect(() => {
-    if (spinRoomPhase !== 'approach') return;
-    spinPhaseRef.current = 'approach';
-    // Reset start time so the RAF knows to initialise on its first tick.
-    orbitApproachStartTimeRef.current = 0;
-    orbitApproachStartAngleRef.current = 0;
-    orbitApproachCorrectionRef.current = 0;
-    console.log('[WHEEL] APPROACH_PHASE_SET');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spinRoomPhase]);
-
   // ── Pull-forward: orbit converged; winner centred; drive ALL subsequent timing ─
   // This effect owns every milestone from "winner locked" to "buttons visible".
   // A single winnerMomentStart RAF replaces chained timeouts so elapsed time is
@@ -1979,6 +2032,8 @@ export default function IntentPage() {
   // (because spinRoomPhase dep change re-runs this effect's cleanup).
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'pullforward') return;
+    const spinGeneration = spinGenerationRef.current;
+    const isCurrentSpin = () => spinGenerationRef.current === spinGeneration;
     spinPhaseRef.current = 'pullforward';
     cancelAnimationFrame(orbitRafRef2.current);
     orbitApproachStartTimeRef.current = 0; // reset for next spin
@@ -2015,6 +2070,7 @@ export default function IntentPage() {
     logWheelState({ event: 'persist_start', pendingWinnerUserId: winner.userId });
     saveSpinResult.mutate(winner.userId, {
       onSuccess: () => {
+        if (!isCurrentSpin()) return;
         saveSpinSucceededRef.current = true;
         logWheelState({ event: 'persist_success', persistedUserId: winner.userId });
       },
@@ -2024,18 +2080,44 @@ export default function IntentPage() {
       recordSpin.mutate(winner.userId);
     }
 
-    // ── Step 0: lock winner card; capture loser opacities from approach ────────
+    // ── Step 0: lock winner card; capture loser opacities from guided stop ─────
     // The approach RAF's final tick left each card at its per-depth opacity.
     // We read those values here so the momentum RAF can fade FROM there (not from
     // a hardcoded 0.28), preventing the "cards jump brighter" artifact that made
     // the orbit look still-active at pullforward start.
-    if (winnerEl) {
+    const copyRect = (rect: DOMRect): HeroRect => ({
+      left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+    });
+    const startRect = winnerEl ? copyRect(winnerEl.getBoundingClientRect()) : null;
+    const targetRect = heroTargetMeasureRef.current
+      ? copyRect(heroTargetMeasureRef.current.getBoundingClientRect())
+      : null;
+    heroTargetRectRef.current = targetRect;
+
+    if (winnerEl && startRect) {
+      // Preserve the winner's exact visual rectangle, then take direct ownership
+      // of its viewport geometry. React intentionally does not own these props,
+      // so re-renders during the text sequence cannot interrupt this one DOM node.
       winnerEl.style.transition = 'none';
-      winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.0)';
+      winnerEl.style.position   = 'fixed';
+      winnerEl.style.left       = `${startRect.left}px`;
+      winnerEl.style.top        = `${startRect.top}px`;
+      winnerEl.style.width      = `${startRect.width}px`;
+      winnerEl.style.height     = `${startRect.height}px`;
+      winnerEl.style.transform  = 'none';
       winnerEl.style.opacity    = '1';
       winnerEl.style.filter     = '';
-      winnerEl.style.zIndex     = '100';
+      winnerEl.style.visibility = 'visible';
+      winnerEl.style.zIndex     = '200';
       winnerEl.style.boxShadow  = '0 0 18px 4px rgba(212,92,116,0.08)';
+      logWheelState({
+        event: 'hero_geometry_locked',
+        startRect: `${startRect.left.toFixed(1)},${startRect.top.toFixed(1)} ${startRect.width.toFixed(1)}x${startRect.height.toFixed(1)}`,
+        targetRect: targetRect
+          ? `${targetRect.left.toFixed(1)},${targetRect.top.toFixed(1)} ${targetRect.width.toFixed(1)}x${targetRect.height.toFixed(1)}`
+          : 'missing',
+      });
+      winnerHeroDomOwnedRef.current = true;
     }
     // Capture loser starting opacities; disable any residual CSS transitions.
     const loserStartAlpha: number[] = new Array(ORBIT_N).fill(0);
@@ -2053,38 +2135,25 @@ export default function IntentPage() {
     }
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
 
-    // ── Winner-reveal RAF — sole owner of winner card transform 0–9000 ms ──────
+    // ── Winner-reveal RAF — sole owner of winner card geometry until handoff ───
     //
     // CINEMATIC TIMELINE:
-    //   0–1800 ms    scale 1.000      hold — "Narrowing down…"
-    //   1800–3800    scale 1.000→1.010 subtle warmth — "There's something here…"
-    //   3800–6200    scale 1.010→1.020 hold — "Tonight's connection"
-    //   6200 ms      ── GROWING starts: CSS FLIP transition grows winner card
-    //                   from card-size to full-viewport hero (2800 ms transition)
-    //   7600 ms      text cleared (setMomentumLabel(''))
-    //   9000 ms      ── RESULT_READY: orbit card fills screen; result overlay mounts
-    //                   ('reveal') with selectedProfile; 'buttons' fires +1500 ms later
-    //
-    // After t=6200 ms the per-frame transform writes stop (flipStarted=true);
-    // the CSS transition on the orbit card drives the remainder.
+    //   0–6200 ms     locked card stays at its actual start rect; copy and glow build
+    //   6200–7000 ms  "Tonight's connection" holds; hero geometry stays still
+    //   7000–13200 ms original card interpolates startRect → targetRect (6.2 seconds)
+    //   13200–14000   full hero geometry holds
+    //   14000 ms      geometry-checked result handoff; buttons fire +1500 ms later
     //
     // Loser-card opacity: fade from approach-residual → 0 over first 1800 ms.
     winnerMomentStartRef.current = performance.now();
 
-    // Ease-out quadratic: fast start, decelerates to target
-    const _eo = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 2;
-
-    // Scale only runs 0–6200 ms; after that flipStarted stops RAF writes.
-    const _scale = (elapsed: number): number => {
-      if (elapsed < 1800)  return 1.000;
-      if (elapsed < 3800)  return 1.000 + _eo((elapsed - 1800) / 2000) * 0.010;
-      if (elapsed < 6200)  return 1.010 + _eo((elapsed - 3800) / 2400) * 0.010;
-      return                      1.020; // hold until FLIP takes over
+    const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
+    const geometryProgress = (elapsed: number) => {
+      const raw = Math.min(1, Math.max(0, (elapsed - 7000) / 6200));
+      // The gentle front-load reaches ~38% and ~73% at the requested checkpoints,
+      // then eases a little more slowly into the final hero rectangle.
+      return raw + 0.10 * raw * (1 - raw);
     };
-
-    // flipStarted: set true at t=6200 ms to stop per-frame RAF scale/glow writes
-    // so the CSS FLIP transition on the winner card is not overridden.
-    let flipStarted = false;
 
     // Helper: log [INTENTION_WHEEL_WINNER_NODE] diagnostics.
     // Reads computed geometry + opacity so we can verify via Railway logs whether
@@ -2162,76 +2231,78 @@ export default function IntentPage() {
         logWheelState({ event: 'text_2', elapsed: 3800 });
         logWinnerNode('text_2', 'Tonight\u2019s connection');
       }},
-      // t=6200: GROWING — stop per-frame scale writes; start CSS FLIP transition
-      // that grows the orbit winner card from its current card-sized rect to fill
-      // the full viewport over 2800 ms (ends at t=9000).
+      // t=6200: GROWING — preserve the existing text timing, then hold the locked
+      // card briefly before the real 6.2 second geometry enlargement starts.
       { t: 6200, fn: () => {
-        flipStarted = true; // stops per-frame RAF transform/shadow writes
         setSpinRoomPhase('growing');
         logWheelState({ event: 'growing_start', elapsed: 6200 });
         logWinnerNode('growing_start', 'Tonight\u2019s connection');
-
-        if (!winnerEl) return;
-        const cardRect  = winnerEl.getBoundingClientRect();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const cardCx   = cardRect.left + cardRect.width  / 2;
-        const cardCy   = cardRect.top  + cardRect.height / 2;
-        // Scale to fill the viewport with no gaps
-        const heroScale = Math.max(vw / cardRect.width, vh / cardRect.height);
-        // Extra translate to align card centre with viewport centre
-        const dx = vw / 2 - cardCx;
-        const dy = vh / 2 - cardCy;
-
-        logWheelState({
-          event: 'flip_start',
-          cardRect: `${cardRect.x.toFixed(0)},${cardRect.y.toFixed(0)} ${cardRect.width.toFixed(0)}x${cardRect.height.toFixed(0)}`,
-          heroScale: heroScale.toFixed(4), dx: dx.toFixed(1), dy: dy.toFixed(1), vw, vh,
-        });
-        postWheelDiag('state', {
-          event: 'flip_start', heroScale: heroScale.toFixed(4),
-          dx: dx.toFixed(1), dy: dy.toFixed(1),
-        });
-
-        // Lift winner card above all other orbit cards
-        winnerEl.style.zIndex = '90';
-
-        // Two nested rAFs flush the style engine so the CURRENT transform is
-        // painted as the starting keyframe before the transition fires.
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (!winnerEl) return;
-            winnerEl.style.transition = [
-              'transform 2.8s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-              'border-radius 2.8s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-              'box-shadow 1.0s ease',
-            ].join(', ');
-            winnerEl.style.borderRadius = '0px';
-            winnerEl.style.boxShadow    = 'none';
-            // Growing transform: orbit-card anchor stays at left/top 50% of its
-            // container; translate(-50%,-50%) centres it there; we add dx/dy to
-            // shift the card centre to the viewport centre, then scale to hero size.
-            winnerEl.style.transform =
-              `translate(calc(-50% + ${dx.toFixed(1)}px), calc(-50% + ${dy.toFixed(1)}px)) scale(${heroScale.toFixed(4)})`;
-          });
-        });
       }},
-      // t=7600: Text fades out (midway through the FLIP grow)
+      // t=7600: Preserve the established text fade timing.
       { t: 7600, fn: () => {
         setMomentumLabel('');
         logWheelState({ event: 'text_fade_out', elapsed: 7600 });
       }},
-      // t=9000: RESULT_READY — orbit card fills viewport; mount result overlay.
-      // Retry up to 15 × 200 ms if persist hasn't confirmed yet; after 15
-      // attempts proceed anyway (never block the user indefinitely).
-      { t: 9000, fn: () => {
-        logWheelState({ event: 'result_start', elapsed: 9000 });
+      // t=14000: Result may only take over after the original winner has held the
+      // target geometry and its measured rectangle matches the measured hero target.
+      { t: 14000, fn: () => {
+        logWheelState({ event: 'result_start', elapsed: 14000 });
         logWinnerNode('result_start', '');
 
         const revealAttempt = (attempt: number) => {
+          if (!isCurrentSpin()) return;
           if (!saveSpinSucceededRef.current && attempt < 15) {
             logWheelState({ event: 'result_waiting_for_persist', attempt });
-            setTimeout(() => revealAttempt(attempt + 1), 200);
+            scheduleWheelTimeout(spinGeneration, () => revealAttempt(attempt + 1), 200);
+            return;
+          }
+          const orbitRect = winnerEl ? copyRect(winnerEl.getBoundingClientRect()) : null;
+          const liveTarget = heroTargetMeasureRef.current
+            ? copyRect(heroTargetMeasureRef.current.getBoundingClientRect())
+            : null;
+          if (liveTarget) heroTargetRectRef.current = liveTarget;
+          const target = liveTarget ?? heroTargetRectRef.current;
+          const deltaLeft = orbitRect && target ? orbitRect.left - target.left : Number.NaN;
+          const deltaTop = orbitRect && target ? orbitRect.top - target.top : Number.NaN;
+          const deltaWidth = orbitRect && target ? orbitRect.width - target.width : Number.NaN;
+          const deltaHeight = orbitRect && target ? orbitRect.height - target.height : Number.NaN;
+          const geometryMatches = !!orbitRect && !!target &&
+            Math.abs(deltaLeft) <= 1 && Math.abs(deltaTop) <= 1 &&
+            Math.abs(deltaWidth) <= 1 && Math.abs(deltaHeight) <= 1;
+          const handoffPayload = {
+            event: 'handoff_preflight',
+            orbitRect: orbitRect
+              ? `${orbitRect.left.toFixed(1)},${orbitRect.top.toFixed(1)} ${orbitRect.width.toFixed(1)}x${orbitRect.height.toFixed(1)}`
+              : 'missing',
+            resultRect: target
+              ? `${target.left.toFixed(1)},${target.top.toFixed(1)} ${target.width.toFixed(1)}x${target.height.toFixed(1)}`
+              : 'missing',
+            deltaLeft: Number.isFinite(deltaLeft) ? deltaLeft.toFixed(2) : 'missing',
+            deltaTop: Number.isFinite(deltaTop) ? deltaTop.toFixed(2) : 'missing',
+            deltaWidth: Number.isFinite(deltaWidth) ? deltaWidth.toFixed(2) : 'missing',
+            deltaHeight: Number.isFinite(deltaHeight) ? deltaHeight.toFixed(2) : 'missing',
+            geometryMatches,
+            attempt,
+          };
+          console.log('[INTENTION_WHEEL_HANDOFF]', handoffPayload);
+          logWheelState(handoffPayload);
+          postWheelDiag('winner_node', handoffPayload);
+          if (!geometryMatches) {
+            // A mobile viewport can change while the cinematic card is growing.
+            // Re-align the original node to the newly measured target and retry;
+            // never reveal a second image against stale geometry.
+            if (winnerEl && target) {
+              winnerEl.style.left = `${target.left.toFixed(2)}px`;
+              winnerEl.style.top = `${target.top.toFixed(2)}px`;
+              winnerEl.style.width = `${target.width.toFixed(2)}px`;
+              winnerEl.style.height = `${target.height.toFixed(2)}px`;
+              winnerEl.style.borderRadius = '0px';
+            }
+            if (attempt < 30) {
+              scheduleHandoffFrame(spinGeneration, () => revealAttempt(attempt + 1));
+            } else {
+              logWheelState({ event: 'handoff_blocked_geometry_mismatch' });
+            }
             return;
           }
           const profileNow = pendingWinnerRef.current?.profile;
@@ -2251,66 +2322,54 @@ export default function IntentPage() {
           setSelectedIndex(pendingWinnerRef.current?.index ?? frontI);
           setSelectedProfile(normProfile);
           setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
-          // Mount result overlay with photo (imperceptible handoff: same image,
-          // same screen position as the now-full-size orbit card).
+          // The result photo mounts only after its planned viewport rect matches the
+          // still-visible orbit winner. The layout effect below logs the actual
+          // result-photo measurement and hides the old owner on the next frame.
+          setHeroHandoffComplete(false);
           setSpinRoomPhase('reveal');
           if (!muted) playChime();
           try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
-          // Profile text + buttons fade in 1500 ms after the overlay mounts.
-          setTimeout(() => {
-            setSpinRoomPhase('buttons');
-            console.log('[WHEEL] BUTTONS_VISIBLE');
-          }, 1500);
         };
         revealAttempt(0);
       }},
     ];
 
     let mI = 0;
-    let _scaleLogBucket = -1;
+    let geometryLogBucket = -1;
     const momentumTick = (now: number) => {
       const elapsed = now - winnerMomentStartRef.current;
 
-      // ── Per-frame DOM writes — stop once CSS FLIP takes over at t=6200 ms ──
-      if (!flipStarted && winnerEl) {
-        const computedScale = _scale(elapsed);
-        // Scale: continuous ease-out quadratic; no CSS transition → no snap-jumps.
-        winnerEl.style.transform = `translate(-50%, -50%) scale(${computedScale.toFixed(4)})`;
-        // Card glow builds gently until the FLIP starts (max at t=6200).
-        const gt  = Math.min(1, elapsed / 6200);
+      // ── Per-frame DOM writes — original winner owns the whole enlargement ────
+      if (winnerEl && startRect && targetRect) {
+        const progress = geometryProgress(elapsed);
+        winnerEl.style.left = `${lerp(startRect.left, targetRect.left, progress).toFixed(2)}px`;
+        winnerEl.style.top = `${lerp(startRect.top, targetRect.top, progress).toFixed(2)}px`;
+        winnerEl.style.width = `${lerp(startRect.width, targetRect.width, progress).toFixed(2)}px`;
+        winnerEl.style.height = `${lerp(startRect.height, targetRect.height, progress).toFixed(2)}px`;
+        winnerEl.style.borderRadius = `${lerp(18, 0, progress).toFixed(2)}px`;
+        const gt  = Math.min(1, elapsed / 7000);
         const gr  = Math.round(18 + gt * 28);
-        const gsp = Math.round(4  + gt * 8);
+        const gsp = Math.round(4 + gt * 8);
         winnerEl.style.boxShadow =
           `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.22).toFixed(3)}), ` +
           `0 6px ${Math.round(24 + gt * 8)}px rgba(0,0,0,${(0.50 + gt * 0.10).toFixed(3)})`;
-        // Scale diagnostic every 500 ms (compare RAF value vs actual CSS)
-        const scaleBucket = Math.floor(elapsed / 500);
-        if (scaleBucket > _scaleLogBucket) {
-          _scaleLogBucket = scaleBucket;
-          const actualT = getComputedStyle(winnerEl).transform;
-          console.log('[INTENTION_WHEEL_SCALE]', {
+        const geometryBucket = Math.floor(elapsed / 500);
+        if (geometryBucket > geometryLogBucket) {
+          geometryLogBucket = geometryBucket;
+          const rect = winnerEl.getBoundingClientRect();
+          const payload = {
             elapsed: Math.round(elapsed),
-            computedScale: computedScale.toFixed(4),
-            actualComputedTransform: actualT,
-          });
-          logWheelState({
-            event: 'scale_sample',
-            elapsed: Math.round(elapsed),
-            computedScale: computedScale.toFixed(4),
-            actualComputedTransform: actualT,
-          });
-          postWheelDiag('scale', {
-            elapsed: Math.round(elapsed),
-            computedScale: computedScale.toFixed(4),
-            actualComputedTransform: actualT,
-            phase: spinPhaseRef.current,
-            winnerUserId: winner.userId,
-          });
+            geometryProgress: progress.toFixed(4),
+            rect: `${rect.left.toFixed(1)},${rect.top.toFixed(1)} ${rect.width.toFixed(1)}x${rect.height.toFixed(1)}`,
+          };
+          console.log('[INTENTION_WHEEL_HERO_GEOMETRY]', payload);
+          logWheelState({ event: 'hero_geometry_sample', ...payload });
+          postWheelDiag('scale', { ...payload, phase: spinPhaseRef.current, winnerUserId: winner.userId });
         }
       }
-      // Ambient orb glow (only while RAF owns the card geometry)
-      if (!flipStarted && orbitGlowRef.current) {
-        const gt  = Math.min(1, elapsed / 6200);
+      // Ambient orb glow only supports the original winner; it never owns hero geometry.
+      if (orbitGlowRef.current) {
+        const gt  = Math.min(1, elapsed / 7000);
         const gr  = Math.round(18 + gt * 42);
         const gsp = Math.round(4  + gt * 16);
         orbitGlowRef.current.style.boxShadow =
@@ -2337,10 +2396,85 @@ export default function IntentPage() {
       if (mI < milestones.length) {
         orbitRafRef2.current = requestAnimationFrame(momentumTick);
       }
-      // RAF naturally stops after the last milestone (t=9000) fires.
+      // RAF naturally stops after the geometry-checked handoff milestone fires.
     };
     orbitRafRef2.current = requestAnimationFrame(momentumTick);
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spinRoomPhase]);
+
+  // The preflight above prevents mounting a second photo at the wrong geometry.
+  // This layout read verifies the mounted result wrapper as well, then transfers
+  // ownership on the following frame so there is never a visible card-to-photo jump.
+  useLayoutEffect(() => {
+    if (spinRoomPhase !== 'reveal' && spinRoomPhase !== 'buttons') return;
+    const orbitEl = orbitCardRefs.current[pendingWinnerRef.current?.index ?? -1];
+    const resultEl = resultPhotoWrapperRef.current;
+    if (!orbitEl || !resultEl) return;
+
+    const orbitRect = orbitEl.getBoundingClientRect();
+    const resultRect = resultEl.getBoundingClientRect();
+    const deltaLeft = orbitRect.left - resultRect.left;
+    const deltaTop = orbitRect.top - resultRect.top;
+    const deltaWidth = orbitRect.width - resultRect.width;
+    const deltaHeight = orbitRect.height - resultRect.height;
+    const geometryMatches =
+      Math.abs(deltaLeft) <= 1 && Math.abs(deltaTop) <= 1 &&
+      Math.abs(deltaWidth) <= 1 && Math.abs(deltaHeight) <= 1;
+    const payload = {
+      event: 'handoff_measured',
+      orbitRect: `${orbitRect.left.toFixed(1)},${orbitRect.top.toFixed(1)} ${orbitRect.width.toFixed(1)}x${orbitRect.height.toFixed(1)}`,
+      resultRect: `${resultRect.left.toFixed(1)},${resultRect.top.toFixed(1)} ${resultRect.width.toFixed(1)}x${resultRect.height.toFixed(1)}`,
+      deltaLeft: deltaLeft.toFixed(2),
+      deltaTop: deltaTop.toFixed(2),
+      deltaWidth: deltaWidth.toFixed(2),
+      deltaHeight: deltaHeight.toFixed(2),
+      geometryMatches,
+    };
+    console.log('[INTENTION_WHEEL_HANDOFF]', payload);
+    logWheelState(payload);
+    postWheelDiag('winner_node', payload);
+
+    if (!geometryMatches) {
+      // A resize landed between the preflight and this layout read. Preserve the
+      // original photo, re-align it to the newly measured target, then retry the
+      // hidden handoff rather than stranding the user in the growing phase.
+      cancelWheelAsync();
+      const recoveryGeneration = spinGenerationRef.current + 1;
+      spinGenerationRef.current = recoveryGeneration;
+      const realignWinner = () => {
+        const target = heroTargetMeasureRef.current?.getBoundingClientRect();
+        if (!target) return;
+        orbitEl.style.left = `${target.left.toFixed(2)}px`;
+        orbitEl.style.top = `${target.top.toFixed(2)}px`;
+        orbitEl.style.width = `${target.width.toFixed(2)}px`;
+        orbitEl.style.height = `${target.height.toFixed(2)}px`;
+        orbitEl.style.borderRadius = '0px';
+        heroTargetRectRef.current = {
+          left: target.left, top: target.top, width: target.width, height: target.height,
+        };
+      };
+      realignWinner();
+      setHeroHandoffComplete(false);
+      setSpinRoomPhase('growing');
+      scheduleHandoffFrame(recoveryGeneration, () => {
+        realignWinner();
+        scheduleHandoffFrame(recoveryGeneration, () => {
+          setSpinRoomPhase('reveal');
+        });
+      });
+      return;
+    }
+    setHeroHandoffComplete(true);
+    scheduleHandoffFrame(spinGenerationRef.current, () => {
+      orbitEl.style.visibility = 'hidden';
+    });
+    if (spinRoomPhase === 'reveal') {
+      const generation = spinGenerationRef.current;
+      scheduleWheelTimeout(generation, () => {
+        setSpinRoomPhase('buttons');
+        console.log('[WHEEL] BUTTONS_VISIBLE');
+      }, 1500);
+    }
   }, [spinRoomPhase]);
 
   // ── Arrive: update phase ref only (winner state already applied by pullforward) ─
@@ -2350,12 +2484,19 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
-  // 'pause' phase removed — the FLIP from orbit card to hero is now driven by the
-  // momentum RAF at t=6200 ms using a CSS transition directly on the winner orbit
-  // card element.  The separate winnerPhotoWrapperRef / 'pause' useLayoutEffect
-  // handoff is no longer needed.
+  // The result overlay receives the winner only after the direct card-to-hero
+  // geometry handoff above has passed its measured tolerance check.
 
-  useEffect(() => { return () => cancelAnimationFrame(animFrame.current); }, []);
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(animFrame.current);
+      cancelWheelAsync();
+      spinGenerationRef.current += 1;
+    };
+  // Intentionally registered once: refs keep the cleanup current without making
+  // phase changes cancel the active cinematic sequence.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     const t0 = performance.now();
     console.log("[INTENT] MOUNTED");
@@ -3638,6 +3779,13 @@ export default function IntentPage() {
           }}
           data-testid="spin-room-overlay"
         >
+          {/* The exact destination rectangle exists and is measurable while the
+              original winner grows. It contains no image until handoff succeeds. */}
+          <div
+            ref={heroTargetMeasureRef}
+            aria-hidden="true"
+            style={{ position: "absolute", inset: 0, visibility: "hidden", pointerEvents: "none" }}
+          />
           {/* ── CAROUSEL STAGE — Cover Flow horizontal carousel ── */}
           <div style={{
             position: "absolute", inset: 0,
@@ -3646,7 +3794,7 @@ export default function IntentPage() {
             // Carousel fades to 0 at 'reveal'/'buttons' — by then the result overlay's
             // ProfilePhoto (same image, same position) is the visible hero.
             // During 'growing' the orbit card IS the hero; carousel must stay opaque.
-            opacity: (spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') ? 0 : 1,
+            opacity: heroHandoffComplete && (spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') ? 0 : 1,
             transition: "opacity 1.4s cubic-bezier(0.4,0,0.2,1)",
             pointerEvents: (spinRoomPhase === 'growing' || spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') ? "none" : "auto",
           }}>
@@ -3732,10 +3880,23 @@ export default function IntentPage() {
                 {Array.from({ length: ORBIT_N }, (_, i) => (
                   <div
                     key={i}
-                    ref={el => { orbitCardRefs.current[i] = el; }}
+                    ref={el => {
+                      orbitCardRefs.current[i] = el;
+                      // Keep viewport geometry entirely outside React's style diff.
+                      // This runs on mount/new-spin while the normal orbit owns the
+                      // card, but deliberately leaves the locked winner untouched.
+                      if (el && !winnerHeroDomOwnedRef.current) {
+                        el.style.position = 'absolute';
+                        el.style.left = '50%';
+                        el.style.top = '50%';
+                        el.style.width = '152px';
+                        el.style.height = '228px';
+                        el.style.borderRadius = '18px';
+                        el.style.visibility = 'visible';
+                      }
+                    }}
                     style={{
-                      position: "absolute", left: "50%", top: "50%",
-                      width: 152, height: 228, borderRadius: 18, overflow: "hidden",
+                      overflow: "hidden",
                       willChange: "transform, opacity, filter, box-shadow",
                     }}
                   >
@@ -3751,7 +3912,7 @@ export default function IntentPage() {
                     }} />
                     {/* Subtle rose border */}
                     <div style={{
-                      position: "absolute", inset: 0, borderRadius: 18,
+                      position: "absolute", inset: 0, borderRadius: "inherit",
                       border: "1px solid rgba(212,92,116,0.18)",
                       pointerEvents: "none",
                     }} />
@@ -3836,6 +3997,9 @@ export default function IntentPage() {
             onBackToWheel={() => {
               // Reset ONLY Intention Wheel local state — do NOT touch auth, global
               // query cache, or any other page's data.
+              cancelWheelAsync();
+              spinGenerationRef.current += 1;
+              setHeroHandoffComplete(false);
               logWheelState({ event: 'back_to_wheel_pressed' });
               setShowSpinRoom(false);
               setSpinRoomPhase('idle');
@@ -3907,7 +4071,10 @@ export default function IntentPage() {
             {/* zIndex:110 puts the overlay above the orbit winner card (zIndex:90 at
                 growing phase) so the ProfilePhoto here creates an imperceptible
                 handoff: same image, same screen position, carousel parent then fades. */}
-            <div style={{ position: "absolute", inset: 0, zIndex: 110 }}>
+            <div style={{
+              position: "absolute", inset: 0, zIndex: 300,
+              visibility: heroHandoffComplete ? "visible" : "hidden",
+            }}>
 
               {/* ── Photo — appears at reveal; imperceptible handoff from orbit card ── */}
               {/* The orbit card FLIP-grew to full-screen (growing phase, ~2800 ms CSS  */}
@@ -3916,7 +4083,7 @@ export default function IntentPage() {
               {/* opacity:0 without the hero photo disappearing.  Because both images     */}
               {/* show the same userId and are pixel-aligned, the swap is invisible.      */}
               {selectedProfile && (
-                <div style={{ position: "absolute", inset: 0 }}>
+                <div ref={resultPhotoWrapperRef} style={{ position: "absolute", inset: 0 }}>
                   <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
                 </div>
               )}
