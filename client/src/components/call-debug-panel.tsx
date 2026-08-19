@@ -54,6 +54,8 @@ export function CallDebugPanel() {
     return unsub;
   }, []);
 
+  if (!import.meta.env.DEV) return null;
+
   const copyAll = () => {
     const lines: string[] = [
       "=== LULOU CALL DEBUG ===",

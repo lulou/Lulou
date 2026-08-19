@@ -881,16 +881,17 @@ export default function SettingsPage() {
             <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
           </button>
           <h1 className="font-serif text-xl font-bold flex-1">{t("settings")}</h1>
-          {/* Version chip — tap to scroll to the About/diagnostics panel */}
-          <button
-            onClick={() => aboutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-            data-testid="button-settings-version-chip"
-            className="flex items-center gap-1 px-2 py-1 rounded-full bg-muted/60 border border-border/40 text-[10px] font-mono text-muted-foreground hover:bg-muted active:scale-95 transition-all shrink-0"
-            title="Scroll to version info"
-          >
-            <span className="text-[9px] opacity-60">v</span>
-            <span data-testid="text-version-chip-hash">{__COMMIT_HASH__}</span>
-          </button>
+          {import.meta.env.DEV && (
+            <button
+              onClick={() => aboutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              data-testid="button-settings-version-chip"
+              className="flex items-center gap-1 px-2 py-1 rounded-full bg-muted/60 border border-border/40 text-[10px] font-mono text-muted-foreground hover:bg-muted active:scale-95 transition-all shrink-0"
+              title="Scroll to version info"
+            >
+              <span className="text-[9px] opacity-60">v</span>
+              <span data-testid="text-version-chip-hash">{__COMMIT_HASH__}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1304,12 +1305,13 @@ export default function SettingsPage() {
             testId="button-billing-terms"
           />
 
-          {/* ── 9. Version / Deployment ── */}
-          <div ref={aboutRef} />
-          <SectionHeader title="About" />
+          {/* ── Development-only version / deployment details ── */}
+          {import.meta.env.DEV && (
+            <>
+            <div ref={aboutRef} />
+            <SectionHeader title="About" />
 
-          {/* Version info panel */}
-          <div className="mx-4 mb-3 rounded-2xl bg-muted/40 border border-border/50 overflow-hidden">
+            <div className="mx-4 mb-3 rounded-2xl bg-muted/40 border border-border/50 overflow-hidden">
             {/* Frontend commit + build time */}
             <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
               <span className="text-xs text-muted-foreground font-medium">App commit</span>
@@ -1407,7 +1409,9 @@ export default function SettingsPage() {
                 {swScope}
               </span>
             </div>
-          </div>
+            </div>
+            </>
+          )}
 
           {/* Check for app update + Copy version info */}
           <div className="mx-4 mb-3 flex gap-2">
@@ -1415,7 +1419,7 @@ export default function SettingsPage() {
               onClick={handleCheckForUpdate}
               disabled={isUpdating}
               data-testid="button-check-for-update"
-              className="flex-1 py-3 px-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              className={`${import.meta.env.DEV ? "flex-1" : "w-full"} py-3 px-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2`}
             >
               {isUpdating ? (
                 <>
@@ -1426,13 +1430,15 @@ export default function SettingsPage() {
                 "Check for app update"
               )}
             </button>
-            <button
-              onClick={handleCopyVersionInfo}
-              data-testid="button-copy-version-info"
-              className="py-3 px-4 rounded-2xl border border-border text-sm font-semibold hover:bg-muted active:scale-[0.98] transition-all"
-            >
-              Copy version info
-            </button>
+            {import.meta.env.DEV && (
+              <button
+                onClick={handleCopyVersionInfo}
+                data-testid="button-copy-version-info"
+                className="py-3 px-4 rounded-2xl border border-border text-sm font-semibold hover:bg-muted active:scale-[0.98] transition-all"
+              >
+                Copy version info
+              </button>
+            )}
           </div>
           <p className="text-center text-[11px] text-muted-foreground/50 mb-4 px-6">
             "Check for app update" activates any waiting service worker safely — your login, notifications, and data are not affected.

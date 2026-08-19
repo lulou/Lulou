@@ -3,7 +3,6 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, us
 import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED, API_BASE, IS_CROSS_ORIGIN_DEPLOY, refreshAuthToken, requireApiBase } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
-import { PurchaseDebugPanel } from "@/components/purchase-debug-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import NotFound from "@/pages/not-found";
@@ -37,11 +36,6 @@ import {
   CookiePolicyPage,
   BillingTermsPage,
 } from "@/pages/legal";
-import { CallDiagnosticsButton } from "@/components/call-diagnostics-button";
-// Dev-only perf overlay stays lazy — never adds to production bundle.
-const PerfOverlayLazy = import.meta.env.DEV
-  ? lazy(() => import("@/components/perf-overlay").then(m => ({ default: m.PerfOverlay })))
-  : null;
 // Call overlays lazy-loaded — only needed when a call is active.
 // useCallSignaling still detects calls eagerly; both chunks are preloaded at
 // idle so the overlay is ready before any call arrives.
@@ -157,11 +151,8 @@ class AppRootErrorBoundary extends Component<{ children: ReactNode }, RootEBStat
               </svg>
             </div>
             <h1 style={{ fontSize: 18, fontWeight: 600, color: "#1a1a1a", margin: "0 0 12px" }}>Something went wrong</h1>
-            <p style={{ fontSize: 14, color: "#555", lineHeight: 1.6, margin: "0 0 8px" }}>
-              {this.state.error?.message ?? "An unexpected error occurred."}
-            </p>
-            <p style={{ fontSize: 12, color: "#888", margin: "0 0 20px" }}>
-              Open DevTools (F12) → Console for details.
+            <p style={{ fontSize: 14, color: "#555", lineHeight: 1.6, margin: "0 0 20px" }}>
+              Something didn’t quite load. Please reload Lulou and try again.
             </p>
             <button
               onClick={() => window.location.reload()}
@@ -180,7 +171,7 @@ class AppRootErrorBoundary extends Component<{ children: ReactNode }, RootEBStat
 // ── Supabase config error screen ──────────────────────────────────────────────
 // Shown when VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing.
 // Uses inline styles (not Tailwind) so it renders even when CSS vars are absent.
-function SupabaseConfigErrorScreen({ message }: { message: string }) {
+function SupabaseConfigErrorScreen() {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#faf8f5", padding: "24px", fontFamily: "system-ui, sans-serif" }}>
       <div style={{ maxWidth: 520, width: "100%", textAlign: "center" }}>
@@ -189,15 +180,16 @@ function SupabaseConfigErrorScreen({ message }: { message: string }) {
             <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
         </div>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", margin: "0 0 12px" }}>Lulou — Configuration Error</h1>
-        <p style={{ fontSize: 14, color: "#555", lineHeight: 1.7, margin: "0 0 20px" }}>{message}</p>
-        <div style={{ background: "#f3f4f6", borderRadius: 8, padding: "12px 16px", textAlign: "left", fontSize: 13, color: "#374151", lineHeight: 1.7 }}>
-          <strong>Fix:</strong> Go to your Vercel project → Settings → Environment Variables and add:<br />
-          <code style={{ background: "#e5e7eb", borderRadius: 4, padding: "1px 6px" }}>VITE_SUPABASE_URL</code><br />
-          <code style={{ background: "#e5e7eb", borderRadius: 4, padding: "1px 6px" }}>VITE_SUPABASE_ANON_KEY</code><br />
-          <code style={{ background: "#e5e7eb", borderRadius: 4, padding: "1px 6px" }}>VITE_API_BASE_URL</code> (Replit backend URL)<br />
-          Then redeploy.
-        </div>
+        <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", margin: "0 0 12px" }}>Lulou is temporarily unavailable</h1>
+        <p style={{ fontSize: 14, color: "#555", lineHeight: 1.7, margin: "0 0 20px" }}>
+          Please reload the app and try again in a moment.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{ padding: "10px 24px", borderRadius: 8, background: "#be4b61", color: "white", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 500 }}
+        >
+          Reload App
+        </button>
       </div>
     </div>
   );
@@ -3409,7 +3401,8 @@ function App() {
   // If VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY are missing (Vercel env
   // vars not set), show a clear actionable error instead of a blank page.
   if (supabaseConfigError) {
-    return <SupabaseConfigErrorScreen message={supabaseConfigError} />;
+    console.error("[APP_CONFIG_ERROR]", supabaseConfigError);
+    return <SupabaseConfigErrorScreen />;
   }
 
   return (
@@ -3425,13 +3418,6 @@ function App() {
                 <TooltipProvider>
                   <Toaster />
                   <AppContent />
-                  <CallDiagnosticsButton />
-                  <PurchaseDebugPanel />
-                  {import.meta.env.DEV && PerfOverlayLazy && (
-                    <Suspense fallback={null}>
-                      <PerfOverlayLazy />
-                    </Suspense>
-                  )}
                 </TooltipProvider>
               </SettingsHydrationProvider>
             </AuthProvider>

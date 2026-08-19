@@ -463,8 +463,6 @@ export default function Messaging() {
   const [composerHeight, setComposerHeight] = useState(70);
   // Viewport metrics for keyboard tracking + diagnostic display
   const [vvHeight, setVvHeight] = useState(() => (typeof window !== "undefined" ? window.innerHeight : 800));
-  // ── Layer diagnostic state — TEMP, shows computed rect of each fixed layer ──
-  const [layerDiag, setLayerDiag] = useState({ hdr: "…", msg: "…", cmp: "…" });
 
   // ── Draft restoration — runs once per matchId so unsent text survives navigation ──
   useEffect(() => {
@@ -721,22 +719,6 @@ export default function Messaging() {
     if (headerRef.current)   setHeaderHeight(headerRef.current.offsetHeight);
     if (composerRef.current) setComposerHeight(composerRef.current.offsetHeight);
   }, []); // runs once after DOM commit, before browser paint
-
-  // ── Diagnostic: live computed rect for each fixed layer ────────────────────
-  // TEMP — remove after iPhone layout confirmed correct.
-  useLayoutEffect(() => {
-    const fmt = (el: HTMLElement | null) => {
-      if (!el) return "(null)";
-      const r = el.getBoundingClientRect();
-      const s = window.getComputedStyle(el);
-      return `T:${Math.round(r.top)} B:${Math.round(r.bottom)} H:${Math.round(r.height)} zi:${s.zIndex}`;
-    };
-    setLayerDiag({
-      hdr: fmt(headerRef.current),
-      msg: fmt(messagesContainerRef.current),
-      cmp: fmt(composerRef.current),
-    });
-  }); // intentionally no deps — fires after every render
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -1760,13 +1742,6 @@ export default function Messaging() {
         )}
       </div>{/* end fixed header */}
 
-      {/* MESSAGE_BUBBLES_C — messaging.tsx (NOT the branch shown on iPhone) — TEMP */}
-      {activeTab === "chat" && (
-        <div style={{ position: "fixed", top: headerHeight, left: 0, right: 0, zIndex: 49, fontSize: 9, fontFamily: "monospace", color: "#fff", background: "rgba(0,0,180,0.85)", padding: "2px 4px", lineHeight: 1.4, pointerEvents: "none" }}>
-          MESSAGE_BUBBLES_C · messaging.tsx · cmpBot:{Math.round(composerBottom)} vvH:{Math.round(vvHeight)}
-        </div>
-      )}
-
       {/* ═══ FIXED MESSAGES AREA ═══ */}
       {activeTab === "chat" && (
         <div
@@ -1925,10 +1900,6 @@ export default function Messaging() {
             paddingBottom: keyboardHeight > 0 ? 0 : "env(safe-area-inset-bottom, 0px)",
           }}
         >
-          {/* COMPOSER_C — messaging.tsx (NOT the branch shown on iPhone) — TEMP */}
-          <div style={{ fontSize: 9, fontFamily: "monospace", color: "#fff", background: "rgba(0,120,0,0.85)", padding: "2px 4px", lineHeight: 1.4 }}>
-            COMPOSER_C · messaging.tsx · kbH:{Math.round(keyboardHeight)} cmpH:{Math.round(composerHeight)}
-          </div>
           {waitingForPartner && !isCallRinging && !isCallActiveInDetail && !voiceNotePopupOpen && !firstCallPopupOpen ? (
             /* ── Waiting-for-partner card ─────────────────────────────────── */
             /* Shows when I've sent all my Stage-0 messages but partner hasn't. */

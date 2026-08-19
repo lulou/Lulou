@@ -2732,8 +2732,9 @@ export default function IntentPage() {
             {t("retry_btn")}
           </button>
 
-          {/* ── Wheel diagnostics panel ───────────────────────────────── */}
-          {showWheelEmpty && (
+          {/* Developer-only empty-state diagnostics; normal users see the
+              polished empty state above without internal filtering details. */}
+          {import.meta.env.DEV && showWheelEmpty && (
             <div className="mt-4 text-left">
               <button
                 className="text-xs text-muted-foreground underline underline-offset-2"
@@ -3787,23 +3788,25 @@ export default function IntentPage() {
             transition: "opacity 1.4s cubic-bezier(0.4,0,0.2,1)",
             pointerEvents: (spinRoomPhase === 'growing' || spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') ? "none" : "auto",
           }}>
-            {/* ── Build marker — always visible during spin to confirm live build ── */}
-            {/* Shows commit, phase, and winner IDs so any device can self-report */}
-            <div style={{
-              position: "absolute",
-              top: "max(env(safe-area-inset-top, 0px), 6px)",
-              right: 6, zIndex: 9999,
-              padding: "3px 6px",
-              background: "rgba(0,0,0,0.72)",
-              fontFamily: "monospace", fontSize: 8, color: "rgba(212,92,116,0.85)",
-              lineHeight: 1.5, borderRadius: 3,
-              pointerEvents: "none", userSelect: "none",
-            }}>
-              <div>🔧 {__COMMIT_HASH__}</div>
-              <div>phase: {spinRoomPhase}</div>
-              <div>winner: {pendingWinnerRef.current?.profile?.userId?.slice(-6) ?? '—'}</div>
-              <div>selected: {selectedProfile?.userId?.slice(-6) ?? '—'}</div>
-            </div>
+            {/* Build and winner diagnostics remain available in the console and
+                telemetry. This compact on-screen marker is development-only. */}
+            {import.meta.env.DEV && (
+              <div style={{
+                position: "absolute",
+                top: "max(env(safe-area-inset-top, 0px), 6px)",
+                right: 6, zIndex: 9999,
+                padding: "3px 6px",
+                background: "rgba(0,0,0,0.72)",
+                fontFamily: "monospace", fontSize: 8, color: "rgba(212,92,116,0.85)",
+                lineHeight: 1.5, borderRadius: 3,
+                pointerEvents: "none", userSelect: "none",
+              }}>
+                <div>🔧 {__COMMIT_HASH__}</div>
+                <div>phase: {spinRoomPhase}</div>
+                <div>winner: {pendingWinnerRef.current?.profile?.userId?.slice(-6) ?? '—'}</div>
+                <div>selected: {selectedProfile?.userId?.slice(-6) ?? '—'}</div>
+              </div>
+            )}
 
             {/* The tension veil darkens the complete room after the wheel has
                 stopped, while the locked winner and status copy remain above it. */}
@@ -4460,15 +4463,15 @@ export default function IntentPage() {
               ))}
             </div>
 
-            {/* ── Checkout diagnostic panel ─────────────────────────────────
-                 Subscribed to purchase-service debug state.
-                 Shows exactly what the server returned (URL on success, error on failure).
-                 Hidden until the first Buy tap on this sheet open. ─────────── */}
-            <CheckoutDiagPanel
-              diag={checkoutDiag}
-              onSubscribe={setCheckoutDiag}
-              open={showSpinExtras}
-            />
+            {/* Checkout telemetry remains in the purchase service. Its raw
+                response panel is development-only. */}
+            {import.meta.env.DEV && (
+              <CheckoutDiagPanel
+                diag={checkoutDiag}
+                onSubscribe={setCheckoutDiag}
+                open={showSpinExtras}
+              />
+            )}
 
             {/* Restore Purchases + Back to Lulou */}
             <div style={{ textAlign: "center", paddingTop: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 0 }}>
@@ -4488,10 +4491,8 @@ export default function IntentPage() {
           </div>
           </div>{/* end drag-transform wrapper */}
 
-          {/* ── Wheel debug panel — always visible, no DEV gate ── */}
-          {/* Surfaces every [INTENTION_WHEEL_STATE] event + boundary errors   */}
-          {/* on any device without Safari console access.                     */}
-          <WheelDebugPanel />
+          {/* Silent wheel telemetry continues to be recorded and posted. */}
+          {import.meta.env.DEV && <WheelDebugPanel />}
         </div>
       )}
 

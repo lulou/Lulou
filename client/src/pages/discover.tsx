@@ -971,8 +971,9 @@ export default function Discover() {
             {isRetrying && <Loader2 className="w-4 h-4 animate-spin" />}
             {t("try_again")}
           </button>
-          {/* ── Collapsible diagnostics panel ── */}
-          <DiscoverDiagPanel rows={diagRows} />
+          {/* Detailed auth/session diagnostics remain available in development
+              without exposing internal IDs or server details to customers. */}
+          {import.meta.env.DEV && <DiscoverDiagPanel rows={diagRows} />}
         </div>
       </div>
     );

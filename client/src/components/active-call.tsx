@@ -1186,9 +1186,6 @@ export function ActiveCallOverlay({
           <p className="text-white/50 text-sm leading-relaxed">
             {t("connection_failed_desc")}
           </p>
-          <p className="text-green-400 text-xs font-mono mt-1" data-testid="text-failure-reason">
-            {t("failure_reason_label")}{failureReason || t("detecting_label")}
-          </p>
         </div>
         <button
           className="w-16 h-16 rounded-full flex items-center justify-center bg-red-600 active:scale-95 transition-all shadow-lg"
@@ -1199,7 +1196,6 @@ export function ActiveCallOverlay({
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
         <span className="text-white/30 text-xs">{t("tap_to_end_auto")}</span>
-        <CallDebugPanel />
       </div>
     );
   }
@@ -1235,7 +1231,6 @@ export function ActiveCallOverlay({
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
         <span className="text-white/30 text-xs">{t("tap_to_end")}</span>
-        <CallDebugPanel />
       </div>
     );
   }
@@ -1596,7 +1591,6 @@ export function ActiveCallOverlay({
         </div>
       </div>
 
-      <CallDebugPanel />
     </div>
   );
 }
