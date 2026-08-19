@@ -1,0 +1,208 @@
+INTENTION WHEEL — PRESENTATION/UX FIX ONLY
+
+Work from the CURRENT production implementation. The actual spin/slowdown/winner-card enlargement is now working, so DO NOT rewrite or disturb the working wheel mechanics.
+
+Before editing:
+1. git fetch origin
+2. Confirm HEAD == origin/main
+3. Confirm working tree status
+4. Inspect the current Intention Wheel implementation before making changes.
+
+STRICT SCOPE:
+client/src/pages/intent.tsx only unless an absolutely necessary existing wheel-specific style lives elsewhere.
+
+DO NOT change:
+- spin physics
+- orbit maths
+- spin speed
+- deceleration
+- final stopping behaviour
+- ticking implementation
+- winner selection
+- candidate selection
+- winner geometry animation
+- winner-card → hero handoff
+- Retry Result
+- Send Halo
+- APIs
+- auth
+- database/schema
+- Discover
+- Likes
+- Connections
+- Profile
+- navigation
+
+There are FOUR presentation issues to fix.
+
+==================================================
+1. RESTORE THE DARK CINEMATIC TEXT MOMENT
+==================================================
+
+The previous Intention Wheel experience had an important cinematic moment AFTER the wheel selected/stopped on the winner and BEFORE the winner photo began enlarging.
+
+Currently that moment is effectively missing.
+
+I want it restored.
+
+After the wheel has COMPLETELY stopped:
+
+- Do NOT immediately begin enlarging the winner.
+- Transition the Intention Wheel/spin-room area into the existing dark cinematic appearance.
+- The selected photo should NOT dominate this part of the sequence.
+- Build tension with the existing text sequence.
+
+The words should appear ONE AFTER ANOTHER, deliberately and calmly — not rushed.
+
+Use the existing copy/timing system where possible:
+
+“Narrowing down…”
+
+then
+
+“There’s something here…”
+
+then
+
+“Tonight’s connection”
+
+Each line must have enough screen time to actually be read.
+
+There should be a genuine cinematic pause between the final line and the beginning of the winner-photo enlargement.
+
+The user should experience:
+
+wheel stops
+→ dark cinematic moment
+→ first text
+→ pause
+→ second text
+→ pause
+→ “Tonight’s connection”
+→ hold
+→ winner photo begins its EXISTING slow enlargement
+
+IMPORTANT:
+Do not change the working enlargement geometry merely to create this delay.
+
+Find why this dark/text phase is currently not visibly occurring and fix the presentation/state sequencing rather than creating another competing result screen.
+
+Do not allow the winner enlargement/result layer to cover or skip the text sequence.
+
+==================================================
+2. MAKE THE PRE-SPIN CAROUSEL FIT INSIDE THE PHONE
+==================================================
+
+Current production screenshot shows the outer candidate cards extending beyond the left and right edges of the viewport.
+
+It makes the carousel look oversized.
+
+Keep the premium 3D carousel design, but resize/reposition its RESTING/PRE-SPIN presentation so:
+
+- the left-most visible card stays JUST inside the left edge of the phone
+- the right-most visible card stays JUST inside the right edge
+- neither card is clipped by the viewport
+- centre card remains the visual focus
+- preserve depth/perspective
+- preserve premium spacing
+- responsive on iPhone widths, including ~390px viewport
+
+Do NOT solve this by changing the actual spin orbit mathematics.
+
+This requirement is specifically about how the resting carousel fits within the visible Intention Wheel section.
+
+==================================================
+3. MAKE THE WHOLE INTENTION WHEEL SECTION DARK
+==================================================
+
+Currently the page is mostly light and only transitions dark when entering the spinning experience.
+
+I want the entire INTENTION WHEEL FEATURE AREA to feel like its own premium environment.
+
+Apply the existing dark Intention Wheel visual treatment to the whole Intention Wheel content section shown in production:
+
+- “Intention Wheel” heading area
+- sound control / progress indicator
+- carousel
+- “Tonight’s possible connections”
+- candidate thumbnails
+- supporting copy
+- Spin button area
+- 3-day spin progress area
+
+Essentially everything between the main Lulou header and the bottom navigation should belong to the dark Intention Wheel environment.
+
+DO NOT darken:
+- main Lulou top header
+- bottom navigation
+
+Those should remain visually separate from the Intention Wheel.
+
+Use the EXISTING dark SpinRoom/Intention Wheel palette and design language rather than inventing an unrelated black theme.
+
+Update text/icon colours as required for proper contrast and a premium appearance.
+
+The transition into the actual spin room should therefore feel seamless rather than changing from a bright page into a completely different dark screen.
+
+==================================================
+4. DISABLE MANUAL CAROUSEL DRAGGING BEFORE SPIN
+==================================================
+
+Currently I can drag/swipe the large candidate profile cards manually before pressing SPIN.
+
+I do NOT want that.
+
+Before SPIN:
+- carousel must be stationary
+- touch dragging disabled
+- mouse dragging disabled
+- swipe movement disabled
+- cards must not rotate/change position from user gestures
+
+Pressing SPIN should be the ONLY action that starts carousel movement.
+
+Do not disable normal page scrolling.
+
+Once Spin is pressed, preserve the CURRENT working wheel movement exactly.
+
+==================================================
+REGRESSION PROTECTION
+==================================================
+
+The current production wheel finally has working:
+
+- smooth winner selection
+- final stopping behaviour
+- winner card growth/handoff
+- no React boundary error
+
+DO NOT regress those.
+
+This is NOT permission to redesign or rewrite the wheel engine.
+
+Make the smallest targeted changes necessary.
+
+After implementation:
+
+1. npm run build
+2. git diff --check
+3. inspect the final diff specifically for accidental changes to orbit/deceleration/winner geometry
+4. commit
+5. push origin main
+6. verify HEAD == origin/main
+
+REPORT BACK:
+
+- exact reason the dark/text cinematic phase wasn't appearing
+- what you changed to restore it
+- how the resting carousel was fitted inside mobile viewport
+- how manual dragging was disabled without affecting page scrolling/spin
+- files changed
+- build result
+- commit hash
+- origin/main hash
+
+Do not claim real iPhone PASS unless it has actually been tested on a real iPhone.
+
+MOST IMPORTANT:
+Do not break the wheel behaviour that is currently working.
