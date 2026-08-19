@@ -1,0 +1,326 @@
+Use the REAL production WHEEL LOG from commit e98f911.
+
+Do not redesign anything else.
+
+Two remaining animation problems are now very clear.
+
+PRODUCTION EVIDENCE — PHOTO JUMP
+
+Real iPhone log:
+
+photo_build
+elapsed: 8500
+computedScale: 1.0750
+
+9001ms:
+scale 1.0860
+
+9501ms:
+scale 1.0938
+
+10001ms:
+scale 1.0984
+
+10500ms:
+photo_hold
+scale 1.1000
+
+11502ms:
+result_ready
+scale 1.1000
+
+Then:
+
+flip_handoff_start
+cardRect: 111,278
+size: 167×251
+scale: 0.4287
+dx: 0
+dy: 5
+
+This proves the current “enlargement” is NOT actually enlarging the wheel winner into the final hero image.
+
+The wheel card only grows roughly 10%.
+
+Then the FLIP/result handoff performs the large geometry change.
+
+That is the visible jump.
+
+DO NOT change the earlier text timing again.
+
+PART 1 — MAKE THE REAL ENLARGEMENT THE CINEMATIC ANIMATION
+
+Remove the idea that scale 1.00 → 1.10 is the main enlargement.
+
+The actual winner card is approximately:
+
+167×251 px
+
+The final hero photo is much larger.
+
+The SAME visible winner must gradually transform from its wheel-card rectangle into the final hero rectangle.
+
+At WINNER_LOCKED:
+
+capture:
+
+startRect = winnerEl.getBoundingClientRect()
+
+Before result becomes visible:
+
+create/measure the final hero target rectangle without displaying the second image.
+
+targetRect must contain:
+
+left
+top
+width
+height
+Then animate the original visible winner card continuously from:
+
+startRect → targetRect
+
+over a slow premium duration.
+
+Use geometry interpolation:
+
+x = lerp(startLeft, targetLeft, easedProgress)
+y = lerp(startTop, targetTop, easedProgress)
+width/scale = interpolate start → target
+height/scale = interpolate start → target
+
+The viewer must visibly watch the small selected card grow into the large hero presentation.
+
+DO NOT:
+
+grow only to 1.10 and then perform a large FLIP jump
+mount a large second photo over the card
+suddenly resize at result_ready
+hide the wheel card before the geometry transition finishes
+PART 2 — SLOW THE ACTUAL CARD-TO-HERO GROWTH
+
+After the text sequence finishes:
+
+Hold “Tonight’s connection” briefly.
+
+Then begin the real full-size enlargement.
+
+Required feel:
+
+0–800ms after text hold:
+
+winner stays almost still
+subtle glow builds
+800–3000ms:
+
+winner begins visibly enlarging
+approximately first 35% of geometry distance
+3000–5200ms:
+
+continue smoothly through approximately 70%
+5200–7000ms:
+
+ease slowly into final hero size
+7000–7800ms:
+
+hold at full hero geometry
+Only after that:
+
+reveal name/details/actions
+The enlargement itself should therefore take about 6–7 seconds.
+
+It must be obvious to the user that the photo is gradually becoming the large final photo.
+
+Use smooth easing and direct DOM animation.
+
+No sudden final size change.
+
+PART 3 — INVISIBLE HANDOFF ONLY AFTER GEOMETRY MATCHES
+
+If the final result component still needs its own ProfilePhoto:
+
+Do not show it during the enlargement.
+
+At the end:
+
+original winner has reached targetRect
+mount result photo at EXACTLY the same viewport rect
+verify both rectangles match within ~1px
+show result photo
+hide/remove orbit winner on the next frame
+There must be no visible geometry difference during ownership transfer.
+
+Log:
+
+[INTENTION_WHEEL_HANDOFF]
+
+with:
+
+orbitRect
+resultRect
+deltaLeft
+deltaTop
+deltaWidth
+deltaHeight
+Do not hand off unless geometry is effectively identical.
+
+PART 4 — FIX THE EXTRA SPINS AT THE END
+
+Current real-device behaviour:
+
+The wheel slows as though it is about to stop.
+
+Then just before stopping it suddenly jumps/spins several positions further.
+
+This is still wrong.
+
+Read the EARLIER WHEEL LOG entries from the same production spin:
+
+approach_start
+orbit trace immediately before approach
+correctionRad
+targetAngle
+approachDuration
+winnerIndex
+approach_complete
+any orbit angle changes afterward
+Do not guess.
+
+At approach start:
+
+freeze candidate order
+freeze winner index
+capture current visual angle exactly once
+calculate winner target exactly once
+There must then be ONE continuous motion from current angle to winner target.
+
+IMPORTANT:
+
+Do not choose approach duration from a formula that causes initial approach velocity to be faster than the visual wheel velocity immediately before approach.
+
+Continuity requirement:
+
+velocity at first approach frame must closely match velocity from previous visual frame.
+
+The user must not perceive:
+
+slow → sudden acceleration → slow
+
+Instead:
+
+fast
+→ progressively slower
+→ progressively slower
+→ exact stop
+
+If the current correction requires several extra card crossings, start steering toward the winner EARLIER while the wheel still has speed.
+
+Do not wait until the wheel is almost stationary and then rotate several more candidates.
+
+That is likely what visually feels like “a few extra spins.”
+
+PART 5 — WINNER TARGET PLANNING
+
+Winner is already known internally.
+
+Use that fact earlier.
+
+Do not let the wheel nearly stop on an arbitrary candidate and only then travel to the winner.
+
+Before the visible slowdown becomes strong:
+
+calculate how much angular travel remains to the chosen winner.
+
+Plan the deceleration so the remaining rotations naturally terminate on that winner.
+
+No late correction phase should be visibly distinguishable from the normal slowdown.
+
+PART 6 — TICK SOUND
+
+Ticking must remain active for every visual card crossing until the exact final stop.
+
+Use the actual orbit angle.
+
+Do not stop audio based on phase timers.
+
+For each candidate-spacing crossing:
+
+play one tick.
+
+As visual rotation slows:
+ticks naturally spread out.
+
+The FINAL tick should correspond to the final card entering the winner position.
+
+Then WINNER_LOCKED:
+no more ticks.
+
+PART 7 — DO NOT BREAK THE NOW-WORKING CRASH FIX
+
+The previous “Something slipped away” error is now gone.
+
+Preserve all fixes responsible for that.
+
+Do not refactor:
+
+renderText fix
+result normalisation
+authenticated Retry Result
+API_BASE fixes
+error-boundary hardening
+PART 8 — STRICT SCOPE
+
+Prefer only:
+
+client/src/pages/intent.tsx
+
+Do not touch any unrelated Lulou system.
+
+Do not modify:
+
+auth
+messaging
+calls
+matching
+Halo semantics
+profiles
+settings
+payments
+database
+navigation
+deployment config
+REAL IPHONE PASS
+
+PASS requires:
+
+Wheel spins smoothly.
+Wheel enters one continuous slowdown.
+No late jump/spin.
+No sudden acceleration near the end.
+Tick audio follows visual card crossings.
+Ticks continue until visual movement ends.
+Winner stops exactly front-centre.
+Connection text appears normally.
+After text, winner visibly begins growing.
+Winner gradually transforms from ~167×251 wheel card toward full hero size.
+Enlargement lasts several seconds and is clearly visible.
+No sudden full-screen jump.
+Final result photo handoff is visually invisible.
+Result information fades in only after photo reaches full size.
+Existing crash remains fixed.
+Send Halo still works.
+Report:
+
+approach_start production values from the failed spin
+exact reason for late extra rotations
+old vs new approach strategy
+old card rect
+target hero rect
+actual enlargement duration
+handoff rect deltas
+files changed
+commit hash
+origin/main hash
+real iPhone PASS/FAIL
+Do not call it fixed from code inspection.
+
