@@ -1,0 +1,85 @@
+The latest production Intention Wheel now works perfectly for the actual spin, slowdown, winner stop and slow winner enlargement.
+
+DO NOT CHANGE ANY OF THAT WORKING ANIMATION.
+
+Only fix these TWO presentation issues:
+
+1. PRE-SPIN WHEEL CARDS
+
+The candidate profiles are loaded correctly — I can see their 4 thumbnails under “Tonight’s possible connections”.
+
+However, the main Intention Wheel above shows no actual profile cards. It only shows the Lulou mystery card and blank/grey side cards.
+
+Before Spin is pressed, show the REAL loaded candidate profile photos/cards inside the main wheel in their existing resting positions.
+
+Keep them mysterious/premium:
+- side cards can remain dimmed/blurred
+- centre card can remain partially obscured
+- don't show names/details
+- Lulou branding can remain as an overlay
+
+IMPORTANT:
+Use the existing candidate/orbit cards.
+Do NOT create another carousel.
+Do NOT change candidate selection or wheel geometry.
+
+2. RESTORE CINEMATIC TEXT BUILD
+
+Before the winner starts enlarging, Lulou used to darken and build tension with text. That has disappeared.
+
+Restore this sequence AFTER the wheel has completely stopped:
+
+Winner stops
+→ screen/background gradually darkens
+→ winner stays visible
+→ “Narrowing down…”
+→ “There’s something here…”
+→ “Tonight’s connection”
+→ HOLD the final words long enough to read
+→ THEN begin the EXISTING WORKING slow winner enlargement
+
+The dark overlay must NOT cover the winner card or text.
+
+Do not allow the photo enlargement to start until the final text has completed its hold.
+
+CRITICAL:
+
+The spin/stop/enlargement now works perfectly.
+
+DO NOT TOUCH:
+- orbit maths
+- spin speed
+- deceleration/approach
+- end-of-spin behaviour
+- ticking
+- winner selection
+- winner geometry animation
+- card-to-hero handoff
+- result/crash fixes
+- Retry
+- Halo
+- APIs
+- auth
+- other pages
+
+This is PRESENTATION ONLY.
+
+Prefer changing only:
+client/src/pages/intent.tsx
+
+Before editing:
+git fetch origin
+confirm HEAD == origin/main
+git status clean
+
+After editing:
+npm run build
+inspect git diff
+confirm the working motion code was untouched
+commit
+push
+confirm HEAD == origin/main
+
+Report the commit hash and exactly what changed.
+
+Do not redesign or refactor anything else.
