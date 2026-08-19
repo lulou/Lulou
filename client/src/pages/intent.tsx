@@ -845,7 +845,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
       <p style={{
         fontSize: 9, fontWeight: 800, letterSpacing: "0.22em",
         textTransform: "uppercase", textAlign: "center",
-        color: "hsl(var(--muted-foreground))",
+        color: "rgba(255,255,255,0.56)",
         marginBottom: 10, opacity: 0.7,
       }}>
         {t("tonight_connections")}
@@ -876,11 +876,11 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
         {items.length > maxCount && (
           <div style={{
             width: bubbleSize, height: bubbleSize, borderRadius: "50%", flexShrink: 0,
-            background: "hsl(var(--muted))",
+            background: "rgba(255,255,255,0.08)",
             border: "1.5px solid rgba(212,92,116,0.18)",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: "hsl(var(--muted-foreground))" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.58)" }}>
               +{items.length - maxCount}
             </span>
           </div>
@@ -888,7 +888,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
       </div>
       <p style={{
         fontSize: 10, textAlign: "center", marginTop: 8, fontStyle: "italic",
-        color: "hsl(var(--muted-foreground))", opacity: 0.6,
+        color: "rgba(255,255,255,0.46)",
       }}>
         {t("spin_random_desc")}
       </p>
@@ -1389,6 +1389,13 @@ export default function IntentPage() {
   const isCompact = viewportH < 700;
   const itemWidth  = viewportW < 380 ? 118 : viewportW < 430 ? 136 : ITEM_WIDTH;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
+  // The main wheel is a static preview until Spin is pressed. Keep its outer
+  // cards inside a phone viewport without changing the spin-time wheel radius.
+  const restingCarouselRadius = Math.min(
+    radius,
+    Math.max(104, Math.floor((viewportW - itemWidth - 24) / 2)),
+  );
+  const carouselRadius = (isSpinning || dispersed) ? radius : restingCarouselRadius;
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
   const wheelBufferY = isCompact ? 110 : viewportW < 380 ? 144 : 170;
@@ -2806,7 +2813,11 @@ export default function IntentPage() {
   const streakComplete = spinStatus?.streakComplete ?? false;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden relative" data-testid="intent-page">
+    <div
+      className="flex-1 flex flex-col overflow-hidden relative"
+      style={{ background: "linear-gradient(180deg, #160d20 0%, #0d0812 100%)" }}
+      data-testid="intent-page"
+    >
 
       {/* ── Global keyframes ── */}
       <style>{`
@@ -2987,14 +2998,18 @@ export default function IntentPage() {
         }
         @keyframes spinRoomTensionDarken {
           from { opacity: 0; }
-          to   { opacity: 0.34; }
+          to   { opacity: 0.50; }
         }
       `}</style>
 
       {/* ── Header ── */}
       <div className="px-5 pt-5 pb-3">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
+          <h1
+            className="font-serif text-2xl font-semibold tracking-tight"
+            style={{ color: "rgba(255,247,250,0.96)" }}
+            data-testid="text-intent-title"
+          >
             {t("intention_wheel_title")}
           </h1>
           <div className="flex items-center gap-3">
@@ -3004,9 +3019,9 @@ export default function IntentPage() {
               title={muted ? t("enable_sound_title") : t("mute_sound_title")}
               style={{
                 width: 32, height: 32, borderRadius: "50%",
-                border: "1.5px solid hsl(var(--border))",
-                background: "transparent",
-                color: "hsl(var(--muted-foreground))",
+                border: "1.5px solid rgba(255,255,255,0.16)",
+                background: "rgba(255,255,255,0.05)",
+                color: "rgba(255,255,255,0.72)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 cursor: "pointer", outline: "none", transition: "color 0.2s",
               }}
@@ -3015,15 +3030,29 @@ export default function IntentPage() {
             </button>
             <div data-testid="streak-indicator">
               {streakComplete ? (
-                <Badge variant="secondary" className="text-xs" data-testid="badge-streak-complete">
+                <Badge
+                  variant="secondary"
+                  className="text-xs"
+                  style={{
+                    background: "rgba(212,92,116,0.18)",
+                    border: "1px solid rgba(212,92,116,0.30)",
+                    color: "rgba(255,235,241,0.92)",
+                  }}
+                  data-testid="badge-streak-complete"
+                >
                   <Star className="w-3 h-3 me-1" /> {t("spin_earned_label")}
                 </Badge>
               ) : (
                 <div className="flex items-center gap-1.5">
                   {Array.from({ length: STREAK_GOAL }).map((_, i) => (
-                    <div key={i} className={`w-2 h-2 rounded-full transition-colors ${i < consecutiveDays ? "bg-primary" : "bg-muted-foreground/30"}`} data-testid={`streak-dot-${i}`} />
+                    <div
+                      key={i}
+                      className="w-2 h-2 rounded-full transition-colors"
+                      style={{ background: i < consecutiveDays ? "#d45c74" : "rgba(255,255,255,0.22)" }}
+                      data-testid={`streak-dot-${i}`}
+                    />
                   ))}
-                  <span className="text-xs text-muted-foreground ms-1" data-testid="text-likes-today">{dailyLikes}/{DAILY_LIKE_GOAL}</span>
+                  <span className="text-xs ms-1" style={{ color: "rgba(255,255,255,0.56)" }} data-testid="text-likes-today">{dailyLikes}/{DAILY_LIKE_GOAL}</span>
                 </div>
               )}
             </div>
@@ -3035,10 +3064,12 @@ export default function IntentPage() {
       <div
         dir={isRTL ? "rtl" : "ltr"}
         className={`flex-1 flex flex-col items-center overflow-y-auto ${isCompact ? "justify-start pt-4 gap-3" : "justify-start pt-4 gap-5"} transition-all duration-700`}
-        style={isSpinning ? {
-          background: "radial-gradient(ellipse 90% 65% at 50% 40%, hsl(350 45% 52% / 0.16) 0%, hsl(350 45% 52% / 0.05) 45%, transparent 72%)",
+        style={{
+          background: isSpinning
+            ? "radial-gradient(ellipse 90% 65% at 50% 40%, rgba(212,92,116,0.20) 0%, rgba(212,92,116,0.07) 45%, transparent 72%)"
+            : "radial-gradient(ellipse 92% 58% at 50% 12%, rgba(212,92,116,0.13) 0%, rgba(37,16,48,0.32) 42%, transparent 74%), linear-gradient(180deg, #160d20 0%, #0d0812 100%)",
           transition: "background 0.5s ease",
-        } : { transition: "background 0.5s ease" }}
+        }}
       >
         <div
           className="relative select-none touch-manipulation"
@@ -3049,10 +3080,6 @@ export default function IntentPage() {
             opacity: dispersed ? 0 : 1,
             pointerEvents: dispersed ? "none" : "auto",
           }}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={handlePointerUp}
           data-testid="intent-wheel"
         >
           <ConfettiBurst active={showConfetti} />
@@ -3137,10 +3164,10 @@ export default function IntentPage() {
                       borderRadius: 20, overflow: "hidden",
                       position: "absolute", left: 0, top: 0,
                       transform: dispersed && !isSelected
-                        ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
+                         ? `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
                         : isSelected && !dispersed
-                        ? `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${(cardScale * 1.10).toFixed(3)})`
-                        : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
+                         ? `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) scale(${(cardScale * 1.10).toFixed(3)})`
+                         : `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) scale(${cardScale})`,
                       opacity: dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
                       filter: !isSpinning && depthFactor < 0.92
                         ? `blur(${((1 - depthFactor) * 3.5).toFixed(1)}px)`
@@ -3299,7 +3326,7 @@ export default function IntentPage() {
             {!canSpin && (
               <p style={{
                 fontSize: 11, textAlign: "center",
-                color: "hsl(var(--muted-foreground))",
+                color: "rgba(255,255,255,0.48)",
                 lineHeight: 1.4, marginTop: -6,
               }}>
                 {streakComplete
@@ -3316,18 +3343,18 @@ export default function IntentPage() {
                     const isDone = i < consecutiveDays;
                     return (
                       <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                        <div className="w-full h-1.5 rounded-full overflow-hidden bg-muted">
-                          {isDone ? <div className="w-full h-full bg-primary rounded-full" /> :
-                           isCurrentDay ? <div className="h-full bg-primary/60 rounded-full transition-all duration-500" style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%` }} /> : null}
+                        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.12)" }}>
+                          {isDone ? <div className="w-full h-full rounded-full" style={{ background: "#d45c74" }} /> :
+                           isCurrentDay ? <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%`, background: "rgba(212,92,116,0.70)" }} /> : null}
                         </div>
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.48)" }}>
                           {isDone ? "✓" : isCurrentDay ? `${dailyLikes}/${DAILY_LIKE_GOAL}` : `${t("day_label")} ${i + 1}`}
                         </span>
                       </div>
                     );
                   })}
                 </div>
-                <p className="text-[10px] text-muted-foreground text-center">
+                <p className="text-[10px] text-center" style={{ color: "rgba(255,255,255,0.48)" }}>
                   {t("like_daily_earn_spin_desc").replace("{n}", String(DAILY_LIKE_GOAL)).replace("{days}", String(STREAK_GOAL))}
                 </p>
               </div>
@@ -3750,13 +3777,13 @@ export default function IntentPage() {
             </div>
 
             {/* The tension veil darkens the complete room after the wheel has
-                stopped, while all carousel content remains above it. */}
+                stopped, while the locked winner and status copy remain above it. */}
             {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'momentum' || spinRoomPhase === 'growing') && (
               <div
                 aria-hidden="true"
                 style={{
                   position: "absolute", inset: 0, zIndex: 1,
-                  background: "rgba(0,0,0,0.34)",
+                  background: "#000",
                   pointerEvents: "none",
                   animation: "spinRoomTensionDarken 3.2s ease forwards",
                 }}
@@ -3872,7 +3899,7 @@ export default function IntentPage() {
               </div>
 
               {/* Phase status text */}
-              <div style={{ position: "relative", zIndex: 2, marginTop: 32, textAlign: "center", minHeight: 30 }}>
+              <div style={{ position: "relative", zIndex: 220, marginTop: 32, textAlign: "center", minHeight: 30, pointerEvents: "none" }}>
                 {spinRoomPhase === 'accelerate' && (
                   <p key="acc" style={{ fontSize: 11, color: "rgba(255,255,255,0.40)", letterSpacing: "0.16em", textTransform: "uppercase", animation: "srTextIn 0.5s ease forwards, srSubtitlePulse 2.2s ease-in-out 0.6s infinite" }}>
                     Finding tonight's connection…
