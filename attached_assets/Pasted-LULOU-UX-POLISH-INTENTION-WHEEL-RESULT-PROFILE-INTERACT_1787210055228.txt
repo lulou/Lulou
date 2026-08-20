@@ -1,0 +1,363 @@
+LULOU UX POLISH — INTENTION WHEEL RESULT + PROFILE INTERACTIONS + HALO SHEET
+
+The core Intention Wheel spin/stop/enlargement is now working well.
+
+DO NOT rewrite the wheel engine or disturb the fixes that finally work.
+
+This task is about polishing the result experience and fixing a few interaction/state problems.
+
+STRICT RULE:
+Do not touch unrelated Lulou systems.
+
+==================================================
+1. WINNER CARD — SLIGHTLY QUICKER ENLARGEMENT
+==================================================
+
+The winner card enlargement now works smoothly, but it still feels slightly too slow.
+
+Current enlargement was shortened to roughly 5 seconds.
+
+Make it only a LITTLE quicker.
+
+Target:
+approximately 4.2–4.5 seconds for the actual card-to-hero enlargement.
+
+IMPORTANT:
+Keep:
+- same smooth geometry interpolation
+- same winner DOM ownership
+- same seamless hero handoff
+- no jump to full size
+- no extra spin
+- no change to winner selection
+- no change to orbit/deceleration
+
+I want it to feel slightly more energetic, not rushed.
+
+==================================================
+2. ADD A PREMIUM WINNER-LOCK SOUND
+==================================================
+
+When the wheel finally lands and locks onto the winner, add a subtle premium confirmation sound.
+
+This should happen exactly once at WINNER_LOCKED.
+
+Desired feel:
+- soft chime / shimmer / subtle confirmation tone
+- elegant and understated
+- not a loud game-show sound
+- not another wheel tick
+
+The sound must:
+- play once
+- happen exactly when the winner locks
+- not replay during text/reveal/result phases
+- respect the existing sound/mute control
+
+Do not change the normal wheel tick logic.
+
+==================================================
+3. ALLOW USERS TO HEART/LIKE INDIVIDUAL PHOTOS
+==================================================
+
+On the selected profile/result page, users should be able to react to ANY profile photo, not only the first/main photo.
+
+Add a small heart/reaction affordance on each profile photo.
+
+When tapped:
+- visually show that photo was liked
+- associate the reaction with that specific photo/profile item
+- do not accidentally send multiple Halos
+- do not change match logic
+
+Keep it elegant and unobtrusive.
+
+Do not cover faces or important photo content.
+
+==================================================
+4. ALLOW REPLIES TO PROFILE CONTENT
+==================================================
+
+Users should clearly understand they can respond directly to:
+
+- Conversation Starters
+- Ask Me questions
+- profile prompts
+- other replyable profile content
+
+At the moment these sections look mostly passive.
+
+Add an obvious but premium reply interaction.
+
+Examples:
+- tap a conversation starter
+- tap an Ask Me card
+- small “Reply” affordance / message icon
+- open the appropriate reply/composer interaction
+
+The reply should preserve which prompt/question the user is responding to.
+
+Do not redesign the whole profile page.
+
+==================================================
+5. ONE-TIME POST-SIGNUP LULOU TUTORIAL
+==================================================
+
+I want Lulou itself to explain how the app works after signup so new users understand the important interactions.
+
+Create a premium, guided tutorial shown ONLY ONCE after signup/onboarding completion.
+
+It should teach things like:
+
+- swipe/browse profiles
+- like individual photos
+- reply to conversation starters
+- reply to Ask Me prompts
+- how Likes work
+- how Connections work
+- how the Intention Wheel works
+- what a Halo is
+- how staged messaging/calls progress
+
+The tutorial should feel like Lulou taking control of the interface:
+- dim surrounding UI
+- spotlight the relevant control
+- short explanation
+- Next / Got it
+- progress dots
+
+Do NOT dump lots of text on one screen.
+
+Make it contextual and visual.
+
+IMPORTANT:
+Tutorial only appears once for a user.
+
+Persist a completion flag safely so:
+- closing/reopening the app does not restart it once completed
+- normal existing users are not repeatedly forced through it
+
+Include:
+Skip tutorial
+and optionally:
+Replay tutorial from Settings later
+
+Do not interfere with existing onboarding or Connection DNA completion.
+
+==================================================
+6. SWAP CLOSE AND UNDO / SAVE-FOR-LATER POSITIONS
+==================================================
+
+On the selected winner/result screen, the bottom actions currently show:
+
+Close
+Save for later / Undo-style action
+Send Halo
+
+Swap the positions of the first two.
+
+Desired order:
+
+Save for later / Undo
+Close
+Send Halo
+
+Keep Send Halo as the main/right primary CTA.
+
+Do not change what the buttons actually do.
+
+Only swap their layout positions.
+
+==================================================
+7. FIX SEND HALO STATE AFTER PURCHASE SHEET
+==================================================
+
+Current bug:
+
+I tap SEND HALO successfully.
+
+Then the “Tonight’s Halo is complete / Want to discover more tonight?” purchase sheet appears.
+
+That is correct.
+
+BUT if I swipe the purchase sheet down / dismiss it, the profile underneath shows SEND HALO again.
+
+That is wrong because the Halo has already been sent.
+
+Once Halo succeeds:
+
+haloSent = true
+
+That successful state must persist for the current winner/result.
+
+After dismissing the purchase sheet:
+- do NOT show Send Halo again
+- do NOT allow duplicate Halo submission
+- show a completed state instead
+
+Example:
+“✓ Halo sent”
+
+or disable/replace the CTA appropriately.
+
+The result page must reflect server truth, not reset because a modal was dismissed.
+
+Do not consume another Halo.
+
+Do not create duplicate connections.
+
+==================================================
+8. FIX THE “DISCOVER MORE HALOS” SWIPE-DOWN SHEET
+==================================================
+
+The Halo purchase/upsell bottom sheet does not dismiss smoothly when swiping down.
+
+Fix the gesture.
+
+Expected behavior:
+
+User drags sheet downward:
+- sheet follows finger smoothly
+- backdrop opacity reduces progressively
+- if dragged beyond a sensible threshold or released with enough downward velocity:
+   dismiss sheet
+- if not:
+   spring smoothly back into place
+
+Do not:
+- leave the sheet halfway open
+- snap awkwardly
+- dismiss accidentally from small movements
+
+Also support:
+- tapping “Back to Lulou”
+- tapping backdrop if appropriate
+
+Use iOS-style bottom-sheet behavior.
+
+Prevent the underlying profile page from scrolling while the sheet itself is being dragged.
+
+==================================================
+9. IMPORTANT STATE RULE AFTER HALO SUCCESS
+==================================================
+
+The sequence must be:
+
+Winner profile
+→ user taps Send Halo
+→ server confirms success
+→ immediately mark winner/result as HALO SENT
+→ show “Tonight’s Halo is complete” purchase sheet
+→ user dismisses sheet
+→ returns to winner/result
+→ CTA still says Halo Sent / completed
+→ cannot send again
+
+Closing or reopening the result during the same persisted result should not recreate the unsent state if the server already has the Halo.
+
+==================================================
+10. DO NOT BREAK EXISTING WORKING INTENTION WHEEL
+==================================================
+
+CRITICAL — preserve:
+
+- pre-spin layout
+- dark Intent section
+- smooth wheel spin
+- final natural slowdown
+- synced ticking
+- winner lock
+- cinematic dark/text sequence
+- winner geometry enlargement
+- hero handoff
+- previous React error #31 fix
+- result normalization
+- authenticated requests
+- Retry fix
+- matching/Halo backend semantics
+
+Do not refactor these systems while making this UX pass.
+
+==================================================
+11. STRICT SCOPE / SAFETY
+==================================================
+
+Before editing:
+
+git fetch origin
+git rev-parse HEAD
+git rev-parse origin/main
+git status
+
+If HEAD != origin/main:
+STOP and explain before changing code.
+
+Inspect existing implementations first.
+
+Prefer the smallest possible scope.
+
+Potential areas:
+- client/src/pages/intent.tsx
+- selected profile/result components
+- tutorial/onboarding UI
+- only existing state/API helpers needed for Halo state
+
+Do not change:
+- database schema unless absolutely necessary
+- auth
+- message quotas
+- call logic
+- Stripe pricing
+- Supabase security
+- matching algorithm
+- deployment config
+
+If a database field is genuinely required for tutorial completion, explain why before adding it.
+
+==================================================
+12. VERIFY
+==================================================
+
+After implementation:
+
+npm run build
+git diff --check
+git diff --stat
+review every changed file
+
+Test:
+
+1. Winner enlargement is slightly quicker but still smooth.
+2. Winner-lock sound plays exactly once.
+3. Every profile photo can be hearted.
+4. Conversation starters can be replied to.
+5. Ask Me prompts can be replied to.
+6. Tutorial appears once for a new user.
+7. Tutorial does not repeat after completion.
+8. Close and Save/Undo positions are swapped.
+9. Send Halo succeeds once.
+10. Purchase sheet appears.
+11. Sheet swipe-down feels smooth.
+12. Dismissing sheet does NOT restore Send Halo.
+13. Duplicate Halo cannot be sent.
+14. Existing Intention Wheel remains unchanged otherwise.
+
+Then:
+commit
+push origin main
+verify HEAD == origin/main
+
+REPORT:
+- files changed
+- exact Halo-state bug cause
+- exact bottom-sheet gesture fix
+- how photo reactions are stored/handled
+- how prompt replies are linked to the original prompt
+- how tutorial completion is persisted
+- winner enlargement old duration vs new duration
+- winner-lock sound implementation
+- commit hash
+- origin/main hash
+- Vercel status if verifiable
+
+Do not claim real-iPhone PASS unless actually tested on a real iPhone.
