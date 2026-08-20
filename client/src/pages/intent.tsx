@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, Component, type ReactNode, type ErrorInfo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck } from "lucide-react";
+import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck, Heart } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
 import { useAuth } from "@/hooks/use-auth";
@@ -1142,7 +1142,7 @@ function CheckoutDiagPanel({ diag, onSubscribe, open }: CheckoutDiagPanelProps) 
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function IntentPage() {
-  const { t, isRTL } = useLanguageContext();
+  const { t, isRTL, language } = useLanguageContext();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1236,6 +1236,66 @@ export default function IntentPage() {
     staleTime: 5 * 60 * 1000,
   });
   const detailPhotos = detailPhotoData?.photos ?? EMPTY_PHOTOS;
+  const profilePhotos = detailPhotos.length > 0
+    ? detailPhotos
+    : (selectedProfile?.photos ?? EMPTY_PHOTOS);
+  const { data: photoReactionData } = useQuery<{ photoUrls: string[] }>({
+    queryKey: ["/api/profile-photo-reactions", selectedProfile?.userId],
+    enabled: !!selectedProfile?.userId,
+    staleTime: 30_000,
+  });
+  const { data: promptReplyData } = useQuery<{ replies: Array<{ promptText: string; replyText: string }> }>({
+    queryKey: ["/api/profile-prompt-replies", selectedProfile?.userId],
+    enabled: !!selectedProfile?.userId,
+    staleTime: 30_000,
+  });
+  const heartedPhotos = new Set(photoReactionData?.photoUrls ?? []);
+  const togglePhotoHeart = useMutation({
+    mutationFn: async ({ photoUrl, liked }: { photoUrl: string; liked: boolean }) => {
+      const res = await apiRequest("PUT", "/api/profile-photo-reactions", {
+        profileUserId: selectedProfile?.userId,
+        photoUrl,
+        liked,
+      });
+      if (!res.ok) throw new Error("Couldn't save photo heart");
+      return res.json() as Promise<{ liked: boolean }>;
+    },
+    onMutate: async ({ photoUrl, liked }) => {
+      const key = ["/api/profile-photo-reactions", selectedProfile?.userId];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<{ photoUrls: string[] }>(key);
+      queryClient.setQueryData<{ photoUrls: string[] }>(key, current => {
+        const currentUrls = current?.photoUrls ?? [];
+        return { photoUrls: liked ? [...new Set([...currentUrls, photoUrl])] : currentUrls.filter(url => url !== photoUrl) };
+      });
+      return { previous, key };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(context.key, context.previous);
+      toast({ title: t("something_went_wrong"), variant: "destructive" });
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["/api/profile-photo-reactions", selectedProfile?.userId] }),
+  });
+  const savePromptReply = useMutation({
+    mutationFn: async ({ promptText, replyText }: { promptText: string; replyText: string }) => {
+      const res = await apiRequest("PUT", "/api/profile-prompt-replies", {
+        profileUserId: selectedProfile?.userId, promptText, replyText,
+      });
+      if (!res.ok) throw new Error("Couldn't save reply");
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.setQueryData<{ replies: Array<{ promptText: string; replyText: string }> }>(
+        ["/api/profile-prompt-replies", selectedProfile?.userId],
+        current => {
+          const replies = current?.replies ?? [];
+          return { replies: [...replies.filter(reply => reply.promptText !== variables.promptText), variables] };
+        },
+      );
+      setReplySavedFor(variables.promptText);
+    },
+    onError: () => toast({ title: t("something_went_wrong"), variant: "destructive" }),
+  });
 
   const [dispersed, setDispersed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -1249,13 +1309,18 @@ export default function IntentPage() {
   // Drag-to-dismiss state for the Halo buy sheet
   const [haloDragY, setHaloDragY] = useState(0);
   const [haloDragSnapping, setHaloDragSnapping] = useState(false);
-  const haloDragRef = useRef({ startY: 0, startTime: 0, active: false });
+  const haloDragRef = useRef({ startY: 0, startTime: 0, active: false, currentY: 0 });
+  const haloDismissTimerRef = useRef<number | null>(null);
   const [angle, setAngle] = useState(0);
 
   // Spin room + Halo state
   const [showSpinRoom, setShowSpinRoom] = useState(false);
   const [heroHandoffComplete, setHeroHandoffComplete] = useState(false);
   const [sparkSent, setSparkSent] = useState(false);
+  const sparkSentRef = useRef(false);
+  const [replyTarget, setReplyTarget] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [replySavedFor, setReplySavedFor] = useState<string | null>(null);
   // boundaryKey: incrementing remounts IntentResultBoundary with fresh hasError=false state.
   // boundaryRecovering: true while onReset fetch is in-flight — disables Continue button.
   const [boundaryKey,        setBoundaryKey]        = useState(0);
@@ -1264,6 +1329,29 @@ export default function IntentPage() {
   const [revealQuote, setRevealQuote] = useState<string>("");
   // Tension-build label shown during pullforward/momentum phases
   const [momentumLabel, setMomentumLabel] = useState<string>('');
+
+  const { data: sparkStatus } = useQuery<{ sent: boolean }>({
+    queryKey: ["/api/wheel/spark/status", selectedProfile?.userId],
+    enabled: !!selectedProfile?.userId,
+    staleTime: 15_000,
+  });
+  const haloSent = sparkSent || sparkStatus?.sent === true;
+  useEffect(() => {
+    sparkSentRef.current = haloSent;
+    if (sparkStatus?.sent && !sparkSent) setSparkSent(true);
+  }, [haloSent, sparkSent, sparkStatus?.sent]);
+
+  useEffect(() => {
+    if (!showSpinExtras) return;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [showSpinExtras]);
 
   // Real DNA compatibility reason for the spin-room reveal.
   // Uses /api/dna/reasons/:id → generateReasons(viewerDna, candidateDna) which produces
@@ -1305,6 +1393,8 @@ export default function IntentPage() {
   // Read by pullforward to steer the orbit snap, and by the 'reveal' timeout to
   // set selectedProfile (which is what actually mounts the reveal section).
   const pendingWinnerRef = useRef<{ index: number; profile: Profile } | null>(null);
+  // This confirmation belongs to one exact event: the orbit lock.
+  const winnerLockChimePlayedRef = useRef(false);
 
   // Orbit animation refs (glow + speed tracking only; bubble positioning removed)
   const orbitBubbles    = useRef<(HTMLDivElement | null)[]>([]); // kept for type compat
@@ -1486,24 +1576,11 @@ export default function IntentPage() {
       console.log("[WHEEL] SPARK_SENT", { to: selectedProfile?.firstName });
       try { (navigator as any).vibrate?.([40, 20, 80]); } catch {}
       setSparkSent(true);
-      // Pre-clear the saved-result cache so the restoration useEffect cannot
-      // re-mount the profile sheet the moment selectedProfile is cleared below.
-      queryClient.setQueryData(["/api/spin/result"], { profile: null });
-      setTimeout(() => {
-        // Batch 1: close the SpinRoom (unmounts boundary + reveal section).
-        setShowSpinRoom(false);
-        setSparkSent(false);
-        setShowProfile(false);
-        setSelectedIndex(null);
-        setSelectedProfile(null);
-        setDispersed(false);
-        pendingWinnerRef.current = null;
-        recordSpinFiredRef.current = false;
-        // Fire background cleanup — after SpinRoom is already unmounted.
-        deleteSpinResult.mutate();
-        queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
-        setTimeout(() => setShowSpinExtras(true), 400);
-      }, 2200);
+      // The saved result stays intact. The sent state is verified from the
+      // server on every restore, so dismissing an upsell cannot re-enable a
+      // second Halo for the same connection.
+      queryClient.invalidateQueries({ queryKey: ["/api/wheel/spark/status", selectedProfile?.userId] });
+      window.setTimeout(() => setShowSpinExtras(true), 420);
     },
     onError: (error: any) => {
       const raw = error?.message || "";
@@ -1558,6 +1635,7 @@ export default function IntentPage() {
     recordSpinFiredRef.current = false;
     saveSpinSucceededRef.current = false;
     pendingWinnerRef.current = null;
+    winnerLockChimePlayedRef.current = false;
     orbitLockedRef.current = false;
     winnerHeroDomOwnedRef.current = false;
     console.log("[INTENTION_WHEEL] spin_request_started", { candidateCount: count });
@@ -1634,12 +1712,17 @@ export default function IntentPage() {
     cancelWheelAsync();
     spinGenerationRef.current += 1;
     setHeroHandoffComplete(false);
-    // Delete the server-persisted result when the user explicitly acts on it.
+    // Close is an explicit advance action, even after a successful Halo.
+    // The sent state remains stable while the result is open/reopened, but a
+    // deliberate dismissal must return the member to future Wheel spins.
     deleteSpinResult.mutate();
     pendingWinnerRef.current = null;
     recordSpinFiredRef.current = false;
     setShowSpinRoom(false);
     setSparkSent(false);
+    setReplyTarget(null);
+    setReplyDraft("");
+    setReplySavedFor(null);
     setShowProfile(false);
     setDispersed(false);
     setSelectedIndex(null);
@@ -2144,6 +2227,10 @@ export default function IntentPage() {
       orbitGlowRef.current.style.transition = '';
       orbitGlowRef.current.style.boxShadow  = '0 0 18px 4px rgba(212,92,116,0.08)';
     }
+    if (!winnerLockChimePlayedRef.current) {
+      winnerLockChimePlayedRef.current = true;
+      playChime();
+    }
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
 
     // ── Winner-reveal RAF — sole owner of winner card geometry until handoff ───
@@ -2160,7 +2247,7 @@ export default function IntentPage() {
 
     const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
     const geometryProgress = (elapsed: number) => {
-      const raw = Math.min(1, Math.max(0, (elapsed - 7000) / 5000));
+        const raw = Math.min(1, Math.max(0, (elapsed - 7000) / 4300));
       // The gentle front-load reaches ~38% and ~73% at the requested checkpoints,
       // then eases a little more slowly into the final hero rectangle.
       return raw + 0.10 * raw * (1 - raw);
@@ -2254,10 +2341,10 @@ export default function IntentPage() {
         setMomentumLabel('');
         logWheelState({ event: 'text_fade_out', elapsed: 7000 });
       }},
-      // t=12800: Result may only take over after the original winner has held the
+      // t=12100: Result may only take over after the original winner has held the
       // target geometry and its measured rectangle matches the measured hero target.
-      { t: 12800, fn: () => {
-        logWheelState({ event: 'result_start', elapsed: 12800 });
+      { t: 12100, fn: () => {
+        logWheelState({ event: 'result_start', elapsed: 12100 });
         logWinnerNode('result_start', '');
 
         const revealAttempt = (attempt: number) => {
@@ -2338,7 +2425,6 @@ export default function IntentPage() {
           // result-photo measurement and hides the old owner on the next frame.
           setHeroHandoffComplete(false);
           setSpinRoomPhase('reveal');
-          if (!muted) playChime();
           try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
         };
         revealAttempt(0);
@@ -3584,8 +3670,20 @@ export default function IntentPage() {
             </div>
 
             {/* ③ Profile picture — single-image, aspect-ratio constrained (not a carousel) */}
-            <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
+            <div data-testid="img-intent-detail-photo" className="relative w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
               <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
+              {profilePhotos[0] && (
+                <button
+                  type="button"
+                  aria-label={heartedPhotos.has(profilePhotos[0]) ? "Remove photo heart" : "Heart this photo"}
+                  data-testid="button-detail-photo-heart-0"
+                  disabled={togglePhotoHeart.isPending}
+                  onClick={() => togglePhotoHeart.mutate({ photoUrl: profilePhotos[0], liked: !heartedPhotos.has(profilePhotos[0]) })}
+                  className="absolute top-3 right-3 grid h-10 w-10 place-items-center rounded-full border border-white/25 bg-black/35 backdrop-blur disabled:opacity-50"
+                >
+                  <Heart className="h-5 w-5" fill={heartedPhotos.has(profilePhotos[0]) ? "#d45c74" : "none"} color={heartedPhotos.has(profilePhotos[0]) ? "#d45c74" : "white"} />
+                </button>
+              )}
             </div>
 
             <div className="px-5 pt-4 space-y-4 pb-36">
@@ -3655,6 +3753,7 @@ export default function IntentPage() {
                       return (
                         <div key={key} className="rounded-md p-3 text-sm bg-muted/50" data-testid={`text-detail-starter-${i}`}>
                           <p className="italic">"{renderText(starter)}"</p>
+                          {language === "English" && <button type="button" onClick={() => { const prompt = renderText(starter); setReplyTarget(prompt); setReplyDraft(promptReplyData?.replies.find(reply => reply.promptText === prompt)?.replyText ?? ""); setReplySavedFor(null); }} className="mt-2 text-xs font-semibold text-primary">{t("reply_label")}</button>}
                         </div>
                       );
                     })}
@@ -3674,6 +3773,7 @@ export default function IntentPage() {
                       return (
                         <div key={key} className="rounded-md p-3 text-sm border" data-testid={`text-detail-question-${i}`}>
                           <p>{renderText(question)}</p>
+                          {language === "English" && <button type="button" onClick={() => { const prompt = renderText(question); setReplyTarget(prompt); setReplyDraft(promptReplyData?.replies.find(reply => reply.promptText === prompt)?.replyText ?? ""); setReplySavedFor(null); }} className="mt-2 text-xs font-semibold text-primary">{t("reply_label")}</button>}
                         </div>
                       );
                     })}
@@ -3681,12 +3781,28 @@ export default function IntentPage() {
                 </div>
               )}
 
-              {selectedProfile.photos && selectedProfile.photos.length > 1 && (
+              {language === "English" && replyTarget && (
+                <div className="rounded-2xl border border-primary/25 bg-primary/5 p-3 space-y-2" data-testid="intent-contextual-reply">
+                  <p className="text-xs text-muted-foreground">{t("reply_to_prompt_label").replace("{prompt}", replyTarget)}</p>
+                  <textarea value={replyDraft} onChange={e => setReplyDraft(e.target.value)} maxLength={500} placeholder={t("reply_placeholder")} className="min-h-20 w-full resize-none rounded-xl border bg-background p-3 text-sm outline-none focus:border-primary" />
+                  <button type="button" disabled={!replyDraft.trim() || savePromptReply.isPending} onClick={() => savePromptReply.mutate({ promptText: replyTarget, replyText: replyDraft })} className="rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">
+                    {replySavedFor === replyTarget ? t("reply_saved_label") : t("reply_save_label")}
+                  </button>
+                  <p className="text-[11px] text-muted-foreground">{t("reply_saved_hint")}</p>
+                </div>
+              )}
+
+              {profilePhotos.length > 1 && (
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_photos")}</p>
                   <div className="grid grid-cols-2 gap-2">
-                    {selectedProfile.photos.slice(1).map((photo, i) => (
-                      <img key={i} src={photo} alt={`${selectedProfile.firstName} photo ${i + 2}`} className="w-full aspect-square object-cover rounded-md" data-testid={`img-detail-photo-${i + 1}`} />
+                    {profilePhotos.slice(1).map((photo, i) => (
+                      <div key={photo} className="relative">
+                        <img src={photo} alt={`${selectedProfile.firstName} photo ${i + 2}`} className="w-full aspect-square object-cover rounded-md" data-testid={`img-detail-photo-${i + 1}`} />
+                        <button type="button" aria-label={heartedPhotos.has(photo) ? "Remove photo heart" : "Heart this photo"} onClick={() => togglePhotoHeart.mutate({ photoUrl: photo, liked: !heartedPhotos.has(photo) })} className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/40">
+                          <Heart className="h-4 w-4" fill={heartedPhotos.has(photo) ? "#d45c74" : "none"} color={heartedPhotos.has(photo) ? "#d45c74" : "white"} />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -3702,6 +3818,7 @@ export default function IntentPage() {
                 <button
                   className="flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95"
                   style={{
+                    order: 2,
                     background: "hsl(var(--muted)/0.5)",
                     borderColor: "hsl(var(--border))",
                   }}
@@ -3717,6 +3834,7 @@ export default function IntentPage() {
                 <button
                   className="flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95 disabled:opacity-50"
                   style={{
+                    order: 1,
                     background: "hsl(var(--muted)/0.5)",
                     borderColor: "hsl(155 25% 50% / 0.4)",
                   }}
@@ -3736,11 +3854,12 @@ export default function IntentPage() {
                 <button
                   className="flex-[2] flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95 disabled:opacity-60"
                   style={{
+                    order: 3,
                     background: "linear-gradient(135deg, #d45c74 0%, #9d3550 100%)",
                     boxShadow: "0 4px 20px rgba(188,78,96,0.45), 0 2px 8px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.15)",
                   }}
-                  onClick={() => selectedProfile && sendSpark.mutate(selectedProfile.userId)}
-                  disabled={sendSpark.isPending}
+                  onClick={() => selectedProfile && !haloSent && sendSpark.mutate(selectedProfile.userId)}
+                  disabled={sendSpark.isPending || haloSent}
                   data-testid="button-intent-send-halo"
                   aria-label="Send Halo"
                 >
@@ -3749,7 +3868,7 @@ export default function IntentPage() {
                     : <span className="text-lg leading-none">✨</span>
                   }
                   <span className="text-xs text-white font-semibold tracking-[0.12em] uppercase">
-                    {sendSpark.isPending ? "Sending…" : "Send Halo"}
+                    {haloSent ? "Halo Sent" : sendSpark.isPending ? "Sending…" : "Send Halo"}
                   </span>
                 </button>
               </div>
@@ -4215,7 +4334,7 @@ export default function IntentPage() {
                   </p>
 
                   {/* CTA — 3.65 s (or halo-sent state) */}
-                  {sparkSent ? (
+                  {haloSent ? (
                     <div style={{
                       marginTop: 22, width: "100%",
                       animation: "haloSentPulse 0.50s cubic-bezier(0.34,1.56,0.64,1) forwards",
@@ -4248,8 +4367,8 @@ export default function IntentPage() {
                         <span>🌙</span><span>Close</span>
                       </button>
                       <button
-                        onClick={() => selectedProfile && sendSpark.mutate(selectedProfile.userId)}
-                        disabled={sendSpark.isPending}
+                        onClick={() => selectedProfile && !haloSent && sendSpark.mutate(selectedProfile.userId)}
+                        disabled={sendSpark.isPending || haloSent}
                         data-testid="button-spin-room-send-halo"
                         style={{
                           flex: 2, padding: "16px 10px", borderRadius: 18,
@@ -4302,7 +4421,7 @@ export default function IntentPage() {
         <div
           style={{
             position: "fixed", inset: 0, zIndex: 9500,
-            background: "rgba(0,0,0,0.70)",
+            background: `rgba(0,0,0,${Math.max(0.24, 0.70 - haloDragY / 420).toFixed(2)})`,
             backdropFilter: "blur(14px)",
             WebkitBackdropFilter: "blur(14px)",
             display: "flex", alignItems: "flex-end",
@@ -4319,20 +4438,22 @@ export default function IntentPage() {
             }}
             onClick={e => e.stopPropagation()}
             onTouchStart={e => {
-              haloDragRef.current = { startY: e.touches[0].clientY, startTime: Date.now(), active: true };
+              haloDragRef.current = { startY: e.touches[0].clientY, startTime: Date.now(), active: true, currentY: 0 };
               setHaloDragSnapping(false);
             }}
             onTouchMove={e => {
               if (!haloDragRef.current.active) return;
               const delta = Math.max(0, e.touches[0].clientY - haloDragRef.current.startY);
+              haloDragRef.current.currentY = delta;
               setHaloDragY(delta);
             }}
             onTouchEnd={() => {
               if (!haloDragRef.current.active) return;
               haloDragRef.current.active = false;
               const elapsed = Math.max(Date.now() - haloDragRef.current.startTime, 1);
-              const velocity = (haloDragY / elapsed) * 1000; // px/s
-              if (haloDragY > 140 || velocity > 550) {
+              const dragged = haloDragRef.current.currentY;
+              const velocity = (dragged / elapsed) * 1000; // px/s
+              if (dragged > 140 || velocity > 550) {
                 setHaloDragY(0);
                 setHaloDragSnapping(false);
                 setShowSpinExtras(false);

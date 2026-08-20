@@ -7,6 +7,7 @@ import { useTabActive } from "@/hooks/use-tab-active";
 import { decodedPhotos } from "@/lib/image-utils";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { useLanguageContext } from "@/contexts/language-context";
+import { LulouOnboardingTour } from "@/components/lulou-onboarding-tour";
 
 interface IncomingOpen {
   id: string;
@@ -224,6 +225,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </div>
       </nav>}
+      {!isChatRoom && <LulouOnboardingTour />}
     </div>
   );
 }

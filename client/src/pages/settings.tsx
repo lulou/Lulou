@@ -1767,6 +1767,20 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground mt-0.5">Replay any guide from your journey.</p>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-6">
+            {language === "English" && <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+              <p className="font-serif text-base font-semibold">{t("welcome_tour_title")}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{t("welcome_tour_desc")}</p>
+              <button
+                onClick={() => {
+                  updateSetting.mutate({ onboardingTutorialCompleted: false });
+                  setActiveSheet(null);
+                }}
+                className="mt-3 text-xs font-semibold text-primary"
+                data-testid="button-replay-onboarding-tour"
+              >
+                {t("replay_tour_label")}
+              </button>
+            </div>}
             {[
               { label: "Welcome", key: GUIDE_KEYS.WELCOME, icon: "✨", title: "Welcome to Lulou", body: "Take your time. Great connections aren't rushed." },
               { label: "Opening a profile", key: GUIDE_KEYS.DISCOVER_OPEN, icon: "❤️", title: "Nice choice", body: "Open means you're interested. If they open you too, you'll connect." },

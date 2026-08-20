@@ -28,7 +28,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { matches, messages, userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen, userSettings } from "@shared/schema";
+import { matches, messages, userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, profilePhotoReactions, profilePromptReplies, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen, userSettings } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
@@ -2202,21 +2202,35 @@ export async function registerRoutes(
     "Korean","Hindi","Swahili",
   ]);
   const VALID_UNIT_VALUES     = new Set(["miles", "km"]);
+  // Accounts created before this guided tour shipped are already established
+  // members, even if they have never opened Settings and therefore have no
+  // local settings row yet.
+  const ONBOARDING_TOUR_ROLLOUT_AT = new Date("2026-08-20T00:00:00.000Z");
   // Allowlist of accepted PATCH keys — unknown keys are rejected to prevent
   // accidental writes from stale or untrusted client code.
   const ALLOWED_SETTING_KEYS  = new Set([
     "preferredLanguage", "preferredUnits", "audioTranscripts", "pushAccountEnabled",
+    "onboardingTutorialCompleted",
   ]);
 
   app.get("/api/settings", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      // Ensure a canonical row exists. For a new user this INSERT creates the row
-      // with official schema defaults. Subsequent GET calls skip the INSERT silently.
-      // Never reads unscoped localStorage — the server record is the truth.
-      await db.insert(userSettings).values({ userId }).onConflictDoNothing();
-      const [row] = await db.select().from(userSettings)
+      let [row] = await db.select().from(userSettings)
         .where(eq(userSettings.userId, userId)).limit(1);
+      if (!row) {
+        // Settings did not exist when many established accounts were created.
+        // Profile creation is authoritative across devices, unlike local storage.
+        const profile = await getStorage(req).getProfileMeta(userId);
+        const profileCreatedAt = profile?.createdAt ? new Date(profile.createdAt) : null;
+        const isEstablishedAccount = !!profileCreatedAt && profileCreatedAt < ONBOARDING_TOUR_ROLLOUT_AT;
+        await db.insert(userSettings).values({
+          userId,
+          onboardingTutorialCompleted: isEstablishedAccount,
+        }).onConflictDoNothing();
+        [row] = await db.select().from(userSettings)
+          .where(eq(userSettings.userId, userId)).limit(1);
+      }
       if (!row) throw new Error("Settings row missing after upsert");
       console.log("[SETTINGS] GET", { userId: userId.slice(0, 8), lang: row.preferredLanguage, units: row.preferredUnits, audio: row.audioTranscripts });
       res.json(row);
@@ -2268,6 +2282,13 @@ export async function registerRoutes(
         }
         update.pushAccountEnabled = pae;
       }
+      if ("onboardingTutorialCompleted" in body) {
+        const complete = body.onboardingTutorialCompleted;
+        if (typeof complete !== "boolean") {
+          return res.status(400).json({ message: "onboardingTutorialCompleted must be boolean" });
+        }
+        update.onboardingTutorialCompleted = complete;
+      }
 
       if (Object.keys(update).length === 0) {
         return res.status(400).json({ message: "No valid setting keys provided" });
@@ -2294,6 +2315,76 @@ export async function registerRoutes(
       console.error("[SETTINGS] PATCH error", err?.message);
       res.status(500).json({ message: err?.message || "Failed to update settings" });
     }
+  });
+
+  // ── Profile-photo hearts ────────────────────────────────────────────────────
+  // Photo hearts are private, per-photo preference signals. They deliberately
+  // do not touch interactions, matching, likes, or Halo delivery.
+  app.get("/api/profile-photo-reactions/:profileUserId", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileUserId = String(req.params.profileUserId || "");
+      if (!profileUserId) return res.status(400).json({ message: "profileUserId is required" });
+      const rows = await db.select({ photoUrl: profilePhotoReactions.photoUrl })
+        .from(profilePhotoReactions)
+        .where(and(
+          eq(profilePhotoReactions.userId, req.user.id),
+          eq(profilePhotoReactions.profileUserId, profileUserId),
+        ));
+      res.json({ photoUrls: rows.map(row => row.photoUrl) });
+    } catch (err: any) {
+      console.error("[PHOTO_REACTIONS] GET error", err?.message);
+      res.status(500).json({ message: "Couldn't load photo hearts" });
+    }
+  });
+
+  app.put("/api/profile-photo-reactions", isAuthenticated, async (req: any, res) => {
+    try {
+      const { profileUserId, photoUrl, liked } = req.body as Record<string, unknown>;
+      if (typeof profileUserId !== "string" || typeof photoUrl !== "string" || typeof liked !== "boolean") {
+        return res.status(400).json({ message: "profileUserId, photoUrl, and liked are required" });
+      }
+      if (profileUserId === req.user.id || photoUrl.length > 1_000_000) {
+        return res.status(400).json({ message: "Invalid photo reaction" });
+      }
+      // Never accept an arbitrary URL: the item must still belong to the
+      // requested profile at mutation time.
+      const storage = getStorage(req);
+      const photos = await storage.getProfilePhotos(profileUserId);
+      if (!photos.includes(photoUrl)) return res.status(404).json({ message: "Photo not found on this profile" });
+
+      const where = and(
+        eq(profilePhotoReactions.userId, req.user.id),
+        eq(profilePhotoReactions.profileUserId, profileUserId),
+        eq(profilePhotoReactions.photoUrl, photoUrl),
+      );
+      if (liked) {
+        await db.insert(profilePhotoReactions)
+          .values({ userId: req.user.id, profileUserId, photoUrl })
+          .onConflictDoNothing();
+      } else {
+        await db.delete(profilePhotoReactions).where(where);
+      }
+      res.json({ liked });
+    } catch (err: any) {
+      console.error("[PHOTO_REACTIONS] PUT error", err?.message);
+      res.status(500).json({ message: "Couldn't save photo heart" });
+    }
+  });
+
+  app.get("/api/profile-prompt-replies/:profileUserId", isAuthenticated, async (req: any, res) => {
+    const rows = await db.select({ promptText: profilePromptReplies.promptText, replyText: profilePromptReplies.replyText })
+      .from(profilePromptReplies)
+      .where(and(eq(profilePromptReplies.userId, req.user.id), eq(profilePromptReplies.profileUserId, req.params.profileUserId)));
+    res.json({ replies: rows });
+  });
+  app.put("/api/profile-prompt-replies", isAuthenticated, async (req: any, res) => {
+    const { profileUserId, promptText, replyText } = req.body as Record<string, unknown>;
+    if (typeof profileUserId !== "string" || typeof promptText !== "string" || typeof replyText !== "string" || !replyText.trim() || replyText.length > 500) {
+      return res.status(400).json({ message: "A reply of up to 500 characters is required" });
+    }
+    await db.insert(profilePromptReplies).values({ userId: req.user.id, profileUserId, promptText, replyText: replyText.trim() })
+      .onConflictDoUpdate({ target: [profilePromptReplies.userId, profilePromptReplies.profileUserId, profilePromptReplies.promptText], set: { replyText: replyText.trim(), updatedAt: new Date() } });
+    res.json({ saved: true });
   });
 
   // Get notification preferences
@@ -3152,6 +3243,21 @@ export async function registerRoutes(
       const msg = error?.message || "Failed to send Spark";
       console.error("[WHEEL] SPARK_SEND_ERROR", msg, error);
       res.status(500).json({ message: msg });
+    }
+  });
+
+  // Server truth for a persisted result. This keeps a successful Halo in its
+  // sent state when the sheet is dismissed, the result is restored, or the app
+  // is opened on another device.
+  app.get("/api/wheel/spark/status/:profileUserId", isAuthenticated, async (req: any, res) => {
+    try {
+      const profileUserId = String(req.params.profileUserId || "");
+      if (!profileUserId) return res.status(400).json({ message: "profileUserId is required" });
+      const sent = await getStorage(req).hasWheelSpark(req.user.id, profileUserId);
+      res.json({ sent });
+    } catch (err: any) {
+      console.error("[WHEEL] SPARK_STATUS failed", err?.message);
+      res.status(500).json({ message: "Couldn't confirm Halo status" });
     }
   });
 

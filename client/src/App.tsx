@@ -2720,7 +2720,7 @@ function AppContent() {
       if (!res.ok) return { completed: true, hasDna: false }; // fail-open on server error
       return res.json();
     },
-    enabled: !!user && profileReady && !clearingCache && effectiveProfileExists && !forceProceed,
+     enabled: !!user && profileReady && !clearingCache && effectiveProfileExists,
     staleTime: Infinity,
     retry: 1,
     retryDelay: 1000,
@@ -3119,31 +3119,6 @@ function AppContent() {
     );
   }
 
-  // ── EARLY BYPASS EXIT ─────────────────────────────────────────────────────
-  // forceProceed=true means the user explicitly tapped "Continue to App" on a
-  // blocked screen.  This guard is placed BEFORE every other intermediate gate
-  // (spinner, fetchFailed, onboarding) so that no TanStack Query state flip,
-  // retry cycle, or effect batching can prevent the main app from rendering.
-  // Auth is already confirmed above (user is non-null, authLoading=false).
-  if (forceProceed) {
-    console.warn("[SETUP] FINAL_APP_GATE: render_main_app (force_proceed_early_exit)", {
-      userId: user.id, profileExists, fetchFailed, isSpinning,
-      spinnerTimedOut, profilePending, clearingCache, profileReady,
-    });
-    return (
-      <Switch>
-        <Route path="/elevate/success" component={ElevateSuccessPage} />
-        <Route path="/extras/success" component={ExtrasSuccessPage} />
-        <Route>
-          <AppLayout>
-            <PersistentTabs />
-            <CallDetectors userId={user.id} />
-          </AppLayout>
-        </Route>
-      </Switch>
-    );
-  }
-
   if (isSpinning) {
     if (spinnerTimedOut) {
       // The spinner ran past SPINNER_TIMEOUT_MS — all retries exhausted; show recovery screen.
@@ -3305,8 +3280,10 @@ function AppContent() {
   // ── Connection DNA gate ──────────────────────────────────────────────────────
   // Profile exists but DNA quiz not yet completed → show the quiz.
   // Show a brief spinner while the status is loading.
-  // Skip entirely for force-proceed bypasses (support tool for stuck users).
-  if (!forceProceed && dnaIsPending && !dnaIsError) {
+  // Connection DNA remains a hard post-signup gate. The profile recovery
+  // bypass can only bypass an unavailable profile lookup; it must never bypass
+  // the questionnaire or its completion state.
+  if (dnaIsPending && !dnaIsError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -3317,7 +3294,7 @@ function AppContent() {
     );
   }
 
-  if (!forceProceed && !dnaComplete) {
+  if (!dnaComplete) {
     console.log("[AUTH_FLOW] dna incomplete — route connection-dna", { userId: user.id });
     return <ConnectionDnaPage />;
   }

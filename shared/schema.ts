@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, uuid, varchar, integer, boolean, timestamp, index, doublePrecision, json, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, varchar, integer, boolean, timestamp, index, uniqueIndex, doublePrecision, json, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -194,6 +194,33 @@ export const savedWheelProfiles = pgTable("saved_wheel_profiles", {
   index("idx_saved_wheel_user").on(table.userId),
 ]);
 
+// A heart is intentionally scoped to one specific photo, rather than to the
+// profile as a whole. It is a private preference signal and never opens or
+// matches with the profile owner.
+export const profilePhotoReactions = pgTable("profile_photo_reactions", {
+  id:            varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId:        varchar("user_id").notNull(),
+  profileUserId: varchar("profile_user_id").notNull(),
+  photoUrl:      text("photo_url").notNull(),
+  createdAt:     timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_photo_reactions_user").on(table.userId),
+  uniqueIndex("profile_photo_reactions_unique").on(table.userId, table.profileUserId, table.photoUrl),
+]);
+
+export const profilePromptReplies = pgTable("profile_prompt_replies", {
+  id:            varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId:        varchar("user_id").notNull(),
+  profileUserId: varchar("profile_user_id").notNull(),
+  promptText:    text("prompt_text").notNull(),
+  replyText:     text("reply_text").notNull(),
+  createdAt:     timestamp("created_at").defaultNow(),
+  updatedAt:     timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_prompt_replies_user_profile").on(table.userId, table.profileUserId),
+  uniqueIndex("profile_prompt_replies_unique").on(table.userId, table.profileUserId, table.promptText),
+]);
+
 export const blockedContacts = pgTable("blocked_contacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
@@ -322,6 +349,7 @@ export const userSettings = pgTable("user_settings", {
   preferredUnits:      text("preferred_units").default("miles"),
   audioTranscripts:    boolean("audio_transcripts").default(true),
   pushAccountEnabled:  boolean("push_account_enabled").notNull().default(false),
+  onboardingTutorialCompleted: boolean("onboarding_tutorial_completed").notNull().default(false),
   createdAt:           timestamp("created_at").defaultNow(),
   updatedAt:           timestamp("updated_at").defaultNow(),
 });

@@ -443,6 +443,7 @@ async function initLocalDb() {
         preferred_units      TEXT        NOT NULL DEFAULT 'miles',
         audio_transcripts    BOOLEAN     NOT NULL DEFAULT true,
         push_account_enabled BOOLEAN     NOT NULL DEFAULT false,
+       onboarding_tutorial_completed BOOLEAN NOT NULL DEFAULT false,
         created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
@@ -450,6 +451,52 @@ async function initLocalDb() {
     console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks, voice_note_popup_seen, first_call_prompt_seen, connection_dna_responses, connection_dna_profiles, match_compatibility, interaction_signals, private_connection_feedback, user_settings");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
+  }
+
+  // Existing accounts should never be unexpectedly dropped into a new-user
+  // tutorial. Rows that pre-date the field are marked complete exactly once;
+  // future rows receive the schema default (false).
+  try {
+    await localPool.query(`
+      ALTER TABLE user_settings
+        ADD COLUMN IF NOT EXISTS onboarding_tutorial_completed BOOLEAN;
+      UPDATE user_settings
+        SET onboarding_tutorial_completed = true
+        WHERE onboarding_tutorial_completed IS NULL;
+      ALTER TABLE user_settings
+        ALTER COLUMN onboarding_tutorial_completed SET DEFAULT false;
+      ALTER TABLE user_settings
+        ALTER COLUMN onboarding_tutorial_completed SET NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS profile_photo_reactions (
+        id              VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        user_id         VARCHAR NOT NULL,
+        profile_user_id VARCHAR NOT NULL,
+        photo_url       TEXT NOT NULL,
+        created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT profile_photo_reactions_unique
+          UNIQUE (user_id, profile_user_id, photo_url)
+      );
+      CREATE INDEX IF NOT EXISTS idx_photo_reactions_user
+        ON profile_photo_reactions(user_id);
+
+      CREATE TABLE IF NOT EXISTS profile_prompt_replies (
+        id              VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        user_id         VARCHAR NOT NULL,
+        profile_user_id VARCHAR NOT NULL,
+        prompt_text     TEXT NOT NULL,
+        reply_text      TEXT NOT NULL,
+        created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT profile_prompt_replies_unique
+          UNIQUE (user_id, profile_user_id, prompt_text)
+      );
+      CREATE INDEX IF NOT EXISTS idx_prompt_replies_user_profile
+        ON profile_prompt_replies(user_id, profile_user_id);
+    `);
+    console.log("[STARTUP] tutorial and photo-reaction persistence verified");
+  } catch (err: any) {
+    console.error("[STARTUP] tutorial/photo-reaction migration failed:", err?.message);
   }
 
   // ── Guard: ensure active_sessions has the single-session-enforcement columns ──
