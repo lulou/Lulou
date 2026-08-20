@@ -4,12 +4,18 @@ import { isMobile } from "@/lib/perf";
 
 export const PROFILE_PHOTO_HEIGHT = 420;
 
+type PhotoAction = ReactNode | ((photoUrl: string, index: number) => ReactNode);
+
 interface ProfilePhotoViewerProps {
   photos: string[];
   isLoading?: boolean;
   height?: number;
   className?: string;
-  action?: ReactNode;
+  /**
+   * A static action or a photo-aware action renderer.  Discover uses the
+   * renderer form so a reaction is always tied to the currently visible URL.
+   */
+  action?: PhotoAction;
   nameSlot?: ReactNode;
   children?: ReactNode;
 }
@@ -89,6 +95,10 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   }>({ startX: 0, startY: 0, pointerId: null, dirLocked: null });
 
   const safeIdx = n === 0 ? 0 : Math.min(internalIdx, n - 1);
+  const currentPhoto = photos[safeIdx] ?? "";
+  const currentAction = typeof action === "function"
+    ? action(currentPhoto, safeIdx)
+    : action;
 
   const goTo = useCallback(
     (next: number) => {
@@ -344,7 +354,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // ── Derive photo sources ─────────────────────────────────────────────────
   const peekIdxRaw = dragX < 0 ? safeIdx + 1 : safeIdx > 0 ? safeIdx - 1 : safeIdx + 1;
   const peekIdx = Math.max(0, Math.min(n - 1, peekIdxRaw));
-  const currentPhoto = photos[safeIdx] ?? "";
   const peekPhoto = photos[peekIdx] ?? "";
 
   // ── Premium motion transforms ─────────────────────────────────────────────
@@ -399,8 +408,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           <circle cx="40" cy="28" r="14" fill="currentColor" />
           <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
         </svg>
-        {action && (
-          <div className="absolute bottom-5 left-1/2 -translate-x-1/2">{action}</div>
+        {currentAction && (
+          <div className="absolute bottom-5 left-1/2 -translate-x-1/2">{currentAction}</div>
         )}
       </div>
     );
@@ -590,7 +599,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           )}
 
           {/* action */}
-          {action && (
+          {currentAction && (
             <div
               style={{
                 position: "absolute",
@@ -618,7 +627,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
                 onPointerUp={e => e.stopPropagation()}
                 onClick={e => e.stopPropagation()}
               >
-                {action}
+                {currentAction}
               </div>
             </div>
           )}

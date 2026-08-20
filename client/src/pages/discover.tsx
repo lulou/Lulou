@@ -27,25 +27,75 @@ import { GUIDE_KEYS } from "@/lib/guide-store";
 // Uses ProfilePhotoViewer (shared): photos follow finger, spring-settle on release, gap between slides.
 // Gallery photos fetch on card mount; carousel lazy-loads ±1 from current.
 
+type PhotoOpenActionProps = {
+  photoUrl: string;
+  photoIndex: number;
+  onOpen: (photoUrl: string) => void;
+  isReacted: boolean;
+  isPending: boolean;
+  isDisabled?: boolean;
+};
+
+function PhotoOpenAction({
+  photoUrl,
+  photoIndex,
+  onOpen,
+  isReacted,
+  isPending,
+  isDisabled = false,
+}: PhotoOpenActionProps) {
+  const disabled = isDisabled || isReacted || isPending;
+  return (
+    <button
+      className={`rounded-full px-4 py-2.5 text-sm font-semibold shadow-lg transition-all active:scale-95 disabled:cursor-default ${
+        isReacted
+          ? "bg-white/95 text-primary ring-1 ring-white/70"
+          : "bg-primary text-white"
+      }`}
+      onClick={() => onOpen(photoUrl)}
+      disabled={disabled}
+      aria-pressed={isReacted}
+      aria-label="Open ❤️"
+      data-testid={`button-open-photo-${photoIndex}`}
+    >
+      Open ❤️
+    </button>
+  );
+}
+
 // Thin wrapper around the shared ProfilePhotoViewer — memoised so it only
-// re-renders when photos/name/disabled/loading state actually changes.
-const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
-  const { t } = useLanguageContext();
+// re-renders when photos/reaction state/disabled/loading state actually changes.
+const PhotoBubbles = memo(function PhotoBubbles({
+  photos,
+  name: _name,
+  onOpenPhoto,
+  reactedPhotoUrls,
+  pendingPhotoUrls,
+  isDisabled,
+  isPhotosLoading,
+}: {
+  photos: string[];
+  name: string;
+  onOpenPhoto: (photoUrl: string) => void;
+  reactedPhotoUrls: string[];
+  pendingPhotoUrls: ReadonlySet<string>;
+  isDisabled?: boolean;
+  isPhotosLoading?: boolean;
+}) {
   return (
     <ProfilePhotoViewer
       photos={photos}
       isLoading={isPhotosLoading}
-      action={
-        <button
-          className="flex items-center gap-2 bg-primary text-white rounded-full ps-4 pe-5 py-2.5 text-sm font-semibold shadow-lg active:scale-95 disabled:opacity-60"
-          onClick={onOpen}
-          disabled={isDisabled}
-          data-testid="button-open"
-        >
-          <span className="text-lg leading-none">❤️</span>
-          {t("open")}
-        </button>
-      }
+      action={(photoUrl, photoIndex) => (
+        <PhotoOpenAction
+          photoUrl={photoUrl}
+          photoIndex={photoIndex}
+          onOpen={onOpenPhoto}
+          isReacted={reactedPhotoUrls.includes(photoUrl)}
+          isPending={pendingPhotoUrls.has(photoUrl)}
+          isDisabled={isDisabled}
+        />
+      )}
     />
   );
 });
@@ -660,6 +710,51 @@ export default function Discover() {
     return { ...currentProfile, photos: photoData?.photos ?? EMPTY_PHOTOS };
   }, [currentProfile, photoData?.photos]);
 
+  const [pendingPhotoUrls, setPendingPhotoUrls] = useState<Set<string>>(new Set());
+  const { data: photoReactionData } = useQuery<{ photoUrls: string[] }>({
+    queryKey: ["/api/profile-photo-reactions", currentProfile?.userId],
+    enabled: !!currentProfile?.userId,
+    staleTime: 30_000,
+  });
+  const reactedPhotoUrls = photoReactionData?.photoUrls ?? EMPTY_PHOTOS;
+
+  const savePhotoReaction = useMutation({
+    mutationFn: async ({ profileUserId, photoUrl }: { profileUserId: string; photoUrl: string }) => {
+      const res = await apiRequest("PUT", "/api/profile-photo-reactions", {
+        profileUserId,
+        photoUrl,
+        liked: true,
+      });
+      if (!res.ok) throw new Error("Couldn't save photo heart");
+      return res.json() as Promise<{ liked: boolean }>;
+    },
+    onMutate: async ({ profileUserId, photoUrl }) => {
+      const key = ["/api/profile-photo-reactions", profileUserId];
+      setPendingPhotoUrls(previous => new Set(previous).add(photoUrl));
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<{ photoUrls: string[] }>(key);
+      queryClient.setQueryData<{ photoUrls: string[] }>(key, current => {
+        const photoUrls = current?.photoUrls ?? [];
+        return { photoUrls: [...new Set([...photoUrls, photoUrl])] };
+      });
+      return { key, previous, photoUrl };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(context.key, context.previous);
+      toast({ title: t("something_went_wrong"), variant: "destructive" });
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context) {
+        setPendingPhotoUrls(previous => {
+          const next = new Set(previous);
+          next.delete(context.photoUrl);
+          return next;
+        });
+        queryClient.invalidateQueries({ queryKey: context.key });
+      }
+    },
+  });
+
   const interact = useMutation({
     mutationFn: async (type: "open" | "close") => {
       if (!currentProfile) return;
@@ -801,7 +896,13 @@ export default function Discover() {
 
   // Stable callbacks — prevent SlideCards / PhotoBubbles from re-rendering
   // when parent mutation state changes but these handlers haven't changed.
-  const handleOpen = useCallback(() => triggerInteract("open"), [triggerInteract]);
+  const handleOpenPhoto = useCallback((photoUrl: string) => {
+    if (!currentProfile || reactedPhotoUrls.includes(photoUrl) || pendingPhotoUrls.has(photoUrl)) return;
+    savePhotoReaction.mutate({ profileUserId: currentProfile.userId, photoUrl });
+    // Preserve the existing Discover open/match flow; the reaction above is
+    // scoped to the exact photo the member chose.
+    triggerInteract("open");
+  }, [currentProfile, pendingPhotoUrls, reactedPhotoUrls, savePhotoReaction, triggerInteract]);
 
   // Sending a reply to a prompt counts as opening the profile.
   // Returns a Promise so SlideCards can:
@@ -1172,6 +1273,16 @@ export default function Discover() {
         <ProfilePhotoViewer
           key={`inline-gallery-${gIdx}`}
           photos={inlineGroups[gIdx]}
+          action={(photoUrl, photoIndex) => (
+            <PhotoOpenAction
+              photoUrl={photoUrl}
+              photoIndex={photoIndex}
+              onOpen={handleOpenPhoto}
+              isReacted={reactedPhotoUrls.includes(photoUrl)}
+              isPending={pendingPhotoUrls.has(photoUrl)}
+              isDisabled={interact.isPending || isExiting}
+            />
+          )}
         />,
       );
     }
@@ -1212,7 +1323,9 @@ export default function Discover() {
             <PhotoBubbles
               photos={heroPhotos}
               name={displayProfile.firstName}
-              onOpen={handleOpen}
+              onOpenPhoto={handleOpenPhoto}
+              reactedPhotoUrls={reactedPhotoUrls}
+              pendingPhotoUrls={pendingPhotoUrls}
               isDisabled={interact.isPending || isExiting}
               isPhotosLoading={isPhotosLoading}
             />
