@@ -1,0 +1,166 @@
+PRODUCTION IPHONE APP BUG — DISCOVER + INTENTION WHEEL BOTH EMPTY
+
+The real user experience is the installed iPhone app/PWA, and that is what we need to support.
+
+Do not tell me to test Safari separately first.
+
+Treat the installed iPhone app as the source of truth.
+
+CURRENT REAL-DEVICE BEHAVIOUR
+
+On an existing user account that has not been active for a long time:
+
+Discover says there are no new profiles to view
+Intention Wheel also shows no available users / no wheel candidates
+This account only has:
+
+one active chat
+one new Like
+There should still be many other eligible profiles.
+
+The previous backend audit already showed that accounts matching this pattern can have 6–10 eligible candidates available server-side.
+
+Therefore investigate BOTH client surfaces on the installed iPhone app.
+
+==================================================
+
+TRACE DISCOVER
+==================================================
+Verify the installed app is actually issuing a fresh request for:
+
+/api/discover
+
+when:
+
+app is opened from the home screen
+Discover is opened
+app returns from background
+Report:
+
+request fired YES/NO
+response status
+response candidate count
+whether React Query cache is serving stale empty data
+whether service worker/PWA cache is intercepting the response
+whether the installed app is running the latest frontend build
+Do not change server eligibility filters unless the request proves the backend returns zero.
+
+==================================================
+
+
+
+2. TRACE INTENTION WHEEL
+Verify the installed app is also issuing the current candidate request used by the Intention Wheel.
+
+Report:
+
+endpoint/query key
+request fired YES/NO
+response status
+candidate count
+whether the wheel shares stale profile/candidate cache with Discover
+whether an old empty result is persisted in React Query/localStorage/sessionStorage
+whether eligibility is being blocked by a stale client-side gate
+Do not assume the two issues are unrelated.
+
+==================================================
+
+
+
+3. CHECK IPHONE PWA CACHE / SERVICE WORKER
+Audit the installed iPhone app path specifically.
+
+Check:
+
+whether a service worker is active
+whether API GET responses are being cached
+whether the app shell is serving an old bundle after deploy
+whether stale JS can survive app close/reopen
+whether cache versioning invalidates correctly on new deployments
+whether there is any offline/cache-first rule affecting /api/discover or Intention Wheel endpoints
+API responses for live eligibility must NOT be permanently cache-first.
+
+Do not disable useful static asset caching globally.
+
+==================================================
+
+
+
+4. BUILD VERSION PROOF
+Add or use a safe developer-only build/version diagnostic so the agent can confirm which frontend commit the installed iPhone app is running.
+
+Do not expose it permanently to users.
+
+Report:
+
+current origin/main hash
+Vercel build hash if available
+frontend build/version observed by the installed app
+If the app is stale, fix the update path rather than changing matching logic.
+
+==================================================
+
+
+
+5. EMPTY STATE MUST SELF-RECOVER
+For both Discover and Intention Wheel:
+
+A previously cached empty result must not remain permanent.
+
+When the app is reopened or returns to foreground:
+
+refetch live eligibility/candidates
+do not keep “no profiles” forever
+do not poll constantly
+A new eligible signup should become visible to old users on the next sensible refresh/open.
+
+==================================================
+
+
+
+6. DO NOT BREAK LEGITIMATE FILTERS
+Preserve:
+
+preferred gender
+age/location preferences
+blocks
+matches
+active conversations
+safety exclusions
+paused/deleted accounts
+existing seen/pass rules
+Do not clear interaction history.
+
+Do not weaken matching logic just to make cards appear.
+
+==================================================
+
+
+
+7. REAL IPHONE PASS
+Do not report PASS from desktop/browser preview.
+
+PASS requires the installed iPhone app to:
+
+open Discover
+issue a fresh request
+receive eligible profiles
+display those profiles
+open Intention Wheel
+issue a fresh candidate request
+display eligible candidates
+recover from a previously empty cached state
+REPORT:
+
+exact Discover request result
+exact Intention Wheel request result
+whether the iPhone app was on a stale build
+whether service worker/PWA cache contributed
+exact fix
+files changed
+commit hash
+origin/main hash
+real installed-iPhone PASS/FAIL
+Do not ask me to use Safari as the workaround.
+Fix the installed iPhone experience.
+
