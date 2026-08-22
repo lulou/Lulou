@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
+import { discoverQueryOptions } from "@/lib/discover-query-options";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import type { Profile } from "@shared/schema";
@@ -576,8 +577,7 @@ export default function Discover() {
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: profilesData, isLoading, isPending, isFetching, isError: isDiscoverError, error: discoverError, refetch } = useQuery<Profile[]>({
-    queryKey: ["/api/discover"],
-    staleTime: Infinity, // only refetch on explicit demand
+    ...discoverQueryOptions,
   });
 
   // ── "Try again" handler ──────────────────────────────────────────────────────

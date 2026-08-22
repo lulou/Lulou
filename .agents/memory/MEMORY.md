@@ -42,3 +42,4 @@
 - [SpinRoom proven production bugs](spinroom-proven-bugs.md) — React #31=dnaReasons[0] is {key,text} object; photo jump=FLIP handoff at pause; Retry 401=bare fetch omits auth headers; text invisible=under investigation pending winner_node logs.
 - [SpinRoom cinematic finish](spinroom-cinematic-overhaul.md) — guided stop starts while the orbit is fast; the original locked card interpolates to a measured hero rect, then hands off only after a ≤1px geometry check.
 - [Post-signup tutorial ordering](post-signup-tutorial-order.md) — the Lulou tour is additive and may render only after profile onboarding and server-confirmed Connection DNA completion.
+- [Discover live eligibility refresh](discover-live-eligibility-refresh.md) — Discover is a live feed: empty responses must refetch on reopen and app foreground so later compatible signups appear.
