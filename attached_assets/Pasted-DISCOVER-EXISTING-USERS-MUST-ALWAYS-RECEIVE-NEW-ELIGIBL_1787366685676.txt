@@ -1,0 +1,281 @@
+DISCOVER — EXISTING USERS MUST ALWAYS RECEIVE NEW ELIGIBLE PROFILES
+
+We have found a production Discover bug.
+
+REAL BEHAVIOUR:
+
+I signed into an existing Lulou account that has not been active for a long time.
+
+That account currently has:
+- only one active chat
+- one new Like
+
+Yet Discover says:
+
+“No new profiles to view”
+
+This should not be possible if many new eligible users have joined Lulou since this account was last active.
+
+CORE REQUIREMENT
+
+Every existing Lulou user must continuously become eligible to see NEW profiles that join Lulou in the future, provided those new profiles match the user’s current discovery preferences.
+
+Example:
+
+User A created an account months ago and prefers men.
+
+User B signs up today, is male, completes onboarding/profile requirements, and is otherwise eligible for User A.
+
+User A must be able to see User B in Discover even if User A exhausted every profile that existed months ago.
+
+Discover must NOT behave like a permanently frozen candidate pool created at signup or last-active time.
+
+==================================================
+FIRST — DIAGNOSE BEFORE CHANGING CODE
+==================================================
+
+Trace the complete production Discover candidate path.
+
+Identify:
+
+1. Which frontend query loads Discover candidates.
+2. Which backend endpoint generates candidates.
+3. Whether candidates are:
+  - queried live from profiles
+  - cached
+  - stored/precomputed
+  - filtered through interactions/opens
+  - limited by timestamps
+4. Every exclusion condition.
+5. How a profile becomes permanently “seen”.
+6. Whether swiping/pass/open/close writes an interaction that permanently excludes that profile.
+7. Whether old users have a stale cached candidate list.
+8. Whether React Query/localStorage/sessionStorage persists exhausted Discover state.
+9. Whether the backend filters profiles based on account creation time or some stale cursor.
+10. Whether newly completed profiles automatically become eligible for users created before them.
+
+DO NOT simply clear all interaction history.
+
+We need to preserve legitimate exclusions.
+
+==================================================
+EXPECTED DISCOVER ELIGIBILITY
+==================================================
+
+When requesting Discover profiles, start from the CURRENT set of active/eligible profiles.
+
+Then apply current preference filters.
+
+At minimum preserve existing product rules such as:
+
+- do not show yourself
+- correct preferred gender / gender compatibility
+- age preference if implemented
+- location/distance preference if implemented
+- profile sufficiently completed
+- required photo/profile requirements
+- account not paused/deleted/banned
+- blocked users excluded
+- already matched users excluded where appropriate
+- active conversations excluded where appropriate
+- profiles deliberately ended/removed according to existing rules
+- any current safety eligibility rules
+
+Do NOT invent new matching rules.
+
+==================================================
+NEW PROFILE RULE
+==================================================
+
+A newly eligible profile must be discoverable by all compatible existing users regardless of when those existing users joined.
+
+There must be no condition equivalent to:
+
+profile.created_at <= user.last_active
+
+or:
+
+only candidates existing when pool was generated
+
+or any permanently materialized candidate list that never receives new users.
+
+If candidate pools are cached, new eligible profiles must invalidate/refresh those pools.
+
+==================================================
+SEEN / PASSED PROFILE BEHAVIOUR
+==================================================
+
+Audit exactly what “seen” means.
+
+Do not automatically assume every viewed profile must be permanently excluded forever.
+
+Preserve the current intended Lulou behavior, but distinguish between:
+
+- profile currently in stack
+- profile viewed
+- profile deliberately passed/closed
+- profile liked
+- profile matched
+- profile blocked
+- profile conversation ended
+
+Most importantly:
+
+Old “no more profiles” state must NOT prevent profiles who signed up later from appearing.
+
+A historical seen/pass record for Profile X should only affect Profile X.
+
+It must never exclude Profile Y who did not even exist at the time.
+
+==================================================
+CACHE / EMPTY-STATE FIX
+==================================================
+
+“No new profiles to view” must not become sticky.
+
+When Discover returns zero:
+
+- do not permanently cache an empty list
+- use an appropriate staleTime/refetch policy
+- refetch when Discover is opened again
+- refetch when the app regains focus/foreground if appropriate
+- invalidate/refetch after relevant account preference changes
+
+Do not create excessive polling.
+
+New profiles do not need to appear instantly while the user is staring at the page, but reopening/refreshing Discover must query current eligibility.
+
+==================================================
+GENDER PREFERENCE IS CRITICAL
+==================================================
+
+The existing user must receive every NEW eligible profile matching their selected preferred gender.
+
+Do not regress the previous gender-filter requirement.
+
+Verify with explicit combinations.
+
+Example:
+
+female user selecting men
+→ eligible male profiles
+
+male user selecting women
+→ eligible female profiles
+
+and whatever other gender/preference options already exist in Lulou.
+
+Use the current data model rather than hard-coding only binary cases if the app supports additional options.
+
+==================================================
+DO NOT BREAK EXISTING LULOU SYSTEMS
+==================================================
+
+STRICTLY DO NOT TOUCH:
+
+- Intention Wheel
+- Halo logic
+- Connection DNA
+- tutorial
+- messages
+- message countdown
+- calls
+- Likes
+- Connections
+- payments
+- auth
+- profile editing
+- database schema unless a proven Discover bug genuinely requires it
+
+Prefer the smallest fix in the existing Discover query/backend path.
+
+==================================================
+PRODUCTION DIAGNOSTICS
+==================================================
+
+Use the dormant account as a diagnostic case where possible.
+
+For one affected user, report counts through the filtering pipeline WITHOUT exposing personal data:
+
+total active profiles
+→ after excluding self
+→ after gender preference
+→ after age/location preferences
+→ after blocks
+→ after matches/conversations
+→ after interaction/seen exclusions
+→ final candidates
+
+This should tell us exactly which filter incorrectly reduces the pool to zero.
+
+Also compare:
+
+number of otherwise eligible profiles created AFTER this user last used Lulou
+
+Those should not disappear simply because the user is old.
+
+Do not include names, emails, photos or private user information in logs.
+
+==================================================
+TEST CASES
+==================================================
+
+Test:
+
+A. Existing dormant user with exhausted old stack
+→ newly created compatible profile appears.
+
+B. Existing user closes/reopens Discover
+→ current candidates are fetched.
+
+C. User with one active conversation
+→ unrelated eligible profiles still appear.
+
+D. User receives a Like
+→ that does not incorrectly eliminate the rest of Discover.
+
+E. Incompatible gender profile
+→ remains excluded.
+
+F. Blocked profile
+→ remains excluded.
+
+G. Already matched/current active-chat profile
+→ current intended exclusion remains.
+
+H. New compatible signup after User A was created
+→ appears for User A.
+
+I. Empty Discover today
+→ new eligible signup tomorrow
+→ user can see that new profile on next Discover refresh/open.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Before editing:
+
+git fetch origin
+git rev-parse HEAD
+git rev-parse origin/main
+git status
+
+If HEAD != origin/main, stop and inspect the divergence first.
+
+After diagnosis and fix report:
+
+- exact root cause
+- exact filter/cache causing the dormant user to get zero profiles
+- files changed
+- whether any schema change was required
+- candidate-count pipeline before/after
+- confirmation new users become eligible for old users
+- confirmation preferred-gender filtering remains correct
+- npm run build result
+- commit hash
+- origin/main hash
+- Vercel/Railway deployment status if verifiable
+- real affected-account PASS/FAIL
+
+Do not claim fixed from code inspection alone.
