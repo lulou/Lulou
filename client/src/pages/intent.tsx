@@ -26,6 +26,10 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { clearAllArmedSessions } from "@/lib/live-call-sessions";
+import { liveCandidateQueryOptions } from "@/lib/live-candidate-query-options";
+import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
+import { setServiceWorkerReloadBlocked } from "@/lib/service-worker";
+import { canApplyWheelCandidateUpdate, resolveWheelDismissal } from "@/lib/wheel-presentation-guard";
 
 // ── Module-level wheel-state logger ──────────────────────────────────────────
 // Callable from RAF closures, class methods, and useLayoutEffect — anything
@@ -1151,7 +1155,7 @@ export default function IntentPage() {
 
   const { data: profiles, isLoading, isError, refetch: refetchProfiles } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
-    staleTime: 0,             // always stale → refetchOnWindowFocus fires; overrides global Infinity
+    ...liveCandidateQueryOptions,
     placeholderData: (prev) => prev,
   });
 
@@ -1211,11 +1215,14 @@ export default function IntentPage() {
 
   const prevProfilesRef = useRef<Profile[] | null>(null);
   const shuffledItemsRef = useRef<Profile[]>([]);
+  // Set synchronously at spin start, before React can render an in-flight query
+  // response. This preserves the candidate order used to choose the winner.
+  const presentationLockedRef = useRef(false);
   // Cache the last non-empty set of profiles so the wheel stays visible
   // when a refetch temporarily returns [] (test environment with few users,
   // or after a spin invalidates the query and the API filters leave an empty pool).
   const lastNonEmptyRef = useRef<Profile[]>([]);
-  if (profiles !== prevProfilesRef.current) {
+  if (profiles !== prevProfilesRef.current && canApplyWheelCandidateUpdate(presentationLockedRef.current)) {
     prevProfilesRef.current = profiles ?? null;
     if (profiles && profiles.length > 0) {
       shuffledItemsRef.current = shuffleArray(profiles);
@@ -1315,6 +1322,21 @@ export default function IntentPage() {
 
   // Spin room + Halo state
   const [showSpinRoom, setShowSpinRoom] = useState(false);
+  const [isResultClosing, setIsResultClosing] = useState(false);
+
+  // Do not replace the wheel's candidate set during an active spin or result
+  // reveal. On normal tab entry/foreground, this is a live feed just like
+  // Discover, even though PersistentTabs never remounts this component.
+  useCandidateFeedRefresh({
+    active: isActive,
+    enabled: !isSpinning && !showSpinRoom && !selectedProfile,
+    feed: "intention-wheel",
+    refresh: refetchProfiles,
+  });
+  useEffect(() => {
+    setServiceWorkerReloadBlocked(isSpinning || showSpinRoom || !!selectedProfile || isResultClosing);
+  }, [isSpinning, showSpinRoom, selectedProfile, isResultClosing]);
+  useEffect(() => () => setServiceWorkerReloadBlocked(false), []);
   const [heroHandoffComplete, setHeroHandoffComplete] = useState(false);
   const [sparkSent, setSparkSent] = useState(false);
   const sparkSentRef = useRef(false);
@@ -1626,6 +1648,7 @@ export default function IntentPage() {
 
   const spinWheel = () => {
     if (isSpinning || count === 0 || !canSpin) return;
+    presentationLockedRef.current = true;
     cancelWheelAsync();
     spinGenerationRef.current += 1;
     setHeroHandoffComplete(false);
@@ -1709,13 +1732,42 @@ export default function IntentPage() {
   };
 
   const closeProfile = () => {
+    if (isResultClosing) return;
     cancelWheelAsync();
     spinGenerationRef.current += 1;
     setHeroHandoffComplete(false);
     // Close is an explicit advance action, even after a successful Halo.
     // The sent state remains stable while the result is open/reopened, but a
     // deliberate dismissal must return the member to future Wheel spins.
-    deleteSpinResult.mutate();
+    // Keep a deferred service-worker reload blocked until this explicit
+    // dismissal is persisted; otherwise an update could revive the result.
+    setIsResultClosing(true);
+    const profileToRestore = selectedProfile;
+    deleteSpinResult.mutate(undefined, {
+      onSuccess: () => {
+        const outcome = resolveWheelDismissal(true);
+        if (!outcome.releasePresentation) return;
+        presentationLockedRef.current = false;
+        prevProfilesRef.current = null;
+        setIsResultClosing(false);
+        queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
+      },
+      onError: (error) => {
+        const outcome = resolveWheelDismissal(false);
+        if (!outcome.reopenResult) return;
+        // The result is still persisted. Restore it so the member can retry
+        // rather than letting a pending worker update make it reappear later.
+        setIsResultClosing(false);
+        setShowSpinRoom(true);
+        setSelectedProfile(profileToRestore);
+        setSpinRoomPhase("buttons");
+        toast({
+          title: t("something_went_wrong"),
+          description: error instanceof Error ? error.message : t("retry"),
+          variant: "destructive",
+        });
+      },
+    });
     pendingWinnerRef.current = null;
     recordSpinFiredRef.current = false;
     setShowSpinRoom(false);
@@ -1728,7 +1780,6 @@ export default function IntentPage() {
     setSelectedIndex(null);
     setSelectedProfile(null);
     setShowConfetti(false);
-    queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
   };
 
   // ── SpinRoom phase timeline ─────────────────────────────────────────────────
@@ -2708,12 +2759,12 @@ export default function IntentPage() {
   // sees a changing set of people even without an available spin.
   // Cleans up automatically when the spin becomes available again.
   useEffect(() => {
-    if (canSpin || isSpinning) return;
+    if (canSpin || isSpinning || showSpinRoom || selectedProfile) return;
     const id = setInterval(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
     }, 90_000);
     return () => clearInterval(id);
-  }, [canSpin, isSpinning, queryClient]);
+  }, [canSpin, isSpinning, showSpinRoom, selectedProfile, queryClient]);
 
   if (isLoading) {
     if (intentLoadingTooLong) {
@@ -4120,26 +4171,12 @@ export default function IntentPage() {
             key={boundaryKey}
             recovering={boundaryRecovering}
             onBackToWheel={() => {
-              // Reset ONLY Intention Wheel local state — do NOT touch auth, global
-              // query cache, or any other page's data.
-              cancelWheelAsync();
-              spinGenerationRef.current += 1;
-              setHeroHandoffComplete(false);
+              // This is a real result dismissal, even when the result boundary
+              // failed. Reuse the persistence-aware close path so the candidate
+              // lock cannot be orphaned and updates cannot revive the result.
               logWheelState({ event: 'back_to_wheel_pressed' });
-              setShowSpinRoom(false);
-              setSpinRoomPhase('idle');
-              setSelectedProfile(null);
-              setSelectedIndex(null);
-              setDispersed(false);
-              setShowProfile(false);
-              setSparkSent(false);
-              setMomentumLabel('');
-              pendingWinnerRef.current = null;
-              recordSpinFiredRef.current = false;
-              saveSpinSucceededRef.current = false;
+              closeProfile();
               setBoundaryKey(k => k + 1);
-              // Refetch candidates so wheel has a fresh pool next spin.
-              queryClient.invalidateQueries({ queryKey: ['/api/popular'] });
             }}
             onReset={() => {
             logWheelState({

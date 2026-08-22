@@ -87,6 +87,7 @@ import { TabActiveContext } from "@/hooks/use-tab-active";
 import { LanguageProvider, useLanguageContext } from "@/contexts/language-context";
 import { UnitsProvider } from "@/contexts/units-context";
 import { SettingsHydrationProvider } from "@/contexts/settings-hydration-context";
+import { requestServiceWorkerReload, SERVICE_WORKER_OPTIONS, SERVICE_WORKER_URL } from "@/lib/service-worker";
 
 // ── Per-tab error boundary ────────────────────────────────────────────────────
 // Wraps each persistent tab so a crash in one tab does not kill the others.
@@ -3325,29 +3326,42 @@ function App() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
-    navigator.serviceWorker.register("/sw.js", { scope: "/" })
+    const checkForWorkerUpdate = () => {
+      void navigator.serviceWorker.getRegistration("/")
+        .then(reg => reg?.update())
+        .catch(() => {});
+    };
+
+    navigator.serviceWorker.register(SERVICE_WORKER_URL, SERVICE_WORKER_OPTIONS)
       .then(reg => {
-        console.log("[SW] Registered:", reg.scope);
+        console.log("[SW] Registered:", { scope: reg.scope, script: SERVICE_WORKER_URL });
         // Force re-check of the SW file immediately after registration.
-        // iOS Safari won't re-download sw.js until the browser decides to
-        // (up to 24 hours). reg.update() bypasses that delay on every page load.
+        // updateViaCache:"none" + the commit-qualified script URL ensure iOS
+        // requests the current worker instead of relying on its 24-hour cadence.
         reg.update().catch(() => {});
       })
       .catch(err => console.warn("[SW] Registration failed:", err?.message));
 
     // When a new SW takes control (skipWaiting → activate → clients.claim()),
     // reload the page so the new JS bundle is used.
-    // Loop guard: sessionStorage flag prevents re-triggering on the reloaded page.
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      const GUARD_KEY = "sw_reload_done";
-      if (sessionStorage.getItem(GUARD_KEY)) {
-        console.log("[SW] controllerchange — reload already done this session, skipping");
-        return;
-      }
-      console.log("[SW] controllerchange — reloading for new SW version");
-      sessionStorage.setItem(GUARD_KEY, "1");
-      window.location.reload();
-    });
+    // The coordinator defers a reload while the Wheel is spinning or revealing.
+    const onControllerChange = () => {
+      requestServiceWorkerReload();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+
+    // Installed iOS apps do not always perform a complete navigation when
+    // opened from the home screen. Re-check the worker on foreground so a
+    // published build can still activate on the next resume.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") checkForWorkerUpdate();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   // useEffect must be called unconditionally (Rules of Hooks).

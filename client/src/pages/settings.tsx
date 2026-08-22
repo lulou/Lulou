@@ -783,12 +783,7 @@ export default function SettingsPage() {
         // SKIP_WAITING activates the new worker without clearing caches,
         // push subscriptions, or auth session.
         waiting.postMessage({ type: "SKIP_WAITING" });
-        // Reload exactly once when the new worker takes control.
-        navigator.serviceWorker.addEventListener(
-          "controllerchange",
-          () => window.location.reload(),
-          { once: true },
-        );
+        // App.tsx handles controllerchange through the safe reload coordinator.
       } else {
         toast({
           title: "Already up to date",

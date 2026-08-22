@@ -1,23 +1,20 @@
 /**
- * Lulou Service Worker v4.0
+ * Lulou Service Worker
  * Handles: push notifications, notification clicks, install/activate lifecycle,
  * badge management, version reporting, safe update activation.
  * Served at /sw.js — scope covers the entire PWA origin.
  *
- * IMPORTANT: increment SW_VERSION on every deploy so browsers re-download this
- * file even when the URL doesn't change (iOS Safari is especially aggressive
- * about caching service workers).
+ * Build metadata is injected by vite.config.ts. The app registers this worker
+ * with a commit-qualified URL and updateViaCache:"none", so iOS receives the
+ * worker that belongs to the active frontend build.
  *
- * v4.0 changes:
- *   - APP_COMMIT pinned to ca6e54c (fixed-position chat layout)
- *   - activate deletes ALL caches (not just non-current Lulou caches)
- *     so stale HTTP-cached assets are evicted on the client side too
- *   - GET_CACHE_NAMES message: returns current cache key list for debug strip
- *   - No fetch caching whatsoever — all requests pass straight to network
+ * This worker intentionally never intercepts API responses and does not cache
+ * navigations or static assets. Browser HTTP caching remains available for
+ * immutable hashed assets; a future offline feature can add explicit caching.
  */
 
-const SW_VERSION = "4.0";
-const APP_COMMIT  = "ca6e54c";
+const SW_VERSION = "__LULOU_SW_VERSION__";
+const APP_COMMIT  = "__LULOU_APP_COMMIT__";
 // Cache name is versioned so activate can delete every prior cache entry.
 const CACHE_NAME = "lulou-static-v4.0";
 const ICON  = "/icon-192.png";

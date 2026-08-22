@@ -50,6 +50,6 @@ describe("Discover candidate refresh policy", () => {
   it("keeps the feed stale and refreshes once on app foreground", () => {
     expect(discoverQueryOptions.staleTime).toBe(0);
     expect(discoverQueryOptions.refetchOnMount).toBe("always");
-    expect(discoverQueryOptions.refetchOnWindowFocus).toBe(true);
+    expect(discoverQueryOptions.refetchOnWindowFocus).toBe(false);
   });
 });

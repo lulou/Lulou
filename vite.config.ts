@@ -1,13 +1,53 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { execSync } from "child_process";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+
+function buildMetadata() {
+  let commitHash = "dev";
+  try { commitHash = execSync("git rev-parse --short HEAD", { stdio: "pipe" }).toString().trim(); } catch {}
+  return {
+    commitHash,
+    swVersion: `build-${commitHash}`,
+    buildTime: new Date().toISOString(),
+  };
+}
+
+function versionedServiceWorker(metadata: ReturnType<typeof buildMetadata>): Plugin {
+  const templatePath = path.resolve(import.meta.dirname, "client", "public", "sw.js");
+  const render = () => readFileSync(templatePath, "utf8")
+    .replace("__LULOU_SW_VERSION__", metadata.swVersion)
+    .replace("__LULOU_APP_COMMIT__", metadata.commitHash);
+
+  return {
+    name: "lulou-versioned-service-worker",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith("/sw.js")) return next();
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache");
+        res.end(render());
+      });
+    },
+    closeBundle() {
+      writeFileSync(
+        path.resolve(import.meta.dirname, "dist", "public", "sw.js"),
+        render(),
+        "utf8",
+      );
+    },
+  };
+}
+
+const metadata = buildMetadata();
 
 export default defineConfig({
   plugins: [
     react(),
+    versionedServiceWorker(metadata),
     // All Replit-specific plugins are gated on REPL_ID so a Vercel / CI build
     // (where REPL_ID is undefined) never tries to load them.
     ...(process.env.REPL_ID !== undefined
@@ -58,7 +98,7 @@ export default defineConfig({
          * On repeat visits: all 4 vendor chunks are served from browser cache —
          *                  only the hashed app-code chunks are re-fetched.
          */
-        manualChunks(id) {
+        manualChunks(id: string) {
           if (
             id.includes("node_modules/react/") ||
             id.includes("node_modules/react-dom/") ||
@@ -85,24 +125,11 @@ export default defineConfig({
   // Expose both VITE_ (standard) and vite_ (lowercase) prefixed variables.
   // Vercel sometimes stores env var names in lowercase; this ensures both
   // VITE_SUPABASE_URL and vite_supabase_url are visible in import.meta.env.
-  define: (() => {
-    let commitHash = "dev";
-    try { commitHash = execSync("git rev-parse --short HEAD", { stdio: "pipe" }).toString().trim(); } catch {}
-    let swVersion = "unknown";
-    try {
-      const swText = readFileSync(
-        path.resolve(path.dirname(new URL(import.meta.url).pathname), "client/public/sw.js"),
-        "utf8",
-      );
-      const m = swText.match(/const SW_VERSION\s*=\s*"([^"]+)"/);
-      if (m) swVersion = m[1];
-    } catch {}
-    return {
-      __COMMIT_HASH__: JSON.stringify(commitHash),
-      __BUILD_TIME__:  JSON.stringify(new Date().toISOString()),
-      __SW_VERSION__:  JSON.stringify(swVersion),
-    };
-  })(),
+  define: {
+    __COMMIT_HASH__: JSON.stringify(metadata.commitHash),
+    __BUILD_TIME__:  JSON.stringify(metadata.buildTime),
+    __SW_VERSION__:  JSON.stringify(metadata.swVersion),
+  },
   envPrefix: ["VITE_", "vite_"],
   server: {
     fs: {

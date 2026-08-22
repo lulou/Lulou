@@ -23,6 +23,8 @@ import { ProfileInfoRow } from "@/components/profile-info-row";
 import { useAuth } from "@/hooks/use-auth";
 import { LulouGuide } from "@/components/lulou-guide";
 import { GUIDE_KEYS } from "@/lib/guide-store";
+import { useTabActive } from "@/hooks/use-tab-active";
+import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
 
 // Full-width draggable photo card.
 // Uses ProfilePhotoViewer (shared): photos follow finger, spring-settle on release, gap between slides.
@@ -511,6 +513,7 @@ export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user, retrySessionBootstrap } = useAuth();
+  const isTabActive = useTabActive();
 
   // Dev-only page lifecycle instrumentation — no-op in production
   useRenderCount("Discover");
@@ -578,6 +581,14 @@ export default function Discover() {
 
   const { data: profilesData, isLoading, isPending, isFetching, isError: isDiscoverError, error: discoverError, refetch } = useQuery<Profile[]>({
     ...discoverQueryOptions,
+  });
+
+  // PersistentTabs keeps Discover mounted while another tab is visible. Refresh
+  // when it becomes visible again so an old empty response cannot live forever.
+  useCandidateFeedRefresh({
+    active: isTabActive,
+    feed: "discover",
+    refresh: refetch,
   });
 
   // ── "Try again" handler ──────────────────────────────────────────────────────
