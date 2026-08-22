@@ -24,6 +24,7 @@ try {
 const APP_VERSION: string = (process.env.npm_package_version as string | undefined) || "1.0.0";
 
 import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn, incrementMatchBadge, resetMatchBadge, getTotalBadge, getAllMatchBadgeCounts } from "./storage";
+import { classifyCandidateFeedEmptyReason } from "./candidate-feed";
 import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
@@ -3052,6 +3053,41 @@ export async function registerRoutes(
         discoverMeta.datingIntent,
         discoverMeta.connectionStyle,
       );
+      let emptyReason: "distance" | "none" | null = null;
+      const radiusActive =
+        (discoverMeta.locationRadius ?? 0) > 0 &&
+        discoverMeta.latitude !== null &&
+        discoverMeta.longitude !== null &&
+        getHasLatLngColumns();
+      if (discovered.length === 0) {
+        let unrestrictedCount = 0;
+        if (radiusActive) {
+          try {
+            const unrestricted = await storage.getDiscoverProfiles(
+              userId,
+              discoverMeta.gender,
+              discoverMeta.preference,
+              discoverMeta.ageMin,
+              discoverMeta.ageMax,
+              0,
+              null,
+              null,
+              discoverMeta.datingIntent,
+              discoverMeta.connectionStyle,
+            );
+            unrestrictedCount = unrestricted.length;
+          } catch (reasonError: any) {
+            console.warn("[DISCOVER] empty-reason lookup failed:", reasonError?.message);
+          }
+        }
+        emptyReason = classifyCandidateFeedEmptyReason({
+          radiusActive,
+          nearbyCount: discovered.length,
+          unrestrictedCount,
+        });
+      }
+      res.setHeader("X-Empty-Reason", emptyReason ?? "none");
+      res.setHeader("X-Feed-Radius-Miles", String(discoverMeta.locationRadius ?? 0));
       const discoverJson = IS_DEV ? JSON.stringify(discovered) : "";
       devPerf("/api/discover", Date.now() - t0, {
         status: 200,
@@ -4596,12 +4632,49 @@ export async function registerRoutes(
         myProfile?.connectionStyle ?? null,
         (myProfile?.signals as string[] | undefined) ?? [],
       );
+      // Safety guard: storage already excludes self for normal data, but route
+      // output and empty-state reasoning must use the final visible candidate set.
+      const selfFiltered = popular.filter(p => p.userId !== userId);
+      const result = selfFiltered.slice(0, 10);
+      let emptyReason: "distance" | "none" | null = null;
+      const radiusActive =
+        (myProfile.locationRadius ?? 0) > 0 &&
+        wheelLat !== null &&
+        wheelLng !== null &&
+        getHasLatLngColumns();
+      if (result.length === 0) {
+        let unrestrictedCount = 0;
+        if (radiusActive) {
+          try {
+            const unrestricted = await storage.getPopularProfiles(
+              30,
+              preference,
+              gender,
+              userId,
+              0,
+              null,
+              null,
+              myProfile?.preferredAgeMin ?? 18,
+              myProfile?.preferredAgeMax ?? 99,
+              myProfile?.datingIntent ?? null,
+              myProfile?.connectionStyle ?? null,
+              (myProfile?.signals as string[] | undefined) ?? [],
+            );
+            unrestrictedCount = unrestricted.filter(profile => profile.userId !== userId).length;
+          } catch (reasonError: any) {
+            console.warn("[WHEEL] empty-reason lookup failed:", reasonError?.message);
+          }
+        }
+        emptyReason = classifyCandidateFeedEmptyReason({
+          radiusActive,
+          nearbyCount: result.length,
+          unrestrictedCount,
+        });
+      }
+      res.setHeader("X-Empty-Reason", emptyReason ?? "none");
+      res.setHeader("X-Feed-Radius-Miles", String(myProfile.locationRadius ?? 0));
       console.log(`[WHEEL] getPopularProfiles: ${Date.now() - t1} ms | total route: ${Date.now() - t0} ms`);
 
-      // Exclude own profile (safety guard — storage already excludes via interaction logic)
-      const selfFiltered = popular.filter(p => p.userId !== userId);
-
-      const result = selfFiltered.slice(0, 10);
       console.log("[WHEEL] /api/popular returning:", result.length, "profiles to userId:", userId);
       res.json(result.map(sanitizeOtherProfile));
     } catch (error) {

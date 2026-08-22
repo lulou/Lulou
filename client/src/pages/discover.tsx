@@ -25,6 +25,9 @@ import { LulouGuide } from "@/components/lulou-guide";
 import { GUIDE_KEYS } from "@/lib/guide-store";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
+import { useLocation } from "wouter";
+import { formatDistance, useUnits } from "@/lib/units";
+import type { CandidateFeed } from "@/lib/candidate-feed";
 
 // Full-width draggable photo card.
 // Uses ProfilePhotoViewer (shared): photos follow finger, spring-settle on release, gap between slides.
@@ -509,6 +512,8 @@ function DiscoverDiagPanel({ rows }: { rows: [string, string | null | undefined]
 
 export default function Discover() {
   const { t, language } = useLanguageContext();
+  const [, navigate] = useLocation();
+  const [units] = useUnits();
   const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -579,7 +584,7 @@ export default function Discover() {
   const [loadingTooLong, setLoadingTooLong] = useState(false);
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: profilesData, isLoading, isPending, isFetching, isError: isDiscoverError, error: discoverError, refetch } = useQuery<Profile[]>({
+  const { data: profilesData, isLoading, isPending, isFetching, isError: isDiscoverError, error: discoverError, refetch } = useQuery<CandidateFeed<Profile>>({
     ...discoverQueryOptions,
   });
 
@@ -1104,10 +1109,36 @@ export default function Discover() {
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
             <LulouFlowerIcon className="w-8 h-8 text-primary" />
           </div>
-          <h2 className="font-serif text-2xl font-bold" data-testid="text-no-profiles">{t("all_caught_up")}</h2>
-          <p className="text-muted-foreground text-sm leading-relaxed">
-            {t("all_caught_up_desc")}
-          </p>
+          {profilesData?.emptyReason === "distance" ? (
+            <>
+              <h2 className="font-serif text-2xl font-bold" data-testid="text-no-profiles-distance">
+                {t("discover_distance_empty_title")}
+              </h2>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {t("discover_distance_empty_desc").replace(
+                  "{distance}",
+                  formatDistance(profilesData.radiusMiles ?? 0, units),
+                )}
+              </p>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {t("discover_distance_empty_prompt")}
+              </p>
+              <Button
+                className="mt-1"
+                onClick={() => navigate("/profile?focus=distance")}
+                data-testid="button-expand-discover-distance"
+              >
+                {t("expand_distance_btn")}
+              </Button>
+            </>
+          ) : (
+            <>
+              <h2 className="font-serif text-2xl font-bold" data-testid="text-no-profiles">{t("all_caught_up")}</h2>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {t("all_caught_up_desc")}
+              </p>
+            </>
+          )}
         </div>
       </div>
     );

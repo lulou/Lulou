@@ -179,6 +179,7 @@ interface OnboardingProps {
 
 export default function Onboarding({ existingProfile = null, userEmail = "" }: OnboardingProps) {
   const { t } = useLanguageContext();
+  const [units] = useUnits();
   const [step, setStep] = useState(() => computeInitialStep(existingProfile));
   const [saveError, setSaveError] = useState<string | null>(null);
   const [, navigate] = useLocation();
@@ -626,24 +627,19 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                 <div className="space-y-2.5">
                   <Label>{t("search_radius")}</Label>
                   <div className="grid grid-cols-4 gap-1.5">
-                    {([
-                      { label: "10 km", value: 10 },
-                      { label: "25 km", value: 25 },
-                      { label: "50 km", value: 50 },
-                      { label: "100 km", value: 100 },
-                    ] as const).map(opt => (
+                    {([10, 25, 50, 100] as const).map(value => (
                       <button
-                        key={opt.value}
+                        key={value}
                         type="button"
-                        onClick={() => update("locationRadius", opt.value)}
+                        onClick={() => update("locationRadius", value)}
                         className={`py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200 active:scale-95 ${
-                          formData.locationRadius === opt.value
+                          formData.locationRadius === value
                             ? "bg-primary text-primary-foreground border-transparent shadow-sm"
                             : "border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40 bg-background"
                         }`}
-                        data-testid={`button-distance-${opt.value}`}
+                        data-testid={`button-distance-${value}`}
                       >
-                        {opt.label}
+                        {formatDistance(value, units)}
                       </button>
                     ))}
                   </div>

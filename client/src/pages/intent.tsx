@@ -30,6 +30,8 @@ import { liveCandidateQueryOptions } from "@/lib/live-candidate-query-options";
 import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
 import { setServiceWorkerReloadBlocked } from "@/lib/service-worker";
 import { canApplyWheelCandidateUpdate, resolveWheelDismissal } from "@/lib/wheel-presentation-guard";
+import { formatDistance, useUnits } from "@/lib/units";
+import type { CandidateFeed } from "@/lib/candidate-feed";
 
 // ── Module-level wheel-state logger ──────────────────────────────────────────
 // Callable from RAF closures, class methods, and useLayoutEffect — anything
@@ -1147,13 +1149,14 @@ function CheckoutDiagPanel({ diag, onSubscribe, open }: CheckoutDiagPanelProps) 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function IntentPage() {
   const { t, isRTL, language } = useLanguageContext();
+  const [units] = useUnits();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
   const [, navigate] = useLocation();
 
-  const { data: profiles, isLoading, isError, refetch: refetchProfiles } = useQuery<Profile[]>({
+  const { data: profiles, isLoading, isError, refetch: refetchProfiles } = useQuery<CandidateFeed<Profile>>({
     queryKey: ["/api/popular"],
     ...liveCandidateQueryOptions,
     placeholderData: (prev) => prev,
@@ -2860,14 +2863,40 @@ export default function IntentPage() {
       <div className="flex-1 flex flex-col items-center justify-start p-6 overflow-y-auto">
         <div className="text-center space-y-4 max-w-sm w-full mt-8">
           <LulouFlowerIcon className="w-10 h-10 text-primary mx-auto opacity-60" />
-          <p className="text-muted-foreground text-sm">{t("no_profiles_yet")}</p>
-          <button
-            className="px-4 py-2 rounded-md bg-primary/10 text-primary text-sm font-medium"
-            onClick={() => refetchProfiles()}
-            data-testid="button-refresh-intent-empty"
-          >
-            {t("retry_btn")}
-          </button>
+          {profiles?.emptyReason === "distance" ? (
+            <>
+              <h2 className="font-serif text-xl font-bold" data-testid="text-intent-no-profiles-distance">
+                {t("intent_distance_empty_title")}
+              </h2>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {t("intent_distance_empty_desc").replace(
+                  "{distance}",
+                  formatDistance(profiles.radiusMiles ?? 0, units),
+                )}
+              </p>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                {t("intent_distance_empty_prompt")}
+              </p>
+              <button
+                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
+                onClick={() => navigate("/profile?focus=distance")}
+                data-testid="button-expand-intent-distance"
+              >
+                {t("expand_distance_btn")}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-muted-foreground text-sm">{t("no_profiles_yet")}</p>
+              <button
+                className="px-4 py-2 rounded-md bg-primary/10 text-primary text-sm font-medium"
+                onClick={() => refetchProfiles()}
+                data-testid="button-refresh-intent-empty"
+              >
+                {t("retry_btn")}
+              </button>
+            </>
+          )}
 
           {/* Developer-only empty-state diagnostics; normal users see the
               polished empty state above without internal filtering details. */}

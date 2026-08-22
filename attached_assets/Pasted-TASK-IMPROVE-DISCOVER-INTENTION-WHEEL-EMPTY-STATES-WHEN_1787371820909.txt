@@ -1,0 +1,354 @@
+TASK — IMPROVE DISCOVER + INTENTION WHEEL EMPTY STATES WHEN DISTANCE IS THE REASON
+
+We have now completed the production investigation into the existing-user empty-feed issue.
+
+ROOT CAUSE IS CONFIRMED:
+
+The affected account is NOT stale.
+The account is NOT permanently exhausted.
+New users ARE eligible to appear for older accounts.
+There is NO account-age cutoff.
+There is NO stale candidate snapshot causing this.
+There is NO legacy gender/preference issue.
+
+For the affected account:
+
+26 other completed profiles
+→ 12 gender/preference compatible
+→ 10 after legitimate interaction/match exclusions
+→ 0 within the user's saved 25-mile radius
+
+All otherwise eligible profiles are currently outside the selected distance radius.
+
+Therefore:
+
+DO NOT weaken the distance filter.
+DO NOT change candidate eligibility.
+DO NOT change gender/preference filtering.
+DO NOT change Discover refresh logic.
+DO NOT change Intention Wheel refresh logic.
+DO NOT change the service worker.
+DO NOT clear previous interactions.
+DO NOT make distant profiles appear against the user's preferences.
+
+Instead, improve the EMPTY-STATE UX so users understand WHY they have no profiles and can easily fix it themselves.
+
+━━━━━━━━━━━━━━━━━━━━
+1. DISCOVER EMPTY STATE
+━━━━━━━━━━━━━━━━━━━━
+
+Currently Discover shows:
+
+"That's everyone for now"
+"New people join every day"
+
+This is too vague when the real reason is that there are compatible people outside the user's selected distance.
+
+When the backend can determine that:
+
+- there are zero eligible candidates inside the user's radius;
+BUT
+- there ARE otherwise eligible candidates outside that radius;
+
+show a distance-aware empty state.
+
+Use premium Lulou styling consistent with the existing Discover page.
+
+Suggested copy:
+
+NO ONE NEARBY JUST YET
+
+"You've seen everyone currently within 25 miles."
+
+Then:
+
+"Expand your distance to discover more people."
+
+Primary action:
+
+EXPAND DISTANCE
+
+The displayed number MUST use the user's actual saved radius.
+
+Do not hard-code 25 miles.
+
+Respect the user's units preference:
+miles / kilometres.
+
+━━━━━━━━━━━━━━━━━━━━
+2. EXPAND DISTANCE ACTION
+━━━━━━━━━━━━━━━━━━━━
+
+Tapping:
+
+EXPAND DISTANCE
+
+should take the user directly to the existing Discover/location/distance preference control.
+
+Do NOT create a second distance setting.
+
+Reuse the existing setting.
+
+Ideally, take them directly to the relevant section rather than making them hunt through Settings.
+
+After they increase the radius and save:
+
+- invalidate/refetch Discover immediately;
+- newly eligible profiles should appear without requiring logout/reinstall/restart.
+
+Preserve the live-feed refresh work from Task #98.
+
+━━━━━━━━━━━━━━━━━━━━
+3. INTENTION WHEEL EMPTY STATE
+━━━━━━━━━━━━━━━━━━━━
+
+The Intention Wheel currently shows:
+
+"No profiles to show yet"
+"Retry"
+
+This has the same UX problem.
+
+If:
+
+- there are zero Wheel candidates inside the selected radius;
+BUT
+- otherwise eligible Wheel candidates exist outside it;
+
+show a proper Lulou distance-aware state.
+
+Suggested copy:
+
+NO CONNECTIONS NEARBY JUST YET
+
+"Your Intention Wheel is searching within 25 miles."
+
+"Expand your distance to open up more possible connections."
+
+Primary action:
+
+EXPAND DISTANCE
+
+Again:
+
+Use the real saved radius.
+Respect miles/km preference.
+Reuse the existing distance setting.
+
+Do NOT alter:
+wheel animation
+spin physics
+winner selection
+candidate ranking
+Halo mechanics
+wheel eligibility rules
+cinematic reveal
+result profile
+spin limits
+
+━━━━━━━━━━━━━━━━━━━━
+4. IMPORTANT — DISTINGUISH EMPTY-STATE REASONS
+━━━━━━━━━━━━━━━━━━━━
+
+Do NOT blindly show "expand distance" every time the API returns [].
+
+The app/backend must distinguish at least:
+
+A) No candidates because of distance
+
+There ARE otherwise eligible candidates outside radius.
+
+→ Show distance-aware empty state + Expand Distance.
+
+B) Truly no compatible candidates currently exist
+
+Even without distance, there are no otherwise eligible candidates.
+
+→ Keep a general Lulou empty state such as:
+
+"That's everyone for now"
+"New people join every day"
+
+Do NOT tell users to expand their distance if doing so would still return nobody.
+
+C) Network/API failure
+
+→ Show Retry/error behavior.
+
+Do NOT present an API failure as "no people nearby."
+
+━━━━━━━━━━━━━━━━━━━━
+5. PRIVACY
+━━━━━━━━━━━━━━━━━━━━
+
+The empty-state response must NOT expose:
+
+names
+profile IDs
+exact locations
+exact distances to other members
+number of specific nearby/outside users if that could reveal member information
+
+The client only needs enough information to understand the reason.
+
+For example the backend could safely return something conceptually equivalent to:
+
+emptyReason: "distance"
+
+Do not expose candidate details merely to determine the empty state.
+
+━━━━━━━━━━━━━━━━━━━━
+6. RETURNING MEMBERS MUST STILL RECEIVE NEW SIGNUPS
+━━━━━━━━━━━━━━━━━━━━
+
+Preserve the confirmed behavior:
+
+Existing members must continue receiving newly created profiles whenever those profiles later become eligible.
+
+A member must NOT permanently exhaust their account.
+
+Add regression coverage for:
+
+1. Create User A.
+2. User A consumes all currently eligible profiles.
+3. User A becomes inactive.
+4. Later create User B.
+5. User B is:
+  - compatible gender/preference;
+  - inside User A's age preferences;
+  - inside User A's distance radius;
+  - otherwise eligible.
+6. User A returns.
+
+PASS REQUIREMENTS:
+
+Discover contains User B.
+
+Intention Wheel candidate source contains User B.
+
+Then test:
+
+7. Move User B outside User A's radius.
+
+PASS REQUIREMENT:
+
+User B is excluded normally and the appropriate distance-aware empty reason can be returned if no other nearby candidates remain.
+
+This protects BOTH requirements:
+
+Old users receive future signups.
+Distance preferences remain respected.
+
+━━━━━━━━━━━━━━━━━━━━
+7. DO NOT CHANGE UNRELATED SYSTEMS
+━━━━━━━━━━━━━━━━━━━━
+
+Do not modify:
+
+Connection DNA
+onboarding
+tutorial
+auth
+Likes
+Connections
+chat
+calls
+payments
+Halo purchase flow
+profile photo hearts
+prompt replies
+matching rules
+block logic
+age rules
+gender/preference rules
+wheel animation
+service-worker update logic
+
+Keep this task tightly scoped.
+
+━━━━━━━━━━━━━━━━━━━━
+8. VALIDATION
+━━━━━━━━━━━━━━━━━━━━
+
+Before completion verify:
+
+Discover:
+- zero nearby + eligible outside radius → distance message
+- Expand Distance works
+- changing radius refetches immediately
+- truly zero compatible users → normal generic empty state
+- API failure → Retry/error state
+
+Intention Wheel:
+- same three states
+- Expand Distance works
+- changing radius refetches immediately
+- Wheel mechanics remain unchanged
+
+Regression:
+- old user receives later compatible nearby signup in Discover
+- old user receives later compatible nearby signup in Wheel
+
+Run:
+
+npm run build
+
+Run relevant automated tests.
+
+Check the final diff carefully for unrelated changes.
+
+━━━━━━━━━━━━━━━━━━━━
+9. GIT / DEPLOYMENT
+━━━━━━━━━━━━━━━━━━━━
+
+Before editing:
+
+git fetch origin
+git rev-parse HEAD
+git rev-parse origin/main
+git status --short
+
+Do not overwrite unrelated work.
+
+After validation:
+
+Commit the scoped changes.
+Push main.
+Verify:
+
+git rev-parse HEAD
+git rev-parse origin/main
+
+They must match.
+
+Report whether Vercel and Railway have actually deployed the required frontend/backend changes.
+
+━━━━━━━━━━━━━━━━━━━━
+FINAL REPORT
+━━━━━━━━━━━━━━━━━━━━
+
+Report:
+
+1. Root cause preserved: 25-mile distance filter.
+2. Discover empty-state implementation.
+3. Intention Wheel empty-state implementation.
+4. How distance-vs-genuinely-empty-vs-error is distinguished.
+5. How Expand Distance works.
+6. Whether changing radius causes immediate refetch.
+7. Returning-member regression-test result.
+8. Wheel regression result.
+9. Files changed.
+10. npm run build result.
+11. Automated-test results.
+12. Commit hash.
+13. origin/main hash.
+14. Vercel deployment status.
+15. Railway deployment status.
+
+CRITICAL:
+
+Do not "solve" this by showing users outside their selected radius.
+
+The matching engine is behaving correctly.
+
+This task is about making Lulou intelligently explain the empty state and giving the member a direct way to expand their search.

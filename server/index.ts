@@ -148,6 +148,7 @@ app.use((req, res, next) => {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Voice-Mime");
+      res.setHeader("Access-Control-Expose-Headers", "X-Empty-Reason, X-Feed-Radius-Miles");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
 
       // Diagnostic: log every OPTIONS preflight for /api/profile so CORS flow

@@ -517,6 +517,25 @@ export const getQueryFn: <T>(options: {
 
     const json = await res.json();
 
+    // Candidate feed routes keep returning arrays for compatibility with older
+    // clients, while carrying safe empty-state metadata in response headers.
+    // Make that metadata available to the two feed pages without changing the
+    // shape consumed by existing callers.
+    if (Array.isArray(json) && (url === "/api/discover" || url === "/api/popular")) {
+      Object.defineProperties(json, {
+        emptyReason: {
+          value: res.headers.get("x-empty-reason") || "none",
+          enumerable: false,
+          configurable: true,
+        },
+        radiusMiles: {
+          value: Number(res.headers.get("x-feed-radius-miles") ?? 0),
+          enumerable: false,
+          configurable: true,
+        },
+      });
+    }
+
     // TEMP: latency debugging — expensive ops only run when PERF_ENABLED
     if (PERF_ENABLED) {
       const clientMs = Math.round(performance.now() - t0);

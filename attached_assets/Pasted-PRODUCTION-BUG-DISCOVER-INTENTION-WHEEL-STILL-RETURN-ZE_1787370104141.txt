@@ -1,0 +1,293 @@
+PRODUCTION BUG — DISCOVER + INTENTION WHEEL STILL RETURN ZERO PROFILES ON REAL IPHONE
+
+IMPORTANT:
+The previous Task #98 refresh/PWA fix has now been pushed to GitHub main and tested on the actual iPhone.
+
+REAL DEVICE RESULT: FAIL.
+
+After closing and reopening Lulou on the iPhone:
+
+DISCOVER still shows:
+“That’s everyone for now”
+
+INTENTION WHEEL still shows:
+“No profiles to show yet”
+
+Do NOT make another speculative cache/refetch/service-worker fix.
+
+We now need to diagnose the ACTUAL production API responses for this signed-in account.
+
+GOAL
+
+Find exactly why this existing account receives zero profiles in BOTH:
+1. Discover
+2. Intention Wheel
+
+There are known profiles in Lulou and this account should have eligible profiles based on its preferred gender.
+
+IMPORTANT PRODUCT RULE
+
+Existing accounts must continue receiving newly eligible users forever.
+
+A profile must NOT become permanently invisible simply because:
+- the viewer account is old;
+- the viewer has not logged in for a long time;
+- the candidate signed up after the viewer;
+- an old candidate pool was exhausted;
+- a stale snapshot/cursor exists.
+
+New eligible users must automatically enter old users’ Discover/Intention Wheel pools, subject only to legitimate exclusions.
+
+DO THIS AS A DIAGNOSIS FIRST.
+
+Do not weaken filters until you prove which filter is responsible.
+
+STEP 1 — VERIFY THE LIVE BUILD
+
+Confirm:
+
+git rev-parse HEAD
+git rev-parse origin/main
+
+Confirm HEAD == origin/main.
+
+Then verify the production Vercel frontend is actually serving the Task #98 build.
+
+Verify the installed iPhone/PWA is receiving that build/version if diagnostics exist.
+
+Verify the production frontend's API base URL and identify the EXACT Railway/backend host being called.
+
+Do not assume GitHub push = deployed frontend.
+
+STEP 2 — TRACE THE REAL PRODUCTION REQUESTS
+
+Identify the exact endpoints used by:
+
+Discover
+Intention Wheel
+
+For example:
+/api/discover
+/api/popular
+
+Use the SAME production backend/database and the SAME eligibility code those endpoints use.
+
+Do not use a local/dev database as evidence.
+
+STEP 3 — TRACE THIS ACCOUNT THROUGH EVERY FILTER
+
+For the affected signed-in account, produce COUNTS ONLY unless an ID is necessary for debugging.
+
+Start with:
+
+total other completed profiles
+
+Then show the remaining count after EACH filter individually:
+
+- account/profile completion
+- gender
+- preferred gender
+- reciprocal gender/preference compatibility if applicable
+- age range
+- location/distance
+- blocked users
+- existing matches
+- existing conversations
+- Likes
+- previous opens
+- previous closes
+- previous Discover interactions
+- previous Intention Wheel interactions
+- Halo history
+- seen/history tables
+- hidden/skipped profiles
+- any candidate snapshot/pool table
+- any cursor/pagination exclusion
+- any daily/time restriction
+- any SQL limit applied BEFORE filtering
+- any other exclusion used by Discover
+- any other exclusion used by /api/popular
+
+I want output conceptually like:
+
+Initial completed profiles: 40
+After gender preference: 22
+After age: 20
+After distance: 18
+After blocks: 18
+After matches: 17
+After previous interactions: 0
+
+If it becomes zero, identify the EXACT filter that changes the count to zero.
+
+Do this independently for Discover AND Intention Wheel.
+
+STEP 4 — CHECK THE MOST IMPORTANT SUSPECT: HISTORICAL EXCLUSIONS
+
+Specifically inspect whether old users have accumulated permanent interaction/seen exclusions that effectively exhaust their entire pool.
+
+Check whether newly created profiles are being accidentally excluded because of:
+
+- old interaction records
+- incorrect user/profile IDs
+- broad NOT IN queries
+- stale candidate snapshots
+- cached candidate IDs
+- incorrect joins
+- null handling
+- LIMIT before eligibility filtering
+- historical “seen” state applying too broadly
+- shared exclusions between Discover and Wheel
+
+Prove whether a NEW compatible profile created today would appear for this old account.
+
+Do not just inspect code.
+
+Run the actual eligibility calculation against production data.
+
+STEP 5 — CHECK GENDER/PREFERENCE VALUES
+
+Inspect the affected account's stored:
+
+gender
+preferred gender / interested-in value
+
+Then inspect the stored values used by candidate profiles.
+
+Check for legacy values from older versions of Lulou, for example differences like:
+
+woman / women / female
+man / men / male
+
+or arrays vs strings.
+
+Existing accounts may contain older preference formats while newer accounts use newer values.
+
+If old stored enum/value formats are causing compatibility checks to return zero, fix this backward-compatibly.
+
+Do NOT overwrite user preferences.
+
+Normalize legacy and current values safely in eligibility comparison.
+
+STEP 6 — COMPARE OLD ACCOUNT VS NEW ACCOUNT
+
+Using production data safely, compare:
+
+A) affected older account
+B) a recent account with the same effective gender/preferences
+
+Run both through the SAME eligibility pipeline.
+
+Explain exactly where their results diverge.
+
+This is important.
+
+If a new account receives candidates but an old equivalent account receives zero, identify the historical state responsible.
+
+STEP 7 — DISCOVER VS WHEEL
+
+Do not assume they fail for the same reason.
+
+Report separately:
+
+DISCOVER
+endpoint:
+raw candidate count:
+final eligible count:
+zero-producing filter:
+
+INTENTION WHEEL
+endpoint:
+raw candidate count:
+final eligible count:
+zero-producing filter:
+
+STEP 8 — FIX THE ROOT CAUSE ONLY
+
+Once proven, make the smallest correct fix.
+
+Preserve legitimate exclusions:
+
+blocks
+age
+gender/preferences
+distance
+existing matches where appropriate
+safety rules
+intentional previous decisions where product rules require them
+
+But do NOT allow an existing user to permanently exhaust Lulou and therefore never receive future eligible signups.
+
+Do not alter:
+Intention Wheel animation
+spin physics
+winner selection
+Halo mechanics
+Connection DNA
+onboarding
+calls
+chat
+payments
+photo hearts
+tutorial
+unrelated UI
+
+STEP 9 — ADD PRODUCTION-SAFE DIAGNOSTICS
+
+In development/debug mode only, make it possible to see:
+
+Discover:
+server candidate count
+final eligible count
+exclusion counts
+
+Wheel:
+server candidate count
+final eligible count
+exclusion counts
+
+Never display the giant debug overlay to normal production users.
+
+STEP 10 — REGRESSION TEST
+
+Add a test for this exact scenario:
+
+1. Create User A.
+2. User A consumes all currently eligible profiles.
+3. User A becomes inactive.
+4. Create compatible User B later.
+5. User A returns.
+6. Discover MUST contain User B.
+7. Intention Wheel candidate source MUST contain User B if otherwise eligible.
+
+Also test an OLD/LEGACY gender-preference value if production contains legacy values.
+
+FINAL REPORT REQUIRED
+
+Before claiming success report:
+
+1. Exact production frontend build/version tested.
+2. Exact production backend used.
+3. Discover endpoint.
+4. Intention Wheel endpoint.
+5. Affected account's effective gender/preference values.
+6. Discover count after every eligibility filter.
+7. Wheel count after every eligibility filter.
+8. Exact filter/root cause that reduced candidates to zero.
+9. Exact code fix.
+10. Files changed.
+11. Regression-test results.
+12. npm run build result.
+13. Commit hash.
+14. origin/main hash.
+15. Whether Vercel deployed that commit.
+16. Whether Railway deployed the required backend commit.
+17. REAL IPHONE TEST: leave as PENDING until I personally test it.
+
+CRITICAL:
+
+Do not tell me the candidate pool is healthy based on another anonymous account.
+
+We now have direct real-device evidence that THIS account receives zero from both feeds.
+
+Diagnose THIS account's production eligibility path and prove exactly where its candidates disappear before changing more code.

@@ -42,18 +42,23 @@ import { ElevateModal } from "@/components/elevate-modal";
 import { ProfileInfoRow } from "@/components/profile-info-row";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import type { Profile } from "@shared/schema";
+import { formatDistance, useUnits } from "@/lib/units";
 
 const _DEV = import.meta.env.DEV;
+const DISTANCE_RADIUS_OPTIONS = [10, 25, 50, 100] as const;
 
 
 export default function ProfilePage() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { t } = useLanguageContext();
+  const [units] = useUnits();
   const isTabActive = useTabActive();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [distanceFocusHandled, setDistanceFocusHandled] = useState(false);
+  const distanceSectionRef = useRef<HTMLDivElement>(null);
   const [showExtendedInfo, setShowExtendedInfo] = useState(false);
   const [showElevateModal, setShowElevateModal] = useState(false);
 
@@ -404,7 +409,7 @@ export default function ProfilePage() {
     },
   });
 
-  const [settingsForm, setSettingsForm] = useState<Record<string, string | undefined>>({});
+  const [settingsForm, setSettingsForm] = useState<Record<string, string | number | undefined>>({});
   const [editingStarters, setEditingStarters] = useState(false);
   const [editStarters, setEditStarters] = useState<string[]>([]);
   const [editStarterAnswers, setEditStarterAnswers] = useState<Record<string, string>>({});
@@ -446,9 +451,35 @@ export default function ProfilePage() {
         datingIntent: profile.datingIntent,
         connectionStyle: profile.connectionStyle,
         pronouns: (profile as any).pronouns || "",
+        locationRadius: profile.locationRadius ?? 25,
       });
     }
   };
+
+  // Empty-state actions on Discover and the Wheel link here. Keep the radius in
+  // the existing Profile editor and scroll directly to it instead of creating a
+  // duplicate setting elsewhere in the app.
+  useEffect(() => {
+    const focusDistance = new URLSearchParams(window.location.search).get("focus") === "distance";
+    if (!focusDistance || !profile || !isTabActive || distanceFocusHandled) return;
+    initSettings();
+    setExpandedSection("settings");
+  }, [location, profile, isTabActive, distanceFocusHandled]);
+
+  useEffect(() => {
+    const focusDistance = new URLSearchParams(window.location.search).get("focus") === "distance";
+    if (!focusDistance || expandedSection !== "settings" || distanceFocusHandled) return;
+    const frame = window.requestAnimationFrame(() => {
+      distanceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setDistanceFocusHandled(true);
+      window.history.replaceState({}, "", "/profile");
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [expandedSection, distanceFocusHandled]);
+
+  useEffect(() => {
+    setDistanceFocusHandled(false);
+  }, [location]);
 
   const saveSettings = useMutation({
     mutationFn: async () => {
@@ -798,6 +829,32 @@ export default function ProfilePage() {
                 placeholder={t("ph_city_state")}
                 data-testid="input-settings-location"
               />
+            </div>
+            <div ref={distanceSectionRef} className="space-y-2.5 scroll-mt-6" data-testid="section-settings-distance">
+              <Label className="text-xs">{t("search_radius")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t("people_within_radius").replace(
+                  "{distance}",
+                  formatDistance(Number(settingsForm.locationRadius ?? profile.locationRadius ?? 25), units),
+                )}
+              </p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {DISTANCE_RADIUS_OPTIONS.map(radius => (
+                  <button
+                    key={radius}
+                    type="button"
+                    onClick={() => setSettingsForm(prev => ({ ...prev, locationRadius: radius }))}
+                    className={`py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200 active:scale-95 ${
+                      Number(settingsForm.locationRadius ?? profile.locationRadius ?? 25) === radius
+                        ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                        : "border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40 bg-background"
+                    }`}
+                    data-testid={`button-settings-distance-${radius}`}
+                  >
+                    {formatDistance(radius, units)}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">{t("label_height")}</Label>
