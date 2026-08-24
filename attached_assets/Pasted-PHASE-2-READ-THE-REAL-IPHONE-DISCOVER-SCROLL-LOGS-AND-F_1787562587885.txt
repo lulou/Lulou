@@ -1,0 +1,137 @@
+PHASE 2 — READ THE REAL IPHONE DISCOVER SCROLL LOGS AND FIX THE PROVEN ROOT CAUSE
+
+The diagnostics-only build has now been tested on the physical installed iPhone.
+
+RESULT:
+
+Discover first-load scroll is STILL BROKEN.
+
+Now do NOT add more instrumentation and do NOT guess.
+
+Read the Railway production logs for:
+
+[DISCOVER_SCROLL_DIAG]
+
+Use the failed physical-iPhone reproduction I just performed.
+
+Find the records for:
+
+- discover_mount
+- discover_profile_loaded
+- first_touch_start
+- first_vertical_move
+- scroll_attempt
+- scroll_stuck_detected
+- image_loaded_plus_500ms
+- image_loaded_plus_1500ms
+
+Then reconstruct the exact runtime state.
+
+I want the actual values for:
+
+- running frontend commit/build
+- active service-worker version
+- standalone/PWA mode
+- window.innerHeight
+- visualViewport.height
+- visualViewport.offsetTop
+- documentElement.clientHeight
+- documentElement.scrollHeight
+- body.clientHeight
+- body.scrollHeight
+- active scroll owner
+- scrollOwner.scrollTop
+- scrollOwner.scrollHeight
+- scrollOwner.clientHeight
+- scrollOwner maximum scroll range
+- Discover root bounding rect
+- bottom-nav bounding rect
+- computed overflow/height/minHeight/maxHeight/flex values
+- touch-action
+- pointer-events
+- overscroll behavior
+- whether profile data was loaded
+- whether the image had loaded/decoded
+- whether any global body/html scroll lock was active
+- whether any full-viewport overlay was present
+
+MOST IMPORTANT:
+
+Explain exactly WHY the first iPhone swipe cannot continue.
+
+Prove whether the failure is:
+
+A. scroll range too short
+B. wrong scroll owner
+C. body/html overflow lock
+D. transparent/fixed overlay intercepting touch
+E. bottom nav hitbox overlap
+F. photo gesture interception
+G. stale PWA/frontend build
+H. iOS viewport/safe-area sizing
+I. async image/layout expansion not propagating
+J. another cause proven by the logs
+
+Do not make a code change until you can point to the exact log evidence.
+
+==================================================
+THEN IMPLEMENT PHASE 2
+==================================================
+
+Once the cause is proven, make the smallest possible fix.
+
+Do NOT:
+- add another random overflow-y-auto
+- add arbitrary delays
+- add giant padding
+- globally hide overflow
+- rewrite Discover
+- change matching/eligibility
+- change Intention Wheel
+- change Halo
+- change Profile
+- change auth/payments/calls/chat/database
+
+This is ONLY the physical-iPhone Discover first-load scroll bug.
+
+==================================================
+REQUIRED REGRESSION TEST
+==================================================
+
+Add a regression test that models the exact proven failure mode from the iPhone logs.
+
+Do not add a generic class assertion.
+
+The test must fail on the old behavior and pass on the actual fix.
+
+==================================================
+AFTER FIX
+==================================================
+
+Run:
+- focused regression tests
+- full relevant test suite
+- production build
+- final diff review
+
+Commit and push.
+
+Then report:
+
+1. exact Railway log evidence
+2. exact root cause
+3. why previous fixes failed
+4. exact files changed
+5. exact behavior change
+6. regression test added
+7. test results
+8. build result
+9. commit SHA
+10. HEAD
+11. origin/main
+
+And finish with:
+
+NOT VERIFIED ON PHYSICAL IPHONE
+
+until I personally test the new deployed build.
