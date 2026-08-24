@@ -1,0 +1,300 @@
+PHYSICAL IPHONE PRODUCTION BUG — DISCOVER FIRST-LOAD SCROLL STILL BROKEN
+
+IMPORTANT:
+The latest fix at commit:
+
+796bf707939b35b121e8ac16645c238bfb66f040
+
+HAS BEEN TESTED ON A REAL PHYSICAL IPHONE.
+
+RESULT:
+
+FAILED.
+
+Discover still does not scroll freely on first load.
+
+Do NOT make another generic desktop/browser CSS guess.
+
+From this point forward, treat the INSTALLED IPHONE/PWA VERSION as the source of truth.
+
+==================================================
+CURRENT REAL IPHONE FAILURE
+==================================================
+
+Exact sequence:
+
+1. Open Lulou on iPhone.
+2. Go to Discover.
+3. First profile loads.
+4. Immediately try to vertically scroll through the full profile.
+5. Scrolling becomes stuck before the full profile is reachable.
+
+This still happens after:
+- gesture fix
+- min-h-0 fix
+- flex: 0 0 auto fix
+
+Therefore the real root cause is still unresolved.
+
+==================================================
+DO THIS FOR THE IPHONE/PWA PATH SPECIFICALLY
+==================================================
+
+Audit the actual installed iPhone runtime path.
+
+Do NOT rely on:
+- desktop Chrome
+- desktop Safari
+- browser emulation
+- landing-page smoke tests
+- static class assertions
+
+Those have already passed while the physical iPhone still fails.
+
+Investigate:
+
+- installed PWA viewport behavior
+- visualViewport.height
+- innerHeight
+- documentElement.clientHeight
+- safe-area insets
+- body height
+- root height
+- AppLayout height
+- main height
+- Discover root height
+- bottom-nav positioning
+- any PWA-only CSS
+- any iOS Safari/WebKit quirks
+- any service-worker-cached old CSS/JS
+- any stale frontend bundle on the installed app
+- any iOS momentum-scroll interaction
+- any fixed element intercepting touch
+- any pointer/touch listener still active
+- any overflow hidden applied to html/body/root during app state changes
+- any modal/sheet/presentation lock that fails to restore scroll
+- any body scroll lock helper
+- any CSS using 100vh instead of dvh/svh
+- any initial render layout that differs in installed PWA mode
+
+==================================================
+ADD TEMPORARY IPHONE-SAFE SCROLL DIAGNOSTICS
+==================================================
+
+Do NOT guess again.
+
+Add temporary production-safe diagnostics that can be read from Railway/server logs without needing Safari Web Inspector.
+
+When Discover first loads on iPhone, send a throttled diagnostic payload containing ONLY layout values, never member data.
+
+Send:
+
+- event name
+- app build/version
+- display-mode standalone YES/NO
+- navigator.standalone if available
+- window.innerHeight
+- window.innerWidth
+- visualViewport.height
+- visualViewport.offsetTop
+- document.documentElement.clientHeight
+- document.documentElement.scrollHeight
+- document.body.clientHeight
+- document.body.scrollHeight
+- active scroll-owner identifier
+- scrollOwner.scrollTop
+- scrollOwner.scrollHeight
+- scrollOwner.clientHeight
+- computed overflowY of:
+ - html
+ - body
+ - root
+ - AppLayout main
+ - Discover root
+- computed height/minHeight/maxHeight of those elements
+- position of bottom navigation
+- bottom-nav bounding rect
+- Discover root bounding rect
+- whether any fixed/absolute overlay covers the viewport
+- whether body or root has overflow hidden
+- current active tab
+- whether profile data has loaded
+- whether image has loaded/decoded
+
+Send checkpoints at:
+
+1. discover_mount
+2. discover_profile_loaded
+3. first_touch_start
+4. first_vertical_move
+5. scroll_attempt
+6. scroll_stuck_detected
+7. 500ms after image load
+8. 1500ms after image load
+
+Do NOT send every touchmove/frame.
+
+Throttle heavily.
+
+==================================================
+AUTO-DETECT STUCK SCROLL
+==================================================
+
+Add a diagnostic-only detector:
+
+If:
+- user is making a vertical swipe;
+- scrollTop is not increasing;
+- there is content visually below the current viewport;
+- and scrollHeight - clientHeight <= scrollTop + small tolerance
+
+log:
+
+DISCOVER_SCROLL_STUCK
+
+Include the same geometry values above.
+
+This is instrumentation only.
+
+Do not change behavior in the same commit unless the root cause is proven from these logs.
+
+==================================================
+VERIFY THE INSTALLED APP BUILD
+==================================================
+
+This is critical.
+
+The installed iPhone app may still be running stale assets.
+
+Expose a developer-only build marker and report:
+
+- origin/main SHA
+- Vercel deployed build if available
+- service worker version
+- currently running frontend build seen by the installed iPhone
+
+If the installed app is stale:
+FIX THE PWA UPDATE PATH.
+
+Do NOT change Discover layout again just because the old build is still cached.
+
+==================================================
+CHECK IOS SCROLL LOCKS
+==================================================
+
+Search the entire client for anything that can lock page scrolling:
+
+- document.body.style.overflow
+- document.documentElement.style.overflow
+- overflow-hidden classes
+- body-scroll-lock helpers
+- modal open state
+- drawer/sheet open state
+- service-worker update overlay
+- wheel presentation locks
+- profile viewer gesture state
+- pointer capture
+- touchmove preventDefault
+- overscroll containment
+
+Report every writer and when it runs.
+
+If a stale lock survives on first Discover entry, prove it with logs before changing it.
+
+==================================================
+CHECK FIXED BOTTOM NAV HITBOX
+==================================================
+
+On the real screenshot, the bottom nav is fixed while Discover gets stuck.
+
+Verify the actual hitbox of the bottom nav.
+
+Check whether its container:
+- extends far above the visible navigation;
+- has a large transparent overlay;
+- has pointer-events enabled over the Discover content;
+- captures swipe gestures.
+
+Log its bounding rect on iPhone.
+
+If its hitbox overlaps the profile area, fix the hitbox, not the whole scroll architecture.
+
+==================================================
+CHECK ASYNC IMAGE/LAYOUT TIMING
+==================================================
+
+Because the bug is FIRST-LOAD ONLY, inspect:
+- image decode timing
+- profile data load timing
+- font load timing
+- safe-area settle timing
+- visualViewport changes
+- PWA startup viewport changes
+
+Compare geometry before/after each event.
+
+If iOS computes the scroll range before image dimensions settle, prove that with telemetry.
+
+Do not use arbitrary setTimeout as the final fix.
+
+==================================================
+STRICT SCOPE
+==================================================
+
+Do NOT touch:
+
+- Discover eligibility
+- matching
+- gender filtering
+- distance filtering
+- Open ❤️
+- Profile scrolling
+- Intention Wheel
+- Halo
+- calls
+- chat
+- payments
+- auth
+- Connection DNA
+- database/schema
+
+This task is ONLY:
+
+REAL IPHONE DISCOVER FIRST-LOAD SCROLL DIAGNOSIS.
+
+==================================================
+TWO-PHASE REQUIREMENT
+==================================================
+
+PHASE 1:
+Instrumentation only.
+
+Commit/push diagnostics.
+
+Then I will reproduce on the physical iPhone.
+
+PHASE 2:
+Read the Railway logs from that real iPhone reproduction.
+
+Only then:
+identify the exact root cause
+and make the smallest targeted fix.
+
+DO NOT combine diagnosis and another speculative fix in the same commit.
+
+==================================================
+FINAL REPORT AFTER PHASE 1
+==================================================
+
+Report:
+
+- files changed
+- diagnostic endpoint/transport used
+- all checkpoint names
+- all scroll-lock writers found
+- build/version marker added
+- commit hash
+- origin/main hash
+- confirmation no behavior changed
+
+Then wait for my physical iPhone reproduction before changing behavior.
