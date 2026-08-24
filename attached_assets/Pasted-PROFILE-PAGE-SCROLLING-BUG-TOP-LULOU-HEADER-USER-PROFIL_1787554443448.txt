@@ -1,0 +1,179 @@
+PROFILE PAGE SCROLLING BUG — TOP LULOU HEADER + USER PROFILE HEADER MUST SCROLL WITH THE PAGE
+
+Look carefully at the attached screenshots before changing anything.
+
+CURRENT BUG
+
+On the Profile page, the top section is behaving like a fixed/sticky overlay.
+
+This includes:
+
+- Lulou app logo
+- “Lulou” text
+- logout icon
+- the user’s profile header/name area directly underneath it
+
+When I scroll down the Profile page, these elements remain at the top while the rest of the Profile content moves underneath/behind them.
+
+You can clearly see text/content disappearing behind the stationary header.
+
+THIS IS NOT THE BEHAVIOUR I WANT.
+
+REQUIRED BEHAVIOUR
+
+The ENTIRE TOP OF THE PROFILE PAGE must belong to the normal vertical page scroll.
+
+That means ALL of these must move upward together when the user scrolls:
+
+1. Lulou logo
+2. “Lulou” wordmark
+3. logout icon
+4. user name/profile-header area underneath
+5. the rest of the Profile content
+
+As the user scrolls down, the Lulou logo + Lulou text + logout icon should naturally travel upward and disappear off the top of the screen.
+
+The user’s name/profile header should follow it naturally.
+
+Nothing at the top of Profile should remain floating over the content.
+
+IMPORTANT:
+
+THE BOTTOM NAVIGATION MUST REMAIN FIXED.
+
+Discover / Intent / Likes / Connections / Profile navigation should stay anchored at the bottom exactly as it currently does.
+
+So the structure should effectively behave like:
+
+ONE SCROLLING PROFILE DOCUMENT:
+[Lulou logo | Lulou | logout]
+[user profile header/name]
+[Edit Profile]
+[Age / Location]
+[Photos]
+[Conversation starters]
+[Questions]
+[Green flags]
+[Personality traits]
+[More about me]
+[rest of profile]
+
+FIXED:
+[bottom navigation]
+
+ROOT-CAUSE FIRST
+
+Before editing, inspect the actual DOM/layout structure and identify exactly why the header currently stays stationary.
+
+Check for:
+
+- position: fixed
+- position: sticky
+- sticky top values
+- top: 0
+- separate overflow-y containers
+- nested scroll containers
+- AppLayout owning the header outside Profile’s scroll container
+- height: 100vh / 100dvh layouts
+- z-index overlays
+- absolute positioning
+- padding/margin compensation for a fixed header
+
+Do NOT simply add extra top padding or margin to hide the overlap.
+
+Fix the actual scroll ownership/layout problem.
+
+PROFILE PAGE ONLY
+
+This request is specifically about Profile.
+
+Do NOT accidentally change the behaviour of:
+
+- Discover
+- Intention Wheel
+- Likes
+- Connections
+- Chat
+- Calls
+- onboarding
+- Connection DNA
+- tutorial
+- Halo
+- matching
+- payments
+- authentication
+
+If the Lulou header is a shared AppLayout component and other pages intentionally need their current behaviour, create the smallest Profile-specific layout behaviour rather than globally changing every page.
+
+VISUAL DESIGN
+
+Do not redesign anything.
+
+Keep exactly the same:
+
+- logo
+- Lulou wordmark
+- logout icon
+- typography
+- spacing where appropriate
+- profile styling
+- colours
+- bottom navigation
+- profile content
+- buttons
+- cards
+
+This is a scrolling/layout correction only.
+
+IPHONE / PWA IS IMPORTANT
+
+The bug is occurring on the actual iPhone experience.
+
+Test at an iPhone-sized viewport and specifically check scrolling behaviour.
+
+Make sure there is:
+
+- no content moving underneath a stationary Profile header
+- no blank gap left after the header scrolls away
+- no double scrollbar
+- no nested-scroll weirdness
+- no jumping when scrolling
+- no broken iOS safe-area spacing
+- no change to the fixed bottom navigation
+- no content hidden permanently behind the bottom navigation
+
+Do not claim a physical-iPhone PASS unless you actually tested a physical installed iPhone/PWA.
+
+SCOPE PROTECTION
+
+This is a NEW SEPARATE TASK.
+
+Do not reopen or modify Task #100.
+
+The distance-aware Discover/Intention Wheel work has already been completed and pushed.
+
+Do not modify that work as part of this fix.
+
+Before editing, state:
+
+“Current task: make the Lulou header, logout control, and user Profile header scroll naturally with the Profile page while keeping the bottom navigation fixed.”
+
+Then inspect → identify root cause → implement the smallest fix → test → build → review diff → commit → push.
+
+FINAL REPORT
+
+Report:
+
+1. Exact root cause
+2. Exact files changed
+3. What was fixed in the scroll/container structure
+4. Confirmation that Lulou logo + “Lulou” + logout now scroll away
+5. Confirmation that the user’s Profile header/name scrolls normally
+6. Confirmation bottom navigation remains fixed
+7. iPhone-sized viewport test result
+8. Build/test result
+9. Commit hash
+10. origin/main hash
+11. Confirm HEAD == origin/main
+
+Do not make unrelated changes.

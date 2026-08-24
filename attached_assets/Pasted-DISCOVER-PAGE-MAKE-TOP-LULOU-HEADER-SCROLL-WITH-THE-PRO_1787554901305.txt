@@ -1,0 +1,163 @@
+DISCOVER PAGE — MAKE TOP LULOU HEADER SCROLL WITH THE PROFILE
+
+Profile is now fixed correctly.
+
+DO NOT change Profile again.
+
+The remaining bug is in DISCOVER.
+
+CURRENT BUG
+
+On Discover, the top header containing:
+
+- Lulou logo
+- “Lulou” wordmark
+- logout icon
+
+still stays fixed at the top while the Discover profile content scrolls underneath it.
+
+This is visible in the attached screenshots.
+
+When I scroll through a Discover profile:
+- the profile name/photo/content moves upward;
+- the Lulou header stays stationary;
+- content travels behind/under the header.
+
+I want Discover to behave like the newly-fixed Profile page.
+
+REQUIRED BEHAVIOUR
+
+On DISCOVER ONLY:
+
+The top Lulou header must be part of the SAME normal vertical scroll as the Discover profile content.
+
+When scrolling down:
+
+- Lulou logo moves upward
+- “Lulou” moves upward
+- logout icon moves upward
+- Discover profile name moves upward
+- profile photo and all profile content follow naturally
+- the entire top section eventually scrolls off-screen
+
+Nothing should slide underneath a stationary top header.
+
+BOTTOM NAVIGATION
+
+Keep the bottom navigation fixed exactly as it is.
+
+So:
+
+SCROLLING:
+[Lulou logo + Lulou + logout]
+[Discover profile name]
+[profile photo]
+[profile details]
+[conversation starters]
+[questions]
+[remaining profile]
+
+FIXED:
+[bottom navigation]
+
+IMPORTANT
+
+Reuse the same structural approach that successfully fixed Profile if appropriate.
+
+First compare:
+
+client/src/components/app-layout.tsx
+client/src/pages/profile.tsx
+client/src/pages/discover.tsx
+
+Find why Discover still has separate scroll ownership or why AppLayout keeps its header outside Discover’s scroll region.
+
+Check specifically for:
+
+- overflow-y-auto / overflow-y-scroll
+- nested scroll containers
+- fixed/sticky AppLayout header
+- Discover-specific height: 100vh / 100dvh
+- position: sticky
+- top: 0
+- z-index overlay
+- padding compensating for a fixed header
+
+DO NOT simply add top padding.
+
+Fix the actual scroll ownership.
+
+STRICT SCOPE
+
+Do NOT change:
+
+- Profile — it is now working
+- Intention Wheel
+- Likes
+- Connections
+- Chat
+- calls
+- matching
+- candidate eligibility
+- Discover filtering
+- Open ❤️ behavior
+- Halo
+- Connection DNA
+- tutorial
+- auth
+- payments
+
+This is a Discover scrolling/layout fix only.
+
+Do not redesign anything.
+
+Keep:
+- Lulou header styling
+- profile layout
+- profile photos
+- Open ❤️
+- typography
+- colours
+- buttons
+- bottom navigation
+
+IPHONE TEST
+
+Test at an iPhone-sized viewport.
+
+Acceptance:
+
+1. Open Discover.
+2. Start at top of a profile.
+3. Scroll downward.
+4. Lulou logo + Lulou + logout must move upward with the Discover profile.
+5. Profile content must not pass behind the header.
+6. Header eventually disappears completely off-screen.
+7. Bottom navigation remains fixed.
+8. Discover profile scroll remains smooth.
+9. Profile page remains unchanged and still works.
+10. No double-scrollbar or nested-scroll behavior.
+
+Before editing state:
+
+“Current task: make the top Lulou header scroll naturally with Discover profile content while keeping the bottom navigation fixed.”
+
+Then:
+- inspect
+- identify exact root cause
+- make smallest fix
+- build/test
+- inspect diff
+- commit
+- push
+- verify HEAD == origin/main
+
+REPORT:
+- root cause
+- exact files changed
+- exact scroll-container/layout fix
+- confirmation Profile was untouched
+- build result
+- iPhone-sized viewport result
+- commit hash
+- origin/main hash
