@@ -1,0 +1,284 @@
+PRODUCTION BUG FIX — DISCOVER FIRST-LOAD SCROLL + INTENTION WHEEL CARD COUNT
+
+Use the attached iPhone screenshots as the exact evidence for these issues.
+
+IMPORTANT:
+This is a FIX task, not a redesign.
+Do not change unrelated UI, matching logic, eligibility, APIs, database schema, Intention Wheel winner logic, spin physics, Halo logic, navigation destinations, branding, or existing working functionality.
+
+There are TWO specific production issues to fix.
+
+==================================================
+1. DISCOVER STILL DOES NOT SCROLL FREELY ON FIRST LOAD
+==================================================
+
+The previous Discover scrolling fix has NOT fully solved the issue on a real iPhone.
+
+Look at the first attached screenshot.
+
+On the FIRST visit/load of Discover, the page can still become stuck and will not freely vertically scroll through the full profile.
+
+This must work immediately.
+
+EXPECTED BEHAVIOUR:
+
+- Open Discover.
+- The profile loads.
+- WITHOUT refreshing.
+- WITHOUT changing tabs.
+- WITHOUT reopening Discover.
+- WITHOUT performing any other action first.
+- The user must immediately be able to swipe vertically and smoothly scroll through the ENTIRE Discover profile.
+
+The scroll must feel native to iOS:
+- smooth;
+- responsive;
+- momentum/inertial scrolling;
+- no dead zones;
+- no scroll locking;
+- no page becoming stuck;
+- no content trapped underneath the bottom navigation;
+- no strange nested-scroll behaviour.
+
+The bottom navigation must remain anchored/fixed as intended.
+
+The Discover content itself must be the vertical scrolling surface.
+
+Horizontal photo gestures/swiping must continue working and must NOT accidentally disable vertical page scrolling.
+
+INVESTIGATE THE REAL ROOT CAUSE.
+
+Do not simply add another random overflow-y-auto.
+
+Audit:
+- AppLayout;
+- Discover;
+- parent flex containers;
+- height/min-height;
+- min-h-0;
+- overflow rules;
+- touch-action;
+- overscroll;
+- pointer/touch handlers;
+- gesture handlers;
+- preventDefault calls;
+- fixed/absolute elements;
+- body/root overflow;
+- initial loading state;
+- transitions/animations;
+- any state change that modifies overflow;
+- PWA/iOS dynamic viewport behaviour.
+
+Specifically compare DOM/CSS state:
+
+A. immediately after Discover FIRST loads;
+B. after whatever currently causes scrolling to start working.
+
+Find what is different.
+
+There must be ONE deliberate vertical scroll owner.
+
+Do not solve this by creating competing nested scroll containers.
+
+Test the exact sequence:
+
+fresh app launch/login
+→ Discover
+→ profile appears
+→ immediately swipe upward
+→ continue scrolling through full profile
+
+That sequence MUST work first time.
+
+==================================================
+2. INTENTION WHEEL — ONLY SHOW THE FRONT 3 LARGE CARDS
+==================================================
+
+Look at screenshots 2 and 3.
+
+The Intention Wheel currently exposes too many large profile cards across the horizontal scene.
+
+I only want the FRONT THREE prominent cards visible.
+
+The premium hero composition should contain:
+
+LEFT CARD
+CENTER CARD
+RIGHT CARD
+
+Only THREE large cards should be visually presented at once.
+
+The CENTER card remains the primary/focal card.
+
+The left and right cards can sit slightly behind/off-axis to create depth.
+
+But cards #4, #5, #6 etc must NOT remain visibly spread across the screen or become exposed by horizontal overflow.
+
+IMPORTANT:
+
+Do NOT reduce the actual candidate pool to three.
+
+This is PRESENTATION ONLY.
+
+The Wheel can still internally contain all eligible candidates required for:
+- randomness;
+- spinning;
+- winner selection;
+- existing eligibility;
+- existing wheel logic.
+
+But visually the idle/front presentation must expose only three large cards.
+
+Do NOT simply delete candidates from the data.
+
+==================================================
+3. REMOVE THE HORIZONTAL PAGE OVERFLOW
+==================================================
+
+Screenshot 3 shows that the Intention Wheel content can effectively extend sideways beyond the iPhone viewport.
+
+That must not happen.
+
+The PAGE itself must never horizontally scroll.
+
+At every Wheel state:
+
+document.scrollWidth <= viewport/clientWidth
+
+The wheel animation may internally move cards as required, but it must be clipped/contained inside its dedicated stage.
+
+Do not globally hide overflow in a way that breaks the animation.
+
+Instead:
+
+- constrain the Wheel stage;
+- clip visual overflow at the correct container;
+- preserve animation geometry;
+- preserve winner positioning;
+- preserve the cinematic transition.
+
+The user must never be able to drag/swipe the whole page sideways and reveal off-screen cards/content.
+
+==================================================
+PRESERVE ALL EXISTING WORKING BEHAVIOUR
+==================================================
+
+DO NOT CHANGE:
+
+- candidate eligibility;
+- gender/preferences;
+- distance filtering;
+- age filtering;
+- blocked users;
+- interactions;
+- Wheel randomness;
+- winner selection;
+- spin permissions;
+- paid/free spin logic;
+- streak logic;
+- Halo sending;
+- Halo success dismissal;
+- winner persistence;
+- existing Wheel lock protections;
+- API response contracts;
+- database schema;
+- authentication;
+- bottom-nav destinations;
+- Profile scrolling;
+- calls;
+- messaging;
+- payments;
+- translations.
+
+Do not undo the recent Wheel completion-speed work.
+
+Do not redesign the Wheel.
+
+Keep the current premium dark-purple Lulou visual direction.
+
+==================================================
+REGRESSION REQUIREMENTS
+==================================================
+
+Add focused regression coverage for:
+
+1. Discover has exactly one intended vertical scroll owner.
+
+2. Discover's first rendered state does not lock vertical scrolling.
+
+3. Discover remains vertically scrollable after profile data loads.
+
+4. Horizontal photo gestures do not disable vertical Discover scrolling.
+
+5. Wheel candidate DATA can contain more than three candidates.
+
+6. Wheel IDLE PRESENTATION renders only three prominent large cards.
+
+7. The Wheel stage cannot create document-level horizontal overflow.
+
+8. Winner selection still works from the complete eligible candidate set.
+
+9. Existing Wheel timing and Halo lifecycle tests continue passing.
+
+10. Bottom navigation remains anchored correctly.
+
+==================================================
+REAL IPHONE VERIFICATION
+==================================================
+
+Do not call this fixed based only on desktop/browser emulation.
+
+After implementation, explicitly report whether this exact flow has been verified on a PHYSICAL IPHONE:
+
+DISCOVER:
+fresh load
+→ open Discover
+→ immediately scroll
+→ full profile scrolls smoothly first time
+
+WHEEL:
+open Intent
+→ confirm only three large front cards are visible
+→ confirm page cannot scroll horizontally
+→ spin
+→ confirm all existing Wheel behaviour still works
+
+If physical-iPhone testing cannot be performed, state:
+
+NOT VERIFIED ON PHYSICAL IPHONE
+
+Do not claim otherwise.
+
+==================================================
+DELIVERY
+==================================================
+
+Before editing:
+1. inspect the current implementation;
+2. identify the actual root cause of the first-load Discover scroll failure;
+3. identify why more than three Wheel cards become visible;
+4. identify what is creating document-level horizontal overflow.
+
+Then make the smallest safe production fix.
+
+After implementation:
+
+- run focused regression tests;
+- run the full relevant test suite;
+- run production build;
+- inspect the final diff for unrelated changes;
+- commit only the intended source/test files;
+- push to origin/main;
+- verify HEAD == origin/main.
+
+Report:
+
+ROOT CAUSE — DISCOVER
+ROOT CAUSE — WHEEL
+FILES CHANGED
+EXACT FIX
+TEST RESULTS
+BUILD RESULT
+GIT COMMIT
+HEAD / origin/main
+PHYSICAL IPHONE STATUS
