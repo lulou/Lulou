@@ -1,0 +1,413 @@
+PRODUCTION BUG FIX — DISCOVER SCROLL REGRESSION + INTENTION WHEEL PREMIUM FLOW + HALO SENT STUCK
+
+I have tested the latest Lulou build on a real iPhone and found 3 issues shown in the attached screenshots.
+
+IMPORTANT:
+Diagnose the exact current implementation before editing.
+
+Do NOT make broad speculative changes.
+
+Do NOT alter:
+- Discover eligibility
+- matching logic
+- gender/preference filtering
+- distance filtering
+- authentication
+- payments
+- calls
+- messaging
+- database schema
+- Intention Wheel eligibility
+- Halo business logic
+
+Fix the proven causes only.
+
+==================================================
+1. CRITICAL — DISCOVER SCROLLING HAS BROKEN
+==================================================
+
+Discover scrolling has regressed after the recent premium iOS UI/layout work.
+
+REAL IPHONE BEHAVIOUR:
+
+I can scroll part-way through a Discover profile and then scrolling stops.
+
+There is then a huge blank/dead white area while:
+- the bottom navigation remains visible;
+- the floating back/moon controls remain visible;
+- the rest of the Discover profile cannot be reached.
+
+This MUST be fixed.
+
+TRACE THE EXACT SCROLL OWNERSHIP THROUGH:
+
+- AppLayout
+- Discover
+- ProfilePhotoViewer
+- Discover profile content
+- bottom navigation
+- floating Discover controls
+- safe-area wrappers
+- flex containers
+- height/min-height rules
+- 100vh / 100dvh usage
+- overflow / overflow-y
+- nested scrolling containers
+- any recent changes from the premium iOS UI pass
+
+There should be ONE reliable vertical scroll owner for the Discover profile.
+
+REQUIRED BEHAVIOUR:
+
+The entire Discover profile must be continuously scrollable from:
+
+first photo
+→ profile information
+→ prompts/content
+→ additional photos
+→ final profile content
+
+The user must be able to reach the absolute bottom of every Discover profile.
+
+The fixed bottom navigation can remain fixed.
+
+However, it must NEVER:
+- clip the scroll area;
+- stop scrolling early;
+- create a false viewport height;
+- create a large blank area;
+- cover inaccessible content.
+
+Floating Discover controls must not capture or interfere with normal vertical touch scrolling.
+
+DO NOT fix this with:
+- arbitrary giant bottom padding;
+- hard-coded viewport heights;
+- another nested scrollbar;
+- hiding overflowing profile content.
+
+IMPORTANT:
+
+Preserve the recently corrected behaviour where the Discover Lulou logo/header scrolls naturally away with the Discover page.
+
+Do not make the Discover header sticky again.
+
+Also preserve the working Profile-page scrolling behaviour.
+
+==================================================
+2. INTENTION WHEEL STILL NEEDS A MORE PREMIUM iOS FEEL
+==================================================
+
+The visual identity itself is good:
+
+- dark plum environment;
+- pink Lulou accents;
+- glow;
+- premium typography;
+- atmospheric presentation.
+
+KEEP THAT.
+
+Do NOT redesign the Intention Wheel from scratch.
+
+The problem is the interaction and winner transition still feels too much like a web/Android-style modal rather than a polished native iPhone experience.
+
+Audit the complete transition:
+
+spin
+→ wheel slows
+→ lands on winner
+→ winner begins reveal
+→ winner card expands
+→ actionable winner state
+
+This needs to feel like ONE continuous premium iOS animation.
+
+REQUIRED:
+
+- premium iOS-style easing;
+- smooth acceleration/deceleration;
+- natural momentum;
+- smooth scale transitions;
+- controlled blur/glow;
+- no jump cuts;
+- no abrupt resizing;
+- no layout flashes;
+- no Android/Material-style modal behaviour;
+- no sudden rectangular web-dialog feeling;
+- correct iPhone safe-area handling;
+- performant animation on a real iPhone.
+
+KEEP LULOU'S CURRENT DESIGN LANGUAGE.
+
+This is refinement, NOT a redesign.
+
+==================================================
+3. SPEED UP WINNER REVEAL
+==================================================
+
+The transition after the Wheel lands on the winning profile currently takes too long.
+
+Speed it up.
+
+However:
+
+DO NOT make it instant.
+
+DO NOT make it jumpy.
+
+DO NOT simply remove animations.
+
+The desired feeling is:
+
+fast enough to feel responsive
++
+slow enough to feel luxurious.
+
+The winner should feel like it naturally emerges from the Wheel selection rather than waiting through unnecessary animation delays.
+
+Review:
+- timers;
+- transition durations;
+- chained setTimeout calls;
+- animation completion handlers;
+- artificial pauses;
+- reveal-state transitions.
+
+Remove unnecessary waiting while preserving the premium reveal.
+
+==================================================
+4. CRITICAL — "HALO SENT" WINNER SCREEN GETS STUCK
+==================================================
+
+This is a functional production bug.
+
+REAL IPHONE BEHAVIOUR:
+
+I selected the winner.
+
+I tapped:
+
+Send Halo
+
+The Halo successfully sent.
+
+The UI correctly changed to:
+
+✨ Halo Sent
+
+BUT THE WINNER SCREEN THEN STAYED THERE.
+
+It remained stuck on the winner presentation.
+
+I should NOT have to manually close the winner after successfully sending a Halo.
+
+Trace the complete state machine:
+
+winner selected
+→ Send Halo tapped
+→ mutation starts
+→ server request
+→ successful persistence
+→ Halo Sent acknowledgement
+→ winner dismissal
+→ state cleanup
+→ presentation lock release
+→ candidate refresh
+→ normal Intention Wheel
+
+Determine EXACTLY which state, animation, timer or lock is preventing completion.
+
+Pay particular attention to the existing safety work around:
+
+- wheel presentation locks;
+- candidate refresh locks;
+- service-worker reload locks;
+- result dismissal persistence;
+- selected winner state;
+- result state;
+- spin state;
+- reveal state;
+- mutation state.
+
+DO NOT simply remove those protections.
+
+Fix the lifecycle correctly.
+
+==================================================
+SUCCESSFUL HALO BEHAVIOUR
+==================================================
+
+After the server CONFIRMS the Halo was successfully sent:
+
+1. Display:
+
+✨ Halo Sent
+
+2. Keep it visible briefly so the user can register the success.
+
+3. Then automatically begin a smooth premium dismissal animation.
+
+4. Close the winner presentation automatically.
+
+5. Clear the selected winner/result state.
+
+6. Release the Wheel presentation lock.
+
+7. Release any candidate refresh/update locks.
+
+8. Return to the normal Intention Wheel state.
+
+9. Safely invalidate/refetch candidates where appropriate.
+
+10. The person who just received the Halo must not immediately reappear incorrectly.
+
+The user should NEVER have to press Close after a successful Halo.
+
+==================================================
+DOUBLE-SEND PROTECTION
+==================================================
+
+DO NOT accidentally send multiple Halos.
+
+Once Send Halo is tapped:
+
+- immediately disable repeated submission;
+- ignore rapid/double taps;
+- only one mutation may be active;
+- only one Halo interaction may be persisted.
+
+Do not create duplicate interaction records.
+
+==================================================
+HALO FAILURE BEHAVIOUR
+==================================================
+
+If Send Halo FAILS:
+
+DO NOT dismiss the winner.
+
+DO NOT show a false Halo Sent state.
+
+Keep/restore the winner presentation.
+
+Show an appropriate retry state.
+
+The user must be able to safely try again.
+
+Do not leave the Wheel permanently locked after a failed request.
+
+==================================================
+CLOSE WITHOUT SENDING
+==================================================
+
+The existing Close behaviour must continue working independently.
+
+Closing without sending a Halo must:
+
+- dismiss the winner correctly;
+- persist whatever existing dismissal behaviour is required;
+- release presentation locks;
+- return to the Wheel safely.
+
+Do not break this while fixing Halo success.
+
+==================================================
+REGRESSION SAFETY
+==================================================
+
+Specifically inspect the recent premium iOS UI changes for the Discover scrolling regression before modifying unrelated components.
+
+PRESERVE:
+
+- Profile scrolling fix;
+- Discover header scrolling-away behaviour;
+- fixed bottom navigation;
+- Wheel spin safety;
+- candidate presentation locks;
+- foreground/refetch safeguards;
+- service-worker update safeguards;
+- distance filtering;
+- gender/preference filtering;
+- existing Halo persistence;
+- matching behaviour;
+- Intention Wheel candidate eligibility;
+- safe-area handling;
+- current Lulou branding.
+
+Do not weaken existing functional protections just to make the animations easier.
+
+==================================================
+AUTOMATED REGRESSION COVERAGE
+==================================================
+
+Add focused regression coverage for:
+
+1. Discover remains scrollable through the complete profile at an iPhone viewport.
+
+2. Discover does not terminate scrolling early because of bottom navigation or viewport sizing.
+
+3. A successful Halo automatically completes the winner lifecycle.
+
+4. Halo Sent cannot remain permanently stuck on screen.
+
+5. Successful Halo automatically dismisses the winner presentation.
+
+6. Failed Halo keeps/restores the winner and allows retry.
+
+7. Rapid/double taps cannot create two Halo sends.
+
+8. Candidate refresh cannot reshuffle the selected winner during reveal/send.
+
+9. Presentation locks are released after successful completion.
+
+10. Existing Close-without-Halo behaviour still works.
+
+==================================================
+VALIDATION
+==================================================
+
+Run:
+
+- production build;
+- existing test suite;
+- new focused regression tests;
+- TypeScript diagnostics where applicable.
+
+Inspect the final diff for unintended functional changes.
+
+Restart the app and perform an iPhone-sized browser check.
+
+IMPORTANT:
+
+Do NOT mark this task complete merely because automated tests pass.
+
+The final report MUST explicitly state whether these were tested on a REAL authenticated installed iPhone:
+
+- complete Discover scrolling;
+- Wheel winner transition;
+- Send Halo;
+- automatic Halo Sent dismissal;
+- return to the Wheel.
+
+If a physical authenticated iPhone test cannot be performed by the agent, report:
+
+NOT VERIFIED ON PHYSICAL IPHONE
+
+Do not claim PASS.
+
+==================================================
+FINAL REQUIREMENT
+==================================================
+
+This is NOT another broad UI redesign.
+
+Fix:
+
+1. the Discover scrolling regression;
+2. the premium/speed quality of the Intention Wheel winner transition;
+3. the Halo Sent screen getting permanently stuck.
+
+Make the smallest safe changes necessary.
+
+Do not break anything else in Lulou.
