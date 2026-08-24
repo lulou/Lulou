@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { resolveWheelDismissal } from "../../client/src/lib/wheel-presentation-guard";
 import { canStartHaloSend, SPIN_ROOM_TIMING } from "../../client/src/lib/spin-room-timing";
+import { shouldPreventPhotoTouchMove } from "../../client/src/lib/photo-gesture";
+import { getIdleWheelVisibleIndices } from "../../client/src/lib/wheel-idle-presentation";
 
 describe("production Discover and Wheel regressions", () => {
   it("keeps Discover in the shell's single shrinkable vertical scroll region", () => {
@@ -10,6 +12,57 @@ describe("production Discover and Wheel regressions", () => {
     expect(appLayout).toContain('"flex-1 min-h-0 overflow-y-auto flex flex-col"');
     expect(appLayout).toContain("isScrollWithHeaderPage && appHeader");
     expect(appLayout).toContain("!isChatRoom && <nav");
+  });
+
+  it("does not let a late-mounted photo viewer cancel a page swipe", () => {
+    expect(shouldPreventPhotoTouchMove({
+      pointerId: null,
+      dirLocked: null,
+      startX: 0,
+      startY: 0,
+    }, { clientX: 240, clientY: 80 })).toBe(false);
+
+    expect(shouldPreventPhotoTouchMove({
+      pointerId: 7,
+      dirLocked: null,
+      startX: 120,
+      startY: 420,
+    }, { clientX: 124, clientY: 300 })).toBe(false);
+  });
+
+  it("preserves horizontal photo swipes only for an active horizontal gesture", () => {
+    expect(shouldPreventPhotoTouchMove({
+      pointerId: 7,
+      dirLocked: null,
+      startX: 120,
+      startY: 420,
+    }, { clientX: 220, clientY: 424 })).toBe(true);
+
+    expect(shouldPreventPhotoTouchMove({
+      pointerId: 7,
+      dirLocked: true,
+      startX: 120,
+      startY: 420,
+    }, { clientX: 130, clientY: 422 })).toBe(true);
+
+    expect(shouldPreventPhotoTouchMove({
+      pointerId: 7,
+      dirLocked: false,
+      startX: 120,
+      startY: 420,
+    }, { clientX: 220, clientY: 424 })).toBe(false);
+  });
+
+  it("keeps the full Wheel pool mounted while showing only three idle cards", () => {
+    expect(getIdleWheelVisibleIndices(7)).toEqual([0, 1, 2]);
+  });
+
+  it("clips the dedicated Wheel stage horizontally without changing page-wide overflow", () => {
+    const intent = readFileSync("client/src/pages/intent.tsx", "utf8");
+
+    expect(intent).toContain("overflow-y-auto overflow-x-hidden");
+    expect(intent).toContain("items.map((profile, i)");
+    expect(intent).not.toContain("items.slice(0, 3).map");
   });
 
   it("keeps the measured winner handoff while removing excess post-lock delay", () => {

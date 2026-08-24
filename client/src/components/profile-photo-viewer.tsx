@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useLayoutEffect, useCallback, useRef, type ReactNode } from "react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
+import { shouldPreventPhotoTouchMove } from "@/lib/photo-gesture";
 
 export const PROFILE_PHOTO_HEIGHT = 420;
 
@@ -188,13 +189,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 
     const onTouchMove = (e: TouchEvent) => {
       const g = gestureRef.current;
-      if (g.dirLocked === true) {
-        e.preventDefault();
-      } else if (g.dirLocked === null) {
-        const dx = Math.abs(e.touches[0].clientX - g.startX);
-        const dy = Math.abs(e.touches[0].clientY - g.startY);
-        if (dx > 3 && dx > dy) e.preventDefault();
-      }
+      const touch = e.touches[0];
+      if (shouldPreventPhotoTouchMove(g, touch)) e.preventDefault();
     };
 
     el.addEventListener("touchmove", onTouchMove, { passive: false });

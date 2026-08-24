@@ -31,6 +31,7 @@ import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
 import { setServiceWorkerReloadBlocked } from "@/lib/service-worker";
 import { canApplyWheelCandidateUpdate, resolveWheelDismissal } from "@/lib/wheel-presentation-guard";
 import { canStartHaloSend, SPIN_ROOM_TIMING } from "@/lib/spin-room-timing";
+import { getWheelRestingDistance, isWheelIdleCardVisible } from "@/lib/wheel-idle-presentation";
 import { formatDistance, useUnits } from "@/lib/units";
 import type { CandidateFeed } from "@/lib/candidate-feed";
 
@@ -3280,7 +3281,7 @@ export default function IntentPage() {
       {/* ── Wheel stage ── */}
       <div
         dir={isRTL ? "rtl" : "ltr"}
-        className={`flex-1 flex flex-col items-center overflow-y-auto ${isCompact ? "justify-start pt-4 gap-3" : "justify-start pt-4 gap-5"} transition-all duration-700`}
+        className={`flex-1 min-h-0 w-full flex flex-col items-center overflow-y-auto overflow-x-hidden ${isCompact ? "justify-start pt-4 gap-3" : "justify-start pt-4 gap-5"} transition-all duration-700`}
         style={{
           background: isSpinning
             ? "radial-gradient(ellipse 90% 65% at 50% 40%, rgba(212,92,116,0.20) 0%, rgba(212,92,116,0.07) 45%, transparent 72%)"
@@ -3364,18 +3365,18 @@ export default function IntentPage() {
                 const cardScale = 0.60 + depthFactor * 0.40;
                 const glowAlpha = Math.max(0, Math.pow(cosVal, 2.5));
                 const isResting = !isSpinning && !dispersed;
-                // Resting order is centre, left, right, outer-left, outer-right.
-                // Cards beyond the visible five stay mounted for the existing
-                // wheel data flow but are hidden from this compact preview.
+                // Resting order is centre, left, right. Further cards stay
+                // mounted for the full wheel data flow but are hidden from
+                // the prominent idle presentation.
+                const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
-                const restingDistance = Math.abs(restingSlot);
                 const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.84 : 0.66;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
                 const restingTilt = restingSlot === 0 ? 0 : restingSlot < 0 ? 14 : -14;
                 const restingZ = Math.round(restingCarouselRadius * (restingDistance === 0 ? 0.28 : restingDistance === 1 ? 0.18 : 0.08));
-                const restingVisible = restingDistance <= 2;
+                const restingVisible = isWheelIdleCardVisible(i);
 
                 const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 900 : 0;
                 const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
