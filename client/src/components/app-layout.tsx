@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { decodedPhotos } from "@/lib/image-utils";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
+import { getAppLayoutScrollPolicy } from "@/lib/app-layout-scroll-policy";
 import { useLanguageContext } from "@/contexts/language-context";
 import { LulouOnboardingTour } from "@/components/lulou-onboarding-tour";
 
@@ -101,11 +102,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // when the user has the app open in a background tab.
   const isTabActive = useTabActive();
 
-  // Hide navigation when inside a chat room — focus mode
-  const isChatRoom = location.startsWith("/messages/");
-  const isProfilePage = location.startsWith("/profile");
-  const isDiscoverPage = location.startsWith("/discover");
-  const isScrollWithHeaderPage = isProfilePage || isDiscoverPage;
+  // Keep the shell's route interpretation aligned with PersistentTabs, which
+  // renders Discover at "/" during an installed PWA's first load.
+  const { isChatRoom, usesHeaderScrollOwner: isScrollWithHeaderPage } =
+    getAppLayoutScrollPolicy(location);
 
   // Chat rooms manage their own keyboard-avoidance via keyboardHeight tracked
   // inside messaging.tsx. AppLayout simply pins the container to full screen.
