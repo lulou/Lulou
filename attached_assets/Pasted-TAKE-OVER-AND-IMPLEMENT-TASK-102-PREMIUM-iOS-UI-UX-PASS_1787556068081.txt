@@ -1,0 +1,681 @@
+TAKE OVER AND IMPLEMENT TASK #102 — PREMIUM iOS UI/UX PASS
+
+Assign Task #102 (Premium iOS UI/UX pass) to yourself and carry it through to completion.
+
+The previous assigned task agent stopped before implementing anything.
+
+DO NOT retry this with another task agent.
+
+YOU are to implement Task #102 directly.
+
+IMPORTANT:
+
+The audit/planning stage has already been completed.
+
+Do NOT spend another cycle simply auditing the app and proposing another task.
+
+Start from the existing Task #102 plan, verify the current repository state, then begin the actual implementation.
+
+==================================================
+PRIMARY OBJECTIVE
+==================================================
+
+Remove anything throughout Lulou that gives off:
+
+- Android
+- Material Design
+- generic React app
+- generic website
+- cheap PWA
+- desktop UI squeezed onto mobile
+
+The finished product should have a cohesive, polished, premium iOS feel across the ENTIRE app.
+
+However:
+
+THIS IS NOT A REDESIGN OF LULOU.
+
+Lulou must remain unmistakably Lulou.
+
+Preserve:
+
+- existing Lulou colour palette
+- current logo
+- typography direction
+- premium romantic aesthetic
+- page structure where appropriate
+- existing features
+- existing flows
+- existing functionality
+
+We are improving the quality and consistency of the interface, not replacing the product.
+
+==================================================
+ABSOLUTE PRIORITY — DO NOT BREAK THE APP
+==================================================
+
+This is primarily a frontend presentation, interaction and design-system polish task.
+
+Do NOT modify business logic just because you are touching a component.
+
+Do NOT change:
+
+- backend eligibility logic
+- matching
+- gender/preference logic
+- distance filtering
+- APIs/API contracts
+- database/schema
+- authentication
+- onboarding requirements
+- Connection DNA scoring/questions/results
+- candidate selection
+- Open ❤️ functionality
+- Halo functionality
+- Intention Wheel eligibility
+- Intention Wheel candidate selection
+- messaging progression
+- message quotas
+- call progression
+- WebRTC
+- payment logic
+- subscriptions
+- user data
+- existing safety rules
+
+Do not create duplicate implementations of existing functionality.
+
+==================================================
+PROTECT RECENT FIXES
+==================================================
+
+VERY IMPORTANT:
+
+The recently corrected Profile and Discover scrolling behaviour must NOT regress.
+
+PROFILE:
+
+The Lulou logo + “Lulou” + logout control and Profile content must continue to participate in the intended natural page scroll.
+
+DISCOVER:
+
+Preserve its corrected scroll ownership and existing profile presentation.
+
+BOTTOM NAVIGATION:
+
+Keep the intended fixed bottom navigation behaviour.
+
+Do not accidentally introduce:
+
+- nested vertical scrolling
+- sticky headers that should scroll
+- content passing underneath headers
+- double scrollbars
+- broken safe areas
+- page height bugs
+
+==================================================
+IMPLEMENT IN CONTROLLED STAGES
+==================================================
+
+Do NOT make hundreds of uncontrolled cosmetic changes in one pass.
+
+Implement Task #102 incrementally.
+
+STAGE 1 — SHARED iOS DESIGN PRIMITIVES
+
+Start with shared components/design primitives.
+
+Audit and safely improve:
+
+- buttons
+- inputs
+- selects
+- toggles
+- checkboxes
+- radio controls
+- segmented controls
+- cards
+- icon buttons
+- loading indicators
+- pressed states
+- disabled states
+- focus states
+- spacing
+- border radii
+- shadows
+- separators
+
+Remove Material/Android/browser-default styling.
+
+Touch targets should be appropriate for iPhone.
+
+Aim for approximately 44x44pt minimum interactive targets where practical.
+
+Do not simply make everything enormous.
+
+Maintain elegant proportions.
+
+Test before continuing.
+
+==================================================
+STAGE 2 — NAVIGATION
+==================================================
+
+Polish:
+
+- bottom navigation
+- back controls
+- header controls
+- logout control
+- tab interaction
+- navigation hit areas
+
+Remove:
+
+- Material-looking navigation
+- tiny touch targets
+- inconsistent icons
+- invalid nested interactive elements
+- web-style navigation behaviour
+
+Preserve existing navigation destinations and logic.
+
+==================================================
+STAGE 3 — MODALS / SHEETS / OVERLAYS
+==================================================
+
+Audit:
+
+- dialogs
+- confirmation prompts
+- sheets
+- drawers
+- menus
+- toasts
+- selectors
+- report/block flows
+- purchase overlays
+- photo actions
+
+Where appropriate, make these feel like premium iOS surfaces.
+
+Improve:
+
+- safe-area handling
+- corner geometry
+- spacing
+- backdrop treatment
+- scrolling
+- keyboard interaction
+- small viewport behaviour
+- presentation/dismissal animation
+
+Do NOT blindly convert every modal into a bottom sheet.
+
+Choose the interaction that makes sense.
+
+==================================================
+STAGE 4 — iPHONE SAFE AREAS / VIEWPORT
+==================================================
+
+Audit the entire app for:
+
+env(safe-area-inset-top)
+env(safe-area-inset-bottom)
+
+Check for bad usage of:
+
+100vh
+100dvh
+position: fixed
+position: sticky
+overflow-y-auto
+overflow-y-scroll
+top: 0
+bottom: 0
+
+The app must behave properly in:
+
+1. iPhone Safari
+2. installed iPhone/Home Screen PWA
+
+Pay particular attention to:
+
+- status bar
+- Dynamic Island/notch area
+- Home Indicator
+- keyboard opening
+- keyboard closing
+- viewport resize
+- bottom navigation
+- dialogs
+- sheets
+- call UI
+- chat composer
+
+==================================================
+STAGE 5 — ICON SYSTEM
+==================================================
+
+Audit functional UI icons.
+
+Remove inconsistent combinations of:
+
+- Material icons
+- random icon families
+- browser symbols
+- mismatched stroke widths
+- poorly aligned icons
+- emoji being used as cheap functional UI icons
+
+Use the existing icon library wherever possible.
+
+Keep consistent:
+
+- stroke weight
+- visual size
+- alignment
+- selected state
+- inactive state
+
+IMPORTANT:
+
+Do NOT remove intentional personality from Lulou.
+
+Zodiac symbols, romantic visual elements and intentional branded emojis can remain.
+
+The goal is to remove cheap/inconsistent functional UI iconography, not remove Lulou's personality.
+
+==================================================
+STAGE 6 — PAGE-BY-PAGE POLISH
+==================================================
+
+After shared components are stable, inspect each major screen individually.
+
+SIGN UP / LOGIN
+
+Make authentication feel polished and native without altering auth behaviour.
+
+ONBOARDING
+
+Improve controls, keyboard interaction, selections, inputs and transitions.
+
+Do NOT alter onboarding requirements.
+
+CONNECTION DNA
+
+Preserve the questionnaire and results logic.
+
+Improve only presentation/interactions where needed.
+
+It should remain one of Lulou's premium signature experiences.
+
+DISCOVER
+
+Preserve:
+
+- profile structure
+- candidate logic
+- scrolling fix
+- Open ❤️
+- photo reactions
+- filtering
+- profile information
+
+Polish only presentation and interaction quality.
+
+INTENTION WHEEL
+
+Preserve ALL Wheel mechanics and safeguards.
+
+Do NOT alter:
+
+- eligibility
+- candidate selection
+- winner selection
+- Halo behaviour
+- result persistence
+- spin safety
+- presentation locks
+
+Polish surrounding UI where needed.
+
+The Wheel must remain visually unique to Lulou rather than becoming a stock iOS control.
+
+LIKES
+
+Improve visual consistency and interaction quality without changing Like/match logic.
+
+CONNECTIONS
+
+Improve iPhone polish without changing messaging/match state.
+
+CHAT
+
+Pay particular attention to:
+
+- composer
+- keyboard
+- message actions
+- voice notes
+- scrolling
+- safe area
+- touch targets
+
+Do not alter messaging progression or quotas.
+
+PROFILE
+
+Protect the recently fixed scrolling behaviour.
+
+Improve controls only where safe.
+
+SETTINGS
+
+This is a major target.
+
+Remove anything resembling generic Android settings or web forms.
+
+Improve:
+
+- rows
+- switches
+- selectors
+- sections
+- navigation
+- spacing
+- hierarchy
+- destructive actions
+- legal links
+
+Do not change what settings actually do.
+
+CALLS
+
+Audio/video call UI should feel particularly native and premium.
+
+Improve presentation of:
+
+- incoming call
+- outgoing call
+- accept
+- decline
+- mute
+- end
+- timer
+- video controls
+
+DO NOT TOUCH WEBRTC OR CALL PROGRESSION LOGIC.
+
+PAYMENTS / ELEVATE
+
+Preserve Stripe/payment behaviour.
+
+Improve only surrounding app presentation where necessary.
+
+==================================================
+STAGE 7 — MOTION
+==================================================
+
+Audit motion throughout the app.
+
+Remove:
+
+- Android ripple effects
+- abrupt jumps
+- janky layout shifts
+- unnecessarily slow animations
+- excessive bounce
+- cheap generic transitions
+
+Aim for:
+
+- fast response
+- smooth easing
+- subtle scale/opacity
+- controlled spring-like motion where appropriate
+- premium tactile feedback
+
+Do NOT overanimate Lulou.
+
+Premium should feel restrained.
+
+==================================================
+STAGE 8 — EMPTY / ERROR / LOADING STATES
+==================================================
+
+Audit every major state.
+
+Remove generic:
+
+- browser-looking errors
+- raw technical messages
+- ugly spinners
+- cheap loading boxes
+- inconsistent Retry buttons
+
+Use restrained Lulou-branded presentation.
+
+Do NOT hide legitimate errors or change error logic.
+
+==================================================
+DESIGN DIRECTION
+==================================================
+
+The goal is NOT:
+
+“Make Lulou look exactly like Apple.”
+
+The goal is:
+
+“Make Lulou feel like an expensive dating app deliberately designed for iPhone.”
+
+It should feel:
+
+- elegant
+- romantic
+- premium
+- clean
+- responsive
+- tactile
+- restrained
+- modern
+- smooth
+- consistent
+
+Retain Lulou's distinctive visual identity.
+
+Do not turn the entire interface white/blue just because that resembles stock iOS.
+
+Do not make it look like Apple Settings.
+
+==================================================
+RTL / INTERNATIONAL SUPPORT
+==================================================
+
+The audit already identified physical left/right assumptions.
+
+Where touched, use direction-safe layout where appropriate.
+
+Avoid introducing regressions for:
+
+- Arabic
+- RTL layout
+- existing translations
+
+Do not rewrite the translation system.
+
+==================================================
+REGRESSION TESTING
+==================================================
+
+AFTER EACH IMPLEMENTATION STAGE:
+
+Check affected screens before continuing.
+
+Do not wait until hundreds of changes have accumulated.
+
+At minimum protect:
+
+- sign up
+- login
+- onboarding
+- Connection DNA
+- Discover
+- Open ❤️
+- Intention Wheel
+- Send Halo
+- Likes
+- Connections
+- chat
+- Profile
+- Settings
+- calls
+- bottom navigation
+- upgrade/payment entry points
+
+==================================================
+FINAL iPHONE REVIEW
+==================================================
+
+Test at realistic iPhone viewport sizes.
+
+Check multiple screen heights where practical.
+
+Specifically inspect:
+
+- scrolling
+- touch targets
+- safe areas
+- fixed navigation
+- keyboard interaction
+- sheets
+- dialogs
+- headers
+- loading
+- empty states
+- transitions
+- overflow
+- text wrapping
+
+Do not claim a physical-iPhone test unless one was actually performed.
+
+Browser iPhone viewport testing and physical iPhone testing must be reported separately.
+
+==================================================
+FINAL CONSISTENCY PASS
+==================================================
+
+After implementation, inspect the entire app again.
+
+Ask:
+
+“If someone opened Lulou on an iPhone without knowing how it was built, is there anything that immediately makes it feel like Android, Material Design, a generic React website, or a cheap PWA?”
+
+If YES, safely correct it.
+
+Then ask:
+
+“Does this still unmistakably look and feel like Lulou?”
+
+That must also be YES.
+
+==================================================
+DIFF SAFETY REVIEW
+==================================================
+
+Before committing:
+
+Inspect the complete diff.
+
+Specifically look for accidental changes to:
+
+- API requests
+- mutations
+- route behaviour
+- database code
+- eligibility
+- matching
+- auth
+- Halo
+- Open ❤️
+- calls
+- payments
+- DNA
+- Wheel selection
+- message progression
+
+If visual work accidentally changed functional logic, revert that functional portion unless absolutely required.
+
+==================================================
+GIT / DELIVERY
+==================================================
+
+Before editing state:
+
+“Current task: implement Task #102 — Premium iOS UI/UX pass — incrementally across Lulou while preserving all existing functionality, branding and recently fixed scrolling behaviour.”
+
+Then:
+
+1. Confirm repository state.
+2. Implement shared primitives.
+3. Validate.
+4. Implement navigation/safe-area improvements.
+5. Validate.
+6. Implement overlays/forms.
+7. Validate.
+8. Implement page-specific polish.
+9. Validate.
+10. Perform full consistency review.
+11. Run production build.
+12. Run relevant automated tests.
+13. Inspect final diff.
+14. Commit.
+15. Push.
+16. Verify HEAD == origin/main.
+
+Do not create another planning-only task.
+
+Do not hand the implementation to another task agent.
+
+Carry Task #102 through directly.
+
+==================================================
+FINAL REPORT REQUIRED
+==================================================
+
+Report:
+
+1. Android/Material/web patterns originally found
+2. Shared design primitives changed
+3. Exact files changed
+4. Navigation changes
+5. Safe-area changes
+6. Buttons/control changes
+7. Form/input changes
+8. Modal/sheet/dialog changes
+9. Icon changes
+10. Animation/motion changes
+11. Page-by-page improvements
+12. Settings improvements
+13. Chat/call presentation improvements
+14. Loading/error/empty-state improvements
+15. RTL/international improvements
+16. Anything deliberately NOT changed because of regression risk
+17. Confirmation Profile scrolling still works
+18. Confirmation Discover scrolling still works
+19. Confirmation bottom navigation remains correct
+20. Automated tests run/results
+21. Production build result
+22. iPhone viewport test results
+23. Physical iPhone test status
+24. Confirmation no database/schema changes
+25. Confirmation no business/eligibility logic changes
+26. Commit hash
+27. origin/main hash
+28. Confirmation HEAD == origin/main
+
+Do not report Task #102 as complete merely because the audit is complete.
+
+Task #102 is complete only after the actual UI implementation, validation, commit and push have been performed.
