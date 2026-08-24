@@ -44,3 +44,4 @@
 - [Post-signup tutorial ordering](post-signup-tutorial-order.md) — the Lulou tour is additive and may render only after profile onboarding and server-confirmed Connection DNA completion.
 - [Discover live eligibility refresh](discover-live-eligibility-refresh.md) — Discover is a live feed: empty responses must refetch on reopen and app foreground so later compatible signups appear.
 - [Candidate-feed header metadata](candidate-feed-header-metadata.md) — non-enumerable feed metadata needs structuralSharing:false or React Query can retain stale headers after an empty-to-empty refetch.
+- [Discover async flex scroll](discover-async-flex-scroll.md) — WebKit can retain a skeleton-sized flex child after asynchronous Discover profile content mounts.
