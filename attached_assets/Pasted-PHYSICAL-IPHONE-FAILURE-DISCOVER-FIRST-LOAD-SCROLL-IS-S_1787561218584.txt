@@ -1,0 +1,273 @@
+PHYSICAL IPHONE FAILURE — DISCOVER FIRST-LOAD SCROLL IS STILL BROKEN
+
+The latest production fix did NOT solve the Discover scrolling bug.
+
+I have now tested commit:
+
+cbb049b1363415ce6db5b3e18365443b1fb579b8
+
+on a REAL PHYSICAL IPHONE.
+
+RESULT:
+
+FAILED.
+
+The attached screenshot is from the physical iPhone.
+
+On the FIRST load of Discover, the profile still becomes stuck at approximately the position shown in the screenshot.
+
+I cannot freely continue scrolling down through the profile.
+
+This means the previous diagnosis that the photo viewer touchmove/default gesture origin was the complete root cause was WRONG or INCOMPLETE.
+
+Do NOT make another speculative overflow/touch-action patch.
+
+We have already attempted this multiple times.
+
+==================================================
+REOPEN THE DIAGNOSIS FROM FIRST PRINCIPLES
+==================================================
+
+Treat this as an unresolved production iOS scrolling bug.
+
+Required reproduction:
+
+1. Freshly open/reload the production app.
+2. Enter Discover.
+3. Allow the first profile to render.
+4. Immediately swipe vertically upward through the profile.
+5. Continue attempting to scroll beyond the position shown in the attached screenshot.
+
+ACTUAL:
+Scrolling becomes stuck/locked on the first Discover load.
+
+EXPECTED:
+The entire profile must scroll freely and continuously from the very first touch.
+
+No:
+- refresh;
+- tab switch;
+- second visit;
+- extra tap;
+- state change;
+- waiting for another render
+
+should be required.
+
+==================================================
+DO NOT ASSUME THE PHOTO GESTURE IS STILL THE CAUSE
+==================================================
+
+The previous patch already guarded the photo touchmove listener with active pointer state and the physical iPhone STILL FAILS.
+
+Therefore inspect the ENTIRE runtime scroll chain.
+
+Audit all of:
+
+- html
+- body
+- #root
+- AppLayout
+- main
+- Discover root
+- profile/card wrapper
+- photo viewer
+- details card
+- bottom navigation
+- floating buttons
+- overlays
+- portals
+- loading/skeleton states
+- animations
+- transitions
+
+Inspect computed/runtime values for:
+
+- height
+- min-height
+- max-height
+- 100vh
+- 100dvh
+- 100svh
+- flex
+- flex-1
+- min-h-0
+- overflow
+- overflow-y
+- overflow-x
+- position fixed
+- position absolute
+- position sticky
+- inset
+- touch-action
+- overscroll-behavior
+- pointer-events
+- -webkit-overflow-scrolling
+
+==================================================
+CRITICAL: CHECK SCROLL RANGE ITSELF
+==================================================
+
+Do not only inspect whether touch events are being blocked.
+
+Determine whether the actual Discover scroll container has ENOUGH SCROLLABLE HEIGHT on first render.
+
+At the exact broken state record:
+
+- which element is the vertical scroll owner;
+- scrollTop;
+- scrollHeight;
+- clientHeight;
+- scrollHeight - clientHeight;
+- document.body.scrollHeight;
+- document.documentElement.scrollHeight;
+- viewport height;
+- visualViewport.height if available.
+
+This screenshot looks like the page may be reaching what the browser believes is its maximum scroll position even though substantial profile content still exists below it.
+
+That possibility MUST be investigated.
+
+==================================================
+COMPARE FIRST LOAD VS WORKING STATE
+==================================================
+
+This is essential.
+
+Instrument the DOM temporarily and compare:
+
+STATE A:
+First Discover load while scrolling is BROKEN.
+
+STATE B:
+The state after Discover begins scrolling correctly.
+
+Compare the exact scroll owner and its:
+
+- scrollHeight
+- clientHeight
+- overflow styles
+- flex sizing
+- parent heights
+- DOM structure
+- mounted children
+- photo/image dimensions
+- profile details height
+- bottom padding
+- navigation positioning
+
+Find the ACTUAL difference.
+
+Do not ship diagnostic instrumentation containing member information.
+
+==================================================
+CHECK ASYNC LAYOUT / IMAGE LOADING
+==================================================
+
+Investigate whether first-load dimensions are being calculated before:
+
+- profile data arrives;
+- images decode/load;
+- photo aspect ratio becomes known;
+- profile details mount;
+- fonts load;
+- safe-area values settle;
+- PWA viewport settles.
+
+If the scroll container is initially measured too short and is not updating correctly after asynchronous content expands, fix that underlying layout lifecycle.
+
+Do NOT use arbitrary delays as the solution.
+
+==================================================
+CHECK BOTTOM NAV / VIEWPORT INTERACTION
+==================================================
+
+The screenshot shows the fixed bottom navigation while the profile appears trapped above it.
+
+Verify that:
+
+- bottom nav is NOT determining the height of the Discover content;
+- Discover content is not capped to one viewport;
+- no parent has overflow hidden that clips the remaining profile;
+- the fixed nav does not create an invisible touch-blocking layer above itself;
+- bottom safe-area padding does not incorrectly reduce the scrollable region;
+- content can scroll completely behind/above the fixed navigation as intended.
+
+==================================================
+DO NOT BREAK WORKING FEATURES
+==================================================
+
+Preserve:
+
+- horizontal photo swiping;
+- Open ❤️;
+- candidate eligibility;
+- matching/filtering;
+- bottom navigation;
+- Profile scrolling;
+- Intention Wheel;
+- Halo;
+- calls;
+- chat;
+- auth;
+- payments;
+- RTL;
+- safe-area handling.
+
+Do NOT redesign Discover.
+
+==================================================
+REGRESSION TEST
+==================================================
+
+Add a regression that models the actual first-render → async-profile-render lifecycle.
+
+A static class-name assertion is NOT enough.
+
+The test should prove that after the profile/photo/details content mounts or changes size, the intended Discover scroll owner can represent the COMPLETE content height and remains vertically scrollable.
+
+Also retain the existing photo gesture tests.
+
+==================================================
+IMPORTANT
+==================================================
+
+Do not tell me this is fixed merely because:
+
+- Vitest passes;
+- the build passes;
+- desktop Chrome scrolls;
+- browser emulation scrolls;
+- the landing page has no overflow.
+
+Those checks have already passed while the bug still exists on the physical iPhone.
+
+The physical iPhone evidence overrides those assumptions.
+
+Once you identify the new root cause, explain it BEFORE making a broad layout change.
+
+Then implement the SMALLEST targeted fix.
+
+Afterwards run:
+- focused regressions;
+- full relevant tests;
+- production build;
+- final diff review.
+
+Commit and push to origin/main.
+
+Final response MUST include:
+
+ROOT CAUSE
+WHY cbb049b DID NOT FIX IT
+EXACT LAYOUT/SCROLL CHANGE
+FILES CHANGED
+TEST RESULTS
+BUILD RESULT
+COMMIT SHA
+HEAD
+origin/main
+
+And unless the new production build is actually tested on a real iPhone, finish with:
+
+NOT VERIFIED ON PHYSICAL IPHONE
