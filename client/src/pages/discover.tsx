@@ -1025,8 +1025,8 @@ export default function Discover() {
       );
     }
     return (
-      <div className="flex-1 overflow-y-auto">
-        <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
+      <div className="flex-1">
+        <div className="bg-background/95 backdrop-blur-sm border-b px-5 py-3">
           <div className="max-w-md mx-auto">
             <Skeleton className="h-6 w-40" />
           </div>
@@ -1331,8 +1331,8 @@ export default function Discover() {
   });
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
+    <div className="flex-1">
+      <div className="bg-background/95 backdrop-blur-sm border-b px-5 py-3">
         <div className="max-w-md mx-auto flex items-center gap-2">
           <h1 className="font-serif text-lg font-bold truncate" data-testid="text-discover-sticky-name">
             {displayProfile.firstName}

@@ -104,6 +104,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Hide navigation when inside a chat room — focus mode
   const isChatRoom = location.startsWith("/messages/");
   const isProfilePage = location.startsWith("/profile");
+  const isDiscoverPage = location.startsWith("/discover");
+  const isScrollWithHeaderPage = isProfilePage || isDiscoverPage;
 
   // Chat rooms manage their own keyboard-avoidance via keyboardHeight tracked
   // inside messaging.tsx. AppLayout simply pins the container to full screen.
@@ -174,16 +176,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0 } : { height: "100dvh" }}>
       {/* App-level header — hidden completely for chat rooms to avoid any backdrop-filter
           containment that would re-anchor fixed children from messaging.tsx */}
-      {!isChatRoom && !isProfilePage && appHeader}
+      {!isChatRoom && !isScrollWithHeaderPage && appHeader}
 
       <main className={
         isChatRoom
           ? "flex-1"
-          : isProfilePage
+          : isScrollWithHeaderPage
             ? "flex-1 overflow-y-auto flex flex-col"
             : "flex-1 overflow-hidden flex flex-col"
       }>
-        {!isChatRoom && isProfilePage && appHeader}
+        {!isChatRoom && isScrollWithHeaderPage && appHeader}
         {children}
       </main>
 
