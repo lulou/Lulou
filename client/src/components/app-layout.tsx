@@ -103,6 +103,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Hide navigation when inside a chat room — focus mode
   const isChatRoom = location.startsWith("/messages/");
+  const isProfilePage = location.startsWith("/profile");
 
   // Chat rooms manage their own keyboard-avoidance via keyboardHeight tracked
   // inside messaging.tsx. AppLayout simply pins the container to full screen.
@@ -144,6 +145,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { path: "/profile", icon: User, label: t("profile") },
   ];
 
+  const appHeader = (
+    <header
+      className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap"
+    >
+      <Link href="/discover">
+        <div className="flex items-center gap-2 cursor-pointer">
+          <LulouFlowerIcon className="w-8 h-8 text-primary" />
+          <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
+        </div>
+      </Link>
+      <button
+        onClick={() => logout()}
+        disabled={isLoggingOut}
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
+        data-testid="button-header-logout"
+      >
+        <LogOut className="w-4 h-4" />
+        <span className="hidden sm:inline">{t("sign_out")}</span>
+      </button>
+    </header>
+  );
+
   return (
     // Chat rooms render their own fixed layers (header, messages, composer) via messaging.tsx.
     // AppLayout provides a full-screen stacking context and hides its own chrome so there is
@@ -151,27 +174,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0 } : { height: "100dvh" }}>
       {/* App-level header — hidden completely for chat rooms to avoid any backdrop-filter
           containment that would re-anchor fixed children from messaging.tsx */}
-      {!isChatRoom && <header
-        className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap"
-      >
-        <Link href="/discover">
-          <div className="flex items-center gap-2 cursor-pointer">
-            <LulouFlowerIcon className="w-8 h-8 text-primary" />
-            <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
-          </div>
-        </Link>
-        <button
-          onClick={() => logout()}
-          disabled={isLoggingOut}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
-          data-testid="button-header-logout"
-        >
-          <LogOut className="w-4 h-4" />
-          <span className="hidden sm:inline">{t("sign_out")}</span>
-        </button>
-      </header>}
+      {!isChatRoom && !isProfilePage && appHeader}
 
-      <main className={isChatRoom ? "flex-1" : "flex-1 overflow-hidden flex flex-col"}>
+      <main className={
+        isChatRoom
+          ? "flex-1"
+          : isProfilePage
+            ? "flex-1 overflow-y-auto flex flex-col"
+            : "flex-1 overflow-hidden flex flex-col"
+      }>
+        {!isChatRoom && isProfilePage && appHeader}
         {children}
       </main>
 

@@ -43,3 +43,4 @@
 - [SpinRoom cinematic finish](spinroom-cinematic-overhaul.md) — guided stop starts while the orbit is fast; the original locked card interpolates to a measured hero rect, then hands off only after a ≤1px geometry check.
 - [Post-signup tutorial ordering](post-signup-tutorial-order.md) — the Lulou tour is additive and may render only after profile onboarding and server-confirmed Connection DNA completion.
 - [Discover live eligibility refresh](discover-live-eligibility-refresh.md) — Discover is a live feed: empty responses must refetch on reopen and app foreground so later compatible signups appear.
+- [Candidate-feed header metadata](candidate-feed-header-metadata.md) — non-enumerable feed metadata needs structuralSharing:false or React Query can retain stale headers after an empty-to-empty refetch.
