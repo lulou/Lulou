@@ -282,7 +282,15 @@ export default function AuthCallbackPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-5">
+    <div
+      className="min-h-[100dvh] flex items-center justify-center bg-background px-5"
+      style={{
+        paddingInlineStart: "max(1.25rem, env(safe-area-inset-left, 0px))",
+        paddingInlineEnd: "max(1.25rem, env(safe-area-inset-right, 0px))",
+        paddingTop: "max(1.25rem, env(safe-area-inset-top, 0px))",
+        paddingBottom: "max(1.25rem, env(safe-area-inset-bottom, 0px))",
+      }}
+    >
       <div className="w-full max-w-sm space-y-5 text-center">
 
         {status === "loading" && (
@@ -413,7 +421,7 @@ export default function AuthCallbackPage() {
                   console.log(`${CB_TAG} user clicked Return to sign in`);
                   setLocation("/");
                 }}
-                className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                className="min-h-11 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                 data-testid="button-return-to-signin"
               >
                 Return to sign in

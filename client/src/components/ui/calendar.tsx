@@ -28,7 +28,7 @@ function Calendar({
         nav: "space-x-1 flex items-center",
         nav_button: cn(
           buttonVariants({ variant: "outline" }),
-          "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100"
+          "h-10 w-10 rounded-full bg-transparent p-0 opacity-70 hover:opacity-100"
         ),
         nav_button_previous: "absolute start-1",
         nav_button_next: "absolute end-1",
@@ -38,14 +38,14 @@ function Calendar({
           "text-muted-foreground rounded-md w-9 font-normal text-[0.8rem]",
         row: cn("flex w-full mt-2", isRTL && "flex-row-reverse"),
         cell: cn(
-          "h-9 w-9 text-center text-sm p-0 relative focus-within:relative focus-within:z-20",
+          "h-10 w-10 text-center text-sm p-0 relative focus-within:relative focus-within:z-20",
           isRTL
             ? "[&:has([aria-selected].day-range-end)]:rounded-l-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-r-md last:[&:has([aria-selected])]:rounded-l-md"
             : "[&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md"
         ),
         day: cn(
           buttonVariants({ variant: "ghost" }),
-          "h-9 w-9 p-0 font-normal aria-selected:opacity-100"
+          "h-10 w-10 rounded-full p-0 font-normal aria-selected:opacity-100"
         ),
         day_range_end: "day-range-end",
         day_selected:
@@ -67,8 +67,8 @@ function Calendar({
           <ChevronRight className={cn("h-4 w-4 rtl:scale-x-[-1]", className)} {...props} />
         ),
       }}
-      weekStartsOn={isRTL ? 0 : props.weekStartsOn}
       {...props}
+      weekStartsOn={isRTL ? 0 : props.weekStartsOn}
     />
   )
 }

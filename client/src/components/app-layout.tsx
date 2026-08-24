@@ -150,6 +150,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const appHeader = (
     <header
       className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap"
+      style={{
+        paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))",
+        paddingInlineStart: "max(1.25rem, env(safe-area-inset-left, 0px))",
+        paddingInlineEnd: "max(1.25rem, env(safe-area-inset-right, 0px))",
+      }}
     >
       <Link href="/discover">
         <div className="flex items-center gap-2 cursor-pointer">
@@ -192,7 +197,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {!isChatRoom && <nav
         className="border-t bg-background/95 backdrop-blur-md z-30"
         style={{
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))",
+          paddingInlineStart: "env(safe-area-inset-left, 0px)",
+          paddingInlineEnd: "env(safe-area-inset-right, 0px)",
         }}
       >
         {/* Equal-width slots: each Link gets flex-1 so all five tabs share
@@ -204,36 +211,37 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             const isLikes = item.path === "/likes";
             const isConnections = item.path === "/matches";
             return (
-              <Link key={item.path} href={item.path} className="flex-1">
-                <button
-                  className={`w-full flex flex-col items-center gap-1.5 py-1 rounded-md transition-colors ${
-                    isActive ? "text-primary" : "text-muted-foreground/70 hover:text-muted-foreground"
-                  }`}
-                  data-testid={`nav-${item.label.toLowerCase()}`}
-                  onClick={() => stopAllNonVoiceCallAudio("nav_tab_click")}
-                >
-                  {/* Icon wrapper: fixed size so badges never shift the baseline */}
-                  <div className="relative flex items-center justify-center w-[22px] h-[22px]">
-                    <item.icon className="w-[22px] h-[22px]" strokeWidth={isActive ? 2.2 : 1.8} />
-                    {isLikes && likesCount > 0 && (
-                      <span
-                        className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
-                        data-testid="badge-likes-count"
-                      >
-                        +{likesCount}
-                      </span>
-                    )}
-                    {isConnections && newConnectionsBadge > 0 && (
-                      <span
-                        className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
-                        data-testid="badge-connections-count"
-                      >
-                        +{newConnectionsBadge}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] font-medium leading-none">{item.label}</span>
-                </button>
+              <Link
+                key={item.path}
+                href={item.path}
+                className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 transition-colors ${
+                  isActive ? "text-primary" : "text-muted-foreground/70 hover:text-muted-foreground"
+                }`}
+                aria-current={isActive ? "page" : undefined}
+                data-testid={`nav-${item.label.toLowerCase()}`}
+                onClick={() => stopAllNonVoiceCallAudio("nav_tab_click")}
+              >
+                {/* Icon wrapper: fixed size so badges never shift the baseline */}
+                <div className="relative flex items-center justify-center w-[22px] h-[22px]">
+                  <item.icon className="w-[22px] h-[22px]" strokeWidth={isActive ? 2.2 : 1.8} />
+                  {isLikes && likesCount > 0 && (
+                    <span
+                      className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
+                      data-testid="badge-likes-count"
+                    >
+                      +{likesCount}
+                    </span>
+                  )}
+                  {isConnections && newConnectionsBadge > 0 && (
+                    <span
+                      className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
+                      data-testid="badge-connections-count"
+                    >
+                      +{newConnectionsBadge}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] font-medium leading-none">{item.label}</span>
               </Link>
             );
           })}

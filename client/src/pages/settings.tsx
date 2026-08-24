@@ -865,11 +865,18 @@ export default function SettingsPage() {
     <div className="flex-1 flex flex-col bg-background overflow-hidden" data-testid="settings-page">
 
       {/* ── Sticky header ── */}
-      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b shrink-0">
+      <div
+        className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b shrink-0"
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingInlineStart: "env(safe-area-inset-left, 0px)",
+          paddingInlineEnd: "env(safe-area-inset-right, 0px)",
+        }}
+      >
         <div className="flex items-center gap-3 px-4 py-3.5 max-w-lg mx-auto w-full">
           <button
             onClick={() => navigate("/profile")}
-            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-muted transition-colors shrink-0"
+            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-muted transition-colors shrink-0"
             data-testid="button-settings-back"
             aria-label="Back to profile"
           >
@@ -891,7 +898,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ── Scrollable content ── */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="max-w-lg mx-auto w-full pb-28">
 
           {/* ── 1. Account ── */}
@@ -2548,7 +2555,7 @@ function SettingRow({
   );
 
   const baseClass =
-    "w-full px-4 py-3.5 flex items-center gap-3 border-b border-border/50 text-start";
+    "min-h-14 w-full px-4 py-3.5 flex items-center gap-3 border-b border-border/50 text-start";
 
   if (onPress) {
     return (
@@ -2590,7 +2597,7 @@ function ConnectedAccountRow({
       <p className="text-sm text-muted-foreground">{label}</p>
       <button
         disabled={loading}
-        className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+        className={`flex min-h-10 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
           connected
             ? "bg-primary/10 text-primary hover:bg-primary/20"
             : "bg-muted text-muted-foreground hover:bg-muted/80"

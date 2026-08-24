@@ -245,6 +245,31 @@ body.chat-open {
 }
 
 @layer utilities {
+  .ios-modal-content,
+  .ios-sheet-content {
+    max-height: calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ios-sheet-content {
+    padding-block-start: max(1.5rem, env(safe-area-inset-top, 0px));
+    padding-block-end: max(1.5rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .ios-bottom-surface {
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ios-toast-viewport {
+    padding-inline: max(1rem, env(safe-area-inset-left, 0px));
+    padding-top: max(1rem, env(safe-area-inset-top, 0px));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  }
 
   /* Logical slide animations — flip direction automatically in RTL layouts.    */
   /* tailwindcss-animate exposes --tw-enter/exit-translate-x as the hook;       */

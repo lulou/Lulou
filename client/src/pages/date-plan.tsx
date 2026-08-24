@@ -979,7 +979,7 @@ export default function DatePlanPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Heart className="w-8 h-8 text-primary dp-pulse-heart" />
           <p className="text-sm text-muted-foreground">Setting up your date…</p>
@@ -990,7 +990,7 @@ export default function DatePlanPage() {
 
   if (isError || !state) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+      <div className="min-h-[100dvh] flex items-center justify-center bg-background p-6">
         <div className="text-center space-y-3">
           <p className="font-medium">Couldn't load date plan</p>
           <Button variant="outline" size="sm" onClick={() => refetch()}>Try again</Button>
@@ -1004,16 +1004,23 @@ export default function DatePlanPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-[100dvh] bg-background flex flex-col">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/50">
+      <div
+        className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/50"
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingInlineStart: "env(safe-area-inset-left, 0px)",
+          paddingInlineEnd: "env(safe-area-inset-right, 0px)",
+        }}
+      >
         <div className="flex items-center gap-3 px-4 py-3 max-w-md mx-auto">
           <button
             onClick={() => navigate(`/messages/${matchId}`)}
-            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-muted transition-colors"
+            className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-muted transition-colors"
             data-testid="button-back-to-chat"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
           </button>
           <div className="flex-1">
             <h1 className="font-semibold text-base leading-tight">Plan your date</h1>
@@ -1037,7 +1044,7 @@ export default function DatePlanPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="max-w-md mx-auto px-4 py-5 pb-10">
           {state.step === "type" && <TypeStep state={state} matchId={matchId!} />}
           {state.step === "venue" && <VenueStep state={state} matchId={matchId!} />}

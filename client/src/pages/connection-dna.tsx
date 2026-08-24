@@ -169,7 +169,7 @@ export default function ConnectionDna() {
 
   if (!loaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[100dvh] flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
       </div>
     );
@@ -178,7 +178,15 @@ export default function ConnectionDna() {
   // Intro screen (step = 0)
   if (step === 0) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-background">
+      <div
+        className="min-h-[100dvh] flex flex-col items-center justify-center px-6 py-12 bg-background"
+        style={{
+          paddingInlineStart: "max(1.5rem, env(safe-area-inset-left, 0px))",
+          paddingInlineEnd: "max(1.5rem, env(safe-area-inset-right, 0px))",
+          paddingTop: "max(3rem, env(safe-area-inset-top, 0px))",
+          paddingBottom: "max(3rem, env(safe-area-inset-bottom, 0px))",
+        }}
+      >
         <div className="max-w-md w-full text-center space-y-8">
           <div className="flex flex-col items-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
@@ -228,7 +236,7 @@ export default function ConnectionDna() {
     const traitKeys = computeTopTraitKeys(responses);
 
     return (
-      <div className="min-h-screen flex flex-col bg-background">
+      <div className="min-h-[100dvh] flex flex-col bg-background">
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-md mx-auto px-6 py-12 flex flex-col items-center text-center space-y-8">
 
@@ -313,18 +321,25 @@ export default function ConnectionDna() {
   const progress  = Math.round(((step - 1) / TOTAL) * 100);
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-[100dvh] flex flex-col bg-background">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/30 px-4 py-3">
+      <div
+        className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/30 px-4 py-3"
+        style={{
+          paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))",
+          paddingInlineStart: "max(1rem, env(safe-area-inset-left, 0px))",
+          paddingInlineEnd: "max(1rem, env(safe-area-inset-right, 0px))",
+        }}
+      >
         <div className="max-w-lg mx-auto flex items-center gap-3">
           <button
             onClick={goBack}
             disabled={step === 1}
-            className="p-2 rounded-full hover:bg-muted transition-colors disabled:opacity-30"
+            className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted transition-colors disabled:opacity-30"
             aria-label={t("dna_go_back")}
             data-testid="button-dna-back"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5 rtl:rotate-180" />
           </button>
           <div className="flex-1">
             <Progress value={progress} className="h-1.5 bg-muted" />
@@ -370,7 +385,7 @@ export default function ConnectionDna() {
                       aria-checked={isSelected}
                       data-testid={`button-dna-answer-${idx}`}
                       className={`
-                        w-full text-left px-5 py-4 rounded-2xl border transition-all duration-150
+                        min-h-14 w-full rounded-2xl border px-5 py-4 text-start transition-all duration-150
                         text-sm leading-relaxed font-medium
                         ${isSelected
                           ? "border-primary bg-primary/8 text-foreground shadow-sm"
@@ -398,7 +413,7 @@ export default function ConnectionDna() {
 
       {/* Footer: skip to next if already answered */}
       {answered !== null && step < TOTAL && (
-        <div className="pb-8 px-6 flex justify-center">
+        <div className="px-6 flex justify-center" style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom, 0px))" }}>
           <button
             onClick={() => { setDirection(1); setStep(s => s + 1); }}
             className="text-sm text-primary hover:underline"
@@ -409,7 +424,7 @@ export default function ConnectionDna() {
         </div>
       )}
       {answered !== null && step === TOTAL && (
-        <div className="pb-8 px-6 flex justify-center">
+        <div className="px-6 flex justify-center" style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom, 0px))" }}>
           <button
             onClick={() => { setDirection(1); setStep(s => s + 1); }}
             className="text-sm text-primary hover:underline"

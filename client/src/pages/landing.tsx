@@ -936,7 +936,16 @@ export default function Landing() {
 
   if (verificationEmail) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-email-verification">
+      <div
+        className="min-h-[100dvh] bg-background flex flex-col items-center justify-center px-6 gap-8"
+        style={{
+          paddingInlineStart: "max(1.5rem, env(safe-area-inset-left, 0px))",
+          paddingInlineEnd: "max(1.5rem, env(safe-area-inset-right, 0px))",
+          paddingTop: "max(1.5rem, env(safe-area-inset-top, 0px))",
+          paddingBottom: "max(1.5rem, env(safe-area-inset-bottom, 0px))",
+        }}
+        data-testid="screen-email-verification"
+      >
         <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
           <LulouFlowerIcon className="w-9 h-9 text-primary" />
         </div>
@@ -1037,8 +1046,15 @@ export default function Landing() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <nav className="fixed top-0 inset-x-0 z-50 backdrop-blur-md bg-background/80 border-b">
+    <div className="min-h-[100dvh] bg-background">
+      <nav
+        className="fixed top-0 inset-x-0 z-50 backdrop-blur-md bg-background/80 border-b"
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingInlineStart: "env(safe-area-inset-left, 0px)",
+          paddingInlineEnd: "env(safe-area-inset-right, 0px)",
+        }}
+      >
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <LulouFlowerIcon className="w-8 h-8 text-primary" />
@@ -1046,7 +1062,7 @@ export default function Landing() {
           </div>
           <button
             onClick={resetForm}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+            className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-primary"
             data-testid="link-switch-account"
           >
             <RefreshCw className="w-3.5 h-3.5" />

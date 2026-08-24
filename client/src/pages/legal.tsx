@@ -20,16 +20,23 @@ function LegalPageLayout({
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-[100dvh] bg-background flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border/40 shrink-0">
+      <header
+        className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border/40 shrink-0"
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingInlineStart: "env(safe-area-inset-left, 0px)",
+          paddingInlineEnd: "env(safe-area-inset-right, 0px)",
+        }}
+      >
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
           <button
             onClick={goBack}
-            className="p-2 -ml-2 rounded-full hover:bg-muted transition-colors"
+            className="flex h-11 w-11 items-center justify-center -ms-2 rounded-full hover:bg-muted transition-colors"
             aria-label="Go back"
           >
-            <ArrowLeft className="w-5 h-5 text-muted-foreground" />
+            <ArrowLeft className="w-5 h-5 text-muted-foreground rtl:rotate-180" />
           </button>
           <LulouFlowerIcon className="w-7 h-7 shrink-0" />
           <div className="min-w-0">
