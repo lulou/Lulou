@@ -1,0 +1,633 @@
+LULOU — FULL APP PREMIUM iOS UI/UX AUDIT
+
+OBJECTIVE
+
+Audit the ENTIRE Lulou app and eliminate anything that visually or behaviorally feels Android, Material Design, generic web-app, or cheap/cross-platform.
+
+The finished app must feel intentionally designed for premium iPhone/iOS use.
+
+Think:
+
+- premium native iOS dating app
+- elegant
+- restrained
+- smooth
+- tactile
+- sophisticated
+- consistent
+- unmistakably Lulou
+
+This is NOT a redesign of Lulou.
+
+Preserve Lulou’s existing:
+- brand identity
+- colour palette
+- typography direction
+- logo
+- functionality
+- page structure
+- dating flow
+- Connection DNA
+- Intention Wheel
+- Discover
+- Likes
+- Connections
+- Profile
+- calls
+- messaging
+- monetisation
+
+The goal is to remove Android/web-app visual language and replace it with polished iOS interaction/design language WITHOUT breaking functionality.
+
+==================================================
+RULE #1 — DO NOT BREAK THE APP
+==================================================
+
+This is primarily a presentation and interaction-polish task.
+
+DO NOT rewrite working business logic just to improve appearance.
+
+DO NOT change:
+- API contracts
+- database schema
+- authentication
+- matching logic
+- candidate eligibility
+- gender/preference logic
+- distance filtering
+- message quotas
+- call progression
+- Halo logic
+- Open ❤️ persistence
+- payments
+- Connection DNA scoring
+- Intention Wheel eligibility
+- onboarding requirements
+- existing user data
+- routing unless required for an iOS navigation fix
+
+Do not remove working functionality.
+
+Do not introduce a second implementation of existing functionality.
+
+Reuse existing components and logic wherever possible.
+
+Before changing a shared component, determine every screen that uses it.
+
+==================================================
+FIRST: AUDIT BEFORE EDITING
+==================================================
+
+Inspect the entire client UI before making changes.
+
+Create an internal inventory of Android/Material/web-looking patterns.
+
+Search especially for:
+
+- Material Design styling
+- Android-looking buttons
+- Android-style dialogs
+- Android-style dropdowns
+- Android-style toggles/switches
+- Android-looking radio buttons
+- Android-style checkboxes
+- Android-style text fields
+- generic HTML selects
+- browser-default controls
+- harsh rectangular cards
+- excessive outlines
+- thick borders
+- floating action button styling
+- Android ripple effects
+- oversized shadows
+- inconsistent corner radii
+- generic web modals
+- generic loading spinners
+- abrupt transitions
+- browser-looking alerts
+- browser-looking confirmation prompts
+- desktop/web interaction patterns on mobile
+- inconsistent icon families
+- icons that visually resemble Material Icons
+- Android-like back arrows
+- Android-like overflow menus
+- excessive three-dot menus
+- Android-style snackbars/toasts
+- bottom sheets that behave like web modals
+- fixed headers that fight iOS scrolling
+- nested scrolling
+- content disappearing behind headers
+- unsafe positioning around the iPhone status bar
+- elements colliding with the Home Indicator
+- 100vh layouts that behave badly in iOS Safari/PWA
+- small touch targets
+- hover-dependent interactions
+- abrupt keyboard/layout movement
+- UI that looks like a website squeezed onto a phone
+
+Do NOT start randomly changing components.
+
+Understand the existing design system first.
+
+==================================================
+TARGET: PREMIUM iOS FEEL
+==================================================
+
+Use modern iOS interaction principles while retaining Lulou’s unique visual identity.
+
+The app should feel designed specifically for iPhone rather than copied from Apple or Android.
+
+Use:
+
+- generous spacing
+- strong visual hierarchy
+- subtle depth
+- restrained shadows
+- soft surfaces
+- carefully controlled borders
+- consistent premium corner radii
+- clean typography
+- deliberate whitespace
+- smooth spring-like motion where appropriate
+- subtle opacity/scale transitions
+- high-quality pressed states
+- proper disabled states
+- clear hierarchy between primary and secondary actions
+- large comfortable touch targets
+- polished sheets and overlays
+- safe-area-aware layouts
+- natural iOS scrolling
+- premium loading states
+- subtle haptics only where already supported safely
+
+Avoid excessive blur/glass effects.
+
+Use them only where they genuinely improve hierarchy.
+
+Lulou should remain warm, romantic and premium — not become a generic Apple Settings clone.
+
+==================================================
+NAVIGATION + SCROLLING
+==================================================
+
+Audit every screen for iPhone-native-feeling navigation.
+
+Headers should behave intentionally.
+
+Where a page is designed to scroll as one continuous surface, the header should participate naturally unless there is a deliberate reason for it to remain fixed.
+
+Never allow content to accidentally move underneath an opaque fixed header.
+
+Keep bottom navigation behavior consistent across the main app.
+
+Respect:
+
+env(safe-area-inset-top)
+env(safe-area-inset-bottom)
+
+Check installed iPhone/PWA mode as well as Safari.
+
+Avoid nested vertical scroll containers unless absolutely required.
+
+There should normally be ONE obvious vertical scroll owner per screen.
+
+Scrolling must feel smooth and natural.
+
+==================================================
+BUTTONS
+==================================================
+
+Audit every button.
+
+Remove Android/Material-looking button styling.
+
+Primary Lulou actions should feel premium and intentional.
+
+Maintain Lulou branding rather than blindly making every button blue like stock iOS.
+
+Buttons need:
+
+- consistent geometry
+- appropriate corner radius
+- proper pressed state
+- disabled state
+- loading state
+- minimum comfortable touch area
+- subtle interaction feedback
+
+Do not change button meaning or functionality.
+
+Examples include:
+
+Open ❤️
+Send Halo
+Continue
+Save
+Edit Profile
+Upgrade
+Plan Date
+End Conversation
+call controls
+settings actions
+
+==================================================
+FORMS + INPUTS
+==================================================
+
+Audit:
+
+- onboarding
+- sign-up
+- login
+- profile editing
+- settings
+- Connection DNA
+- message composer
+- filters
+- location
+- age/radius controls
+
+Remove browser/Android-looking controls.
+
+Inputs should feel polished on iPhone.
+
+Pay attention to:
+
+- keyboard types
+- focus states
+- input heights
+- placeholder hierarchy
+- validation
+- clear buttons
+- password controls
+- selection controls
+- autocomplete
+- date selection
+- keyboard avoidance
+
+Do not alter validation/business rules.
+
+==================================================
+MODALS / SHEETS / MENUS
+==================================================
+
+Where appropriate, mobile secondary actions should feel like polished iOS sheets rather than desktop dialogs or Android popups.
+
+Audit:
+
+- confirmations
+- settings selectors
+- profile options
+- filters
+- purchase flows
+- photo actions
+- reporting/blocking
+- contextual replies
+- call dialogs
+
+Use consistent:
+- backdrop treatment
+- sheet radius
+- drag/close behavior where appropriate
+- spacing
+- animation
+- safe-area handling
+
+Do not convert something to a sheet if doing so could damage its functionality.
+
+==================================================
+TOGGLES + SELECTION CONTROLS
+==================================================
+
+Remove Material-looking switches and selection components.
+
+Use a consistent iOS-inspired interaction language for:
+
+- switches
+- segmented choices
+- radio-like selection
+- checkmarks
+- selected rows
+- multi-select controls
+
+Retain Lulou colours where appropriate.
+
+==================================================
+ICONS
+==================================================
+
+Audit every icon.
+
+There must not be a random mixture of:
+
+- Material icons
+- emoji pretending to be UI icons
+- browser symbols
+- inconsistent stroke weights
+- mismatched icon families
+
+Use the app’s existing icon library where possible.
+
+Create one consistent visual language:
+- similar stroke weight
+- similar optical size
+- consistent alignment
+- consistent active/inactive treatment
+
+IMPORTANT:
+
+Do NOT automatically remove intentional Lulou personality emojis/content such as zodiac or branded emotional elements.
+
+Only replace emoji when it is being used as a functional interface icon and creates an obviously cheap/Android/web appearance.
+
+==================================================
+ANIMATION + MOTION
+==================================================
+
+Audit every important transition.
+
+Remove:
+- janky jumps
+- abrupt layout shifts
+- slow unnecessary delays
+- Android-like ripple animations
+- excessive bouncing
+- excessive animation
+
+Motion should feel premium and controlled.
+
+Particularly inspect:
+
+- Intention Wheel
+- winner reveal
+- profile transitions
+- Discover
+- Open ❤️
+- Send Halo
+- Likes
+- modal/sheet presentation
+- tab transitions
+- onboarding
+- Connection DNA
+- call screens
+
+Aim for responsive movement that feels fast but not rushed.
+
+Do NOT alter state transitions or business logic solely to change animation.
+
+==================================================
+INTENTION WHEEL
+==================================================
+
+Keep the Intention Wheel visually unique to Lulou.
+
+Do NOT turn it into a stock iOS component.
+
+Only polish surrounding interface elements and interaction behavior that currently feel Android/web.
+
+Preserve:
+- wheel mechanics
+- eligibility
+- candidate selection
+- Halo functionality
+- result state
+- safety locks
+
+==================================================
+DISCOVER
+==================================================
+
+Keep the premium editorial/profile-card appearance.
+
+Audit:
+- scrolling
+- profile cards
+- photo controls
+- Open ❤️
+- buttons
+- transitions
+- empty states
+- loading states
+- header behavior
+
+Do not change matching or candidate eligibility.
+
+==================================================
+PROFILE
+==================================================
+
+Preserve the current Profile structure unless something specifically violates the iOS design goal.
+
+The recently corrected scrolling behavior must NOT regress.
+
+The Lulou header/profile content must continue scrolling naturally as intended while the bottom navigation remains fixed.
+
+==================================================
+CALLS + CHAT
+==================================================
+
+These should feel especially native.
+
+Audit:
+- incoming call UI
+- outgoing call UI
+- accept/decline
+- mute
+- end call
+- timers
+- video controls
+- message composer
+- voice notes
+- keyboard behavior
+- message actions
+
+Do not alter WebRTC logic, quotas or call progression.
+
+==================================================
+LOADING / EMPTY / ERROR STATES
+==================================================
+
+Every state should look deliberately designed.
+
+Remove generic:
+- browser spinners
+- ugly error boxes
+- raw technical messages
+- Android-looking progress indicators
+
+Use restrained Lulou-branded states.
+
+Do NOT hide genuine errors.
+
+==================================================
+PWA / IPHONE
+==================================================
+
+Lulou is primarily being used on iPhone.
+
+Test BOTH:
+
+1. iPhone Safari
+2. installed Home Screen/PWA behavior
+
+Check:
+
+- safe areas
+- status bar spacing
+- Home Indicator spacing
+- keyboard
+- viewport resizing
+- scrolling
+- fixed bottom navigation
+- sheets
+- modals
+- service-worker updates
+- orientation/layout stability
+
+Do not change service-worker logic unless an actual UI-related defect requires it.
+
+==================================================
+DESIGN CONSISTENCY PASS
+==================================================
+
+After individual fixes, perform a global consistency pass.
+
+The same type of component should not look different depending on the page.
+
+Standardise where safe:
+
+- spacing rhythm
+- radii
+- border treatment
+- shadows
+- button heights
+- input heights
+- icon sizing
+- sheet styling
+- modal styling
+- loading states
+- pressed states
+- disabled states
+- typography hierarchy
+
+Prefer reusable design tokens/shared primitives over dozens of page-specific CSS hacks.
+
+BUT:
+
+Do not perform a massive architecture rewrite.
+
+==================================================
+STRICT ANTI-REGRESSION REQUIREMENTS
+==================================================
+
+After each group of changes verify:
+
+- sign up
+- login
+- onboarding
+- Connection DNA
+- Discover
+- Intention Wheel
+- Likes
+- Connections
+- Profile
+- Settings
+- chat
+- Open ❤️
+- Send Halo
+- calls
+- bottom navigation
+- payments/upgrade entry points
+
+No functionality should disappear because of visual cleanup.
+
+Do not change database/schema.
+
+Do not weaken any security or eligibility rule.
+
+Do not modify production user data.
+
+==================================================
+IMPLEMENTATION STRATEGY
+==================================================
+
+Do this incrementally.
+
+DO NOT make hundreds of uncontrolled cosmetic edits in one pass.
+
+1. Audit.
+2. Identify shared design primitives.
+3. Fix global/shared Android-looking patterns first.
+4. Fix remaining page-specific issues.
+5. Test.
+6. Review visual consistency.
+7. Inspect diff for accidental business-logic changes.
+8. Build.
+9. Run existing tests.
+10. Test at iPhone viewport sizes.
+11. Only then commit/push.
+
+If changing a shared component risks breaking multiple screens, make the safer scoped change.
+
+==================================================
+VISUAL STANDARD
+==================================================
+
+At completion, ask:
+
+“If someone opened Lulou on an iPhone without knowing how it was built, would anything immediately make them think Android app, Material Design, generic React website, or cheap PWA?”
+
+If YES, identify and safely polish it.
+
+Then ask:
+
+“Does this still unmistakably look like Lulou?”
+
+That answer must also be YES.
+
+Premium iOS does NOT mean copying Apple.
+
+It means Lulou should feel like a high-quality dating product intentionally built for iPhone.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Before editing, state:
+
+“Current task: perform a full Lulou iOS UI/UX audit and remove Android/Material/web-looking presentation while preserving all existing functionality and Lulou branding.”
+
+At completion report:
+
+1. Android/Material/web patterns found
+2. Exact files changed
+3. Shared components/design tokens changed
+4. Page-specific changes
+5. Navigation/scroll changes
+6. Form/control changes
+7. Modal/sheet changes
+8. Icon changes
+9. Animation changes
+10. iPhone safe-area/PWA changes
+11. Anything intentionally NOT changed because of regression risk
+12. Tests run
+13. Build result
+14. iPhone viewport results
+15. Any physical-device checks not performed
+16. Confirmation business logic/API/schema were not changed
+17. Commit hash
+18. origin/main hash
+19. Confirmation HEAD == origin/main
+
+Do not claim something was tested on a physical iPhone unless it actually was.
+
+Do not make speculative backend changes.
+
+The priority order is:
+
+1. DO NOT BREAK LULOU
+2. Premium iOS feel
+3. Lulou brand consistency
+4. Smoothness
+5. Visual consistency
+6. Performance
