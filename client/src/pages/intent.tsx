@@ -30,6 +30,7 @@ import { liveCandidateQueryOptions } from "@/lib/live-candidate-query-options";
 import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
 import { setServiceWorkerReloadBlocked } from "@/lib/service-worker";
 import { canApplyWheelCandidateUpdate, resolveWheelDismissal } from "@/lib/wheel-presentation-guard";
+import { canStartHaloSend, SPIN_ROOM_TIMING } from "@/lib/spin-room-timing";
 import { formatDistance, useUnits } from "@/lib/units";
 import type { CandidateFeed } from "@/lib/candidate-feed";
 
@@ -1321,11 +1322,14 @@ export default function IntentPage() {
   const [haloDragSnapping, setHaloDragSnapping] = useState(false);
   const haloDragRef = useRef({ startY: 0, startTime: 0, active: false, currentY: 0 });
   const haloDismissTimerRef = useRef<number | null>(null);
+  const haloSendInFlightRef = useRef(false);
+  const closeProfileRef = useRef<(() => void) | null>(null);
   const [angle, setAngle] = useState(0);
 
   // Spin room + Halo state
   const [showSpinRoom, setShowSpinRoom] = useState(false);
   const [isResultClosing, setIsResultClosing] = useState(false);
+  const [isHaloDismissing, setIsHaloDismissing] = useState(false);
 
   // Do not replace the wheel's candidate set during an active spin or result
   // reveal. On normal tab entry/foreground, this is a live feed just like
@@ -1605,9 +1609,23 @@ export default function IntentPage() {
       // server on every restore, so dismissing an upsell cannot re-enable a
       // second Halo for the same connection.
       queryClient.invalidateQueries({ queryKey: ["/api/wheel/spark/status", selectedProfile?.userId] });
-      window.setTimeout(() => setShowSpinExtras(true), 420);
+      // Keep the acknowledgement visible briefly, then use the same guarded
+      // close lifecycle as an explicit dismissal. This clears the saved result
+      // only after the acknowledgement has been visible and releases the
+      // presentation lock through closeProfile's persistence callback.
+      if (haloDismissTimerRef.current !== null) {
+        window.clearTimeout(haloDismissTimerRef.current);
+      }
+      haloDismissTimerRef.current = window.setTimeout(() => {
+        setIsHaloDismissing(true);
+        haloDismissTimerRef.current = window.setTimeout(() => {
+          haloDismissTimerRef.current = null;
+          closeProfileRef.current?.();
+        }, 260);
+      }, SPIN_ROOM_TIMING.haloAcknowledgementMs);
     },
     onError: (error: any) => {
+      haloSendInFlightRef.current = false;
       const raw = error?.message || "";
       let msg = t("something_went_wrong");
       try { const p = JSON.parse(raw); if (p?.message) msg = p.message; } catch {}
@@ -1736,6 +1754,12 @@ export default function IntentPage() {
 
   const closeProfile = () => {
     if (isResultClosing) return;
+    if (haloDismissTimerRef.current !== null) {
+      window.clearTimeout(haloDismissTimerRef.current);
+      haloDismissTimerRef.current = null;
+    }
+    haloSendInFlightRef.current = false;
+    setIsHaloDismissing(false);
     cancelWheelAsync();
     spinGenerationRef.current += 1;
     setHeroHandoffComplete(false);
@@ -1783,6 +1807,19 @@ export default function IntentPage() {
     setSelectedIndex(null);
     setSelectedProfile(null);
     setShowConfetti(false);
+  };
+  closeProfileRef.current = closeProfile;
+
+  const handleSendHalo = () => {
+    if (!canStartHaloSend({
+      hasWinner: !!selectedProfile,
+      haloSent,
+      mutationPending: sendSpark.isPending,
+      inFlight: haloSendInFlightRef.current,
+    })) return;
+    if (!selectedProfile) return;
+    haloSendInFlightRef.current = true;
+    sendSpark.mutate(selectedProfile.userId);
   };
 
   // ── SpinRoom phase timeline ─────────────────────────────────────────────────
@@ -2166,12 +2203,12 @@ export default function IntentPage() {
   // derived from a real timestamp — not assumed from stacked setTimeout durations.
   //
   // Required timing (user spec):
-  //   0–1500 ms:    "Narrowing down…"   (set by approach RAF before firing this phase)
-  //   1500–3200 ms: "There's something here…" + scale 1.000 → 1.015
-  //   3800–7000 ms: "Tonight's connection" holds while the room darkens
-  //   7000–12000 ms: original winner geometry grows from card → hero
-  //   12000–12800 ms: full hero geometry holds before the guarded handoff
-  //   12800 ms:      result mounts only after geometry verification
+  //   0–1300 ms:    "Narrowing down…"   (set by approach RAF before firing this phase)
+  //   1300–2600 ms: "There's something here…" + scale 1.000 → 1.015
+  //   2600–4300 ms: "Tonight's connection" holds while the room darkens
+  //   4300–7300 ms: original winner geometry grows from card → hero
+  //   7300–8200 ms: full hero geometry holds before the guarded handoff
+  //   8200 ms:      result mounts only after geometry verification
   //
   // CLEANUP: The RAF is self-terminating (stops when all milestones fire) and is
   // also cancelled by the orbit RAF useEffect's cleanup when showSpinRoom = false.
@@ -2290,18 +2327,21 @@ export default function IntentPage() {
     // ── Winner-reveal RAF — sole owner of winner card geometry until handoff ───
     //
     // CINEMATIC TIMELINE:
-    //   0–6200 ms     locked card stays at its actual start rect; copy and glow build
-    //   6200–7000 ms  "Tonight's connection" holds; hero geometry stays still
-    //   7000–12000 ms original card interpolates startRect → targetRect (5 seconds)
-    //   12000–12800   full hero geometry holds
-    //   12800 ms      geometry-checked result handoff; buttons fire +1500 ms later
+    //   0–2600 ms     locked card stays at its actual start rect; copy and glow build
+    //   2600–4300 ms  "Tonight's connection" holds; hero geometry stays still
+    //   4300–7300 ms  original card interpolates startRect → targetRect (3 seconds)
+    //   7300–8200 ms  full hero geometry holds
+    //   8200 ms       geometry-checked result handoff; buttons fire +700 ms later
     //
     // Loser-card opacity: fade from approach-residual → 0 over first 1800 ms.
     winnerMomentStartRef.current = performance.now();
 
     const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;
     const geometryProgress = (elapsed: number) => {
-        const raw = Math.min(1, Math.max(0, (elapsed - 7000) / 4300));
+      const raw = Math.min(
+        1,
+        Math.max(0, (elapsed - SPIN_ROOM_TIMING.growStartMs) / SPIN_ROOM_TIMING.growDurationMs),
+      );
       // The gentle front-load reaches ~38% and ~73% at the requested checkpoints,
       // then eases a little more slowly into the final hero rectangle.
       return raw + 0.10 * raw * (1 - raw);
@@ -2369,36 +2409,36 @@ export default function IntentPage() {
 
     type Milestone = { t: number; fn: () => void };
     const milestones: Milestone[] = [
-      // t=1800: "There's something here…"
-      { t: 1800, fn: () => {
+      // t=1300: "There's something here…"
+      { t: SPIN_ROOM_TIMING.firstMessageMs, fn: () => {
         setMomentumLabel('There\u2019s something here\u2026');
-        logWheelState({ event: 'text_1', elapsed: 1800 });
+        logWheelState({ event: 'text_1', elapsed: SPIN_ROOM_TIMING.firstMessageMs });
         logWinnerNode('text_1', 'There\u2019s something here\u2026');
       }},
-      // t=3800: "Tonight's connection" + go('momentum')
+      // t=2600: "Tonight's connection" + go('momentum')
       // 'momentum' keeps the orbit RAF early-return guard active.
-      { t: 3800, fn: () => {
+      { t: SPIN_ROOM_TIMING.finalMessageMs, fn: () => {
         setMomentumLabel('Tonight\u2019s connection');
         setSpinRoomPhase('momentum');
-        logWheelState({ event: 'text_2', elapsed: 3800 });
+        logWheelState({ event: 'text_2', elapsed: SPIN_ROOM_TIMING.finalMessageMs });
         logWinnerNode('text_2', 'Tonight\u2019s connection');
       }},
-      // t=7000: GROWING — the final words have held for a readable beat before
+      // t=4300: GROWING — the final words have held for a readable beat before
       // the existing geometry enlargement begins.
-      { t: 7000, fn: () => {
+      { t: SPIN_ROOM_TIMING.growStartMs, fn: () => {
         setSpinRoomPhase('growing');
-        logWheelState({ event: 'growing_start', elapsed: 7000 });
+        logWheelState({ event: 'growing_start', elapsed: SPIN_ROOM_TIMING.growStartMs });
         logWinnerNode('growing_start', 'Tonight\u2019s connection');
       }},
-      // t=7000: clear the final words as the existing enlargement starts.
-      { t: 7000, fn: () => {
+      // t=4300: clear the final words as the existing enlargement starts.
+      { t: SPIN_ROOM_TIMING.growStartMs, fn: () => {
         setMomentumLabel('');
-        logWheelState({ event: 'text_fade_out', elapsed: 7000 });
+        logWheelState({ event: 'text_fade_out', elapsed: SPIN_ROOM_TIMING.growStartMs });
       }},
-      // t=12100: Result may only take over after the original winner has held the
+      // t=8200: Result may only take over after the original winner has held the
       // target geometry and its measured rectangle matches the measured hero target.
-      { t: 12100, fn: () => {
-        logWheelState({ event: 'result_start', elapsed: 12100 });
+      { t: SPIN_ROOM_TIMING.resultHandoffMs, fn: () => {
+        logWheelState({ event: 'result_start', elapsed: SPIN_ROOM_TIMING.resultHandoffMs });
         logWinnerNode('result_start', '');
 
         const revealAttempt = (attempt: number) => {
@@ -2624,7 +2664,7 @@ export default function IntentPage() {
       scheduleWheelTimeout(generation, () => {
         setSpinRoomPhase('buttons');
         console.log('[WHEEL] BUTTONS_VISIBLE');
-      }, 1500);
+      }, SPIN_ROOM_TIMING.controlsDelayMs);
     }
   }, [spinRoomPhase]);
 
@@ -3094,6 +3134,10 @@ export default function IntentPage() {
         @keyframes spinRoomIn {
           from { opacity: 0; }
           to   { opacity: 1; }
+        }
+        @keyframes spinRoomOut {
+          from { opacity: 1; transform: scale(1); }
+          to   { opacity: 0; transform: scale(0.975); }
         }
         @keyframes spinRoomOrbit {
           from { transform: rotate(0deg); }
@@ -3938,8 +3982,8 @@ export default function IntentPage() {
                     background: "linear-gradient(135deg, #d45c74 0%, #9d3550 100%)",
                     boxShadow: "0 4px 20px rgba(188,78,96,0.45), 0 2px 8px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.15)",
                   }}
-                  onClick={() => selectedProfile && !haloSent && sendSpark.mutate(selectedProfile.userId)}
-                  disabled={sendSpark.isPending || haloSent}
+                  onClick={handleSendHalo}
+                  disabled={sendSpark.isPending || haloSent || haloSendInFlightRef.current}
                   data-testid="button-intent-send-halo"
                   aria-label="Send Halo"
                 >
@@ -3964,7 +4008,9 @@ export default function IntentPage() {
             position: "fixed", inset: 0, zIndex: 9999,
             background: "linear-gradient(160deg, #0d0812 0%, #1a0a2e 60%, #0d0812 100%)",
             overflow: "hidden",
-            animation: "spinRoomIn 0.28s ease forwards",
+            animation: isHaloDismissing
+              ? "spinRoomOut 0.26s cubic-bezier(0.4,0,0.2,1) forwards"
+              : "spinRoomIn 0.28s ease forwards",
           }}
           data-testid="spin-room-overlay"
         >
@@ -4325,23 +4371,23 @@ export default function IntentPage() {
                   paddingBottom: "max(env(safe-area-inset-bottom,0px), 32px)",
                   textAlign: "center",
                 }}>
-                  {/* Eyebrow — 0.2 s */}
+                  {/* Eyebrow — 0.12 s */}
                   <p style={{
                     fontSize: 9, fontWeight: 900, letterSpacing: "0.42em",
                     textTransform: "uppercase", color: "rgba(212,92,116,0.94)",
                     margin: "0 0 10px",
-                    animation: "srTextIn 0.50s 0.2s ease both",
+                    animation: "srTextIn 0.50s 0.12s ease both",
                   }}>
                     {t("spin_room_title")}
                   </p>
 
-                  {/* Name — 0.9 s */}
+                  {/* Name — 0.30 s */}
                   <h2 style={{
                     fontFamily: "'Playfair Display', Georgia, serif",
                     fontSize: "clamp(28px,7.5vw,40px)", fontWeight: 700,
                     color: "#fff", margin: "0 0 4px", lineHeight: 1.05,
                     textShadow: "0 2px 28px rgba(0,0,0,0.75)",
-                    animation: "srTextIn 0.75s 0.9s ease both",
+                    animation: "srTextIn 0.75s 0.30s ease both",
                   }}>
                     {selectedProfile.firstName}
                     {selectedProfile.photoVerified && (
@@ -4352,54 +4398,54 @@ export default function IntentPage() {
                     )}
                   </h2>
 
-                  {/* Age — 1.65 s */}
+                  {/* Age — 0.50 s */}
                   {selectedProfile.age && (
                     <p style={{
                       fontSize: 15, fontWeight: 300,
                       color: "rgba(255,255,255,0.48)", margin: "4px 0 0",
-                      animation: "srTextIn 0.50s 1.65s ease both",
+                      animation: "srTextIn 0.50s 0.50s ease both",
                     }}>
                       {selectedProfile.age}
                     </p>
                   )}
 
-                  {/* Signal word — 2.35 s */}
+                  {/* Signal word — 0.72 s */}
                   {selectedProfile.signals && selectedProfile.signals.length > 0 && renderText(selectedProfile.signals[0]) && (
                     <p style={{
                       fontFamily: "'Playfair Display', Georgia, serif",
                       fontSize: 14, fontStyle: "italic",
                       color: "rgba(255,255,255,0.58)", margin: "7px 0 0",
-                      animation: "srTextIn 0.55s 2.35s ease both",
+                      animation: "srTextIn 0.55s 0.72s ease both",
                     }}>
                       "{renderText(selectedProfile.signals[0])}"
                     </p>
                   )}
 
-                  {/* Location — 2.95 s */}
+                  {/* Location — 0.92 s */}
                   {selectedProfile.location && (
                     <p style={{
                       fontSize: 12, color: "rgba(255,255,255,0.28)", margin: "6px 0 0",
                       display: "flex", alignItems: "center",
                       justifyContent: "center", gap: 4,
-                      animation: "srTextIn 0.45s 2.95s ease both",
+                      animation: "srTextIn 0.45s 0.92s ease both",
                     }}>
                       <MapPin style={{ width: 11, height: 11 }} />
                       {selectedProfile.location}
                     </p>
                   )}
 
-                  {/* DNA insight — 3.4 s */}
+                  {/* DNA insight — 1.08 s */}
                   <p style={{
                     fontSize: 11, fontStyle: "italic",
                     color: "rgba(255,210,222,0.48)", margin: "10px 0 0",
-                    animation: "srTextIn 0.50s 3.4s ease both",
+                    animation: "srTextIn 0.50s 1.08s ease both",
                     lineHeight: 1.55, letterSpacing: "0.01em",
                     maxWidth: 280,
                   }}>
                     {spinRoomInsight}
                   </p>
 
-                  {/* CTA — 3.65 s (or halo-sent state) */}
+                  {/* CTA — 1.20 s (or halo-sent state) */}
                   {haloSent ? (
                     <div style={{
                       marginTop: 22, width: "100%",
@@ -4416,7 +4462,7 @@ export default function IntentPage() {
                   ) : (
                     <div style={{
                       display: "flex", gap: 12, marginTop: 20, width: "100%",
-                      animation: "srTextIn 0.60s 3.65s ease both",
+                      animation: "srTextIn 0.60s 1.20s ease both",
                     }}>
                       <button
                         onClick={() => { closeProfile(); setTimeout(() => setShowSpinExtras(true), 350); }}
@@ -4433,8 +4479,8 @@ export default function IntentPage() {
                         <span>🌙</span><span>Close</span>
                       </button>
                       <button
-                        onClick={() => selectedProfile && !haloSent && sendSpark.mutate(selectedProfile.userId)}
-                        disabled={sendSpark.isPending || haloSent}
+                        onClick={handleSendHalo}
+                        disabled={sendSpark.isPending || haloSent || haloSendInFlightRef.current}
                         data-testid="button-spin-room-send-halo"
                         style={{
                           flex: 2, padding: "16px 10px", borderRadius: 18,

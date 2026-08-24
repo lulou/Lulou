@@ -187,7 +187,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         isChatRoom
           ? "flex-1"
           : isScrollWithHeaderPage
-            ? "flex-1 overflow-y-auto flex flex-col"
+            ? "flex-1 min-h-0 overflow-y-auto flex flex-col"
             : "flex-1 overflow-hidden flex flex-col"
       }>
         {!isChatRoom && isScrollWithHeaderPage && appHeader}
