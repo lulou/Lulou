@@ -1074,6 +1074,142 @@ export async function registerRoutes(
     next();
   });
 
+  // ── Discover iPhone/PWA scroll diagnostics ────────────────────────────────
+  // Temporary, privacy-safe client geometry telemetry. This route deliberately
+  // does not authenticate or persist data: it receives no member data, avoids
+  // auth/session logging, and remains available when a stale PWA has a broken
+  // auth state. text/plain keeps the cross-origin PWA request CORS-simple.
+  const _discoverScrollDiagHits = new Map<string, { windowStart: number; count: number }>();
+  const DISCOVER_SCROLL_DIAG_WINDOW_MS = 10 * 60_000;
+  const DISCOVER_SCROLL_DIAG_MAX_HITS = 30;
+  const discoverScrollMetricSchema = z.object({
+    id: z.string().max(80),
+    scrollTop: z.number().int().min(-1_000_000).max(1_000_000),
+    scrollHeight: z.number().int().min(0).max(1_000_000),
+    clientHeight: z.number().int().min(0).max(1_000_000),
+    rectTop: z.number().int().min(-1_000_000).max(1_000_000),
+    rectBottom: z.number().int().min(-1_000_000).max(1_000_000),
+    rectHeight: z.number().int().min(0).max(1_000_000),
+    overflowY: z.string().max(40),
+    overflowX: z.string().max(40),
+    height: z.string().max(40),
+    minHeight: z.string().max(40),
+    maxHeight: z.string().max(40),
+    flex: z.string().max(80),
+    position: z.string().max(40),
+    touchAction: z.string().max(80),
+    pointerEvents: z.string().max(40),
+    overscrollBehaviorY: z.string().max(40),
+  });
+  const nullableDiscoverScrollMetric = discoverScrollMetricSchema.nullable();
+  const discoverScrollPayloadSchema = z.object({
+    event: z.enum([
+      "discover_mount",
+      "discover_profile_loaded",
+      "first_touch_start",
+      "first_vertical_move",
+      "scroll_attempt",
+      "scroll_stuck_detected",
+      "image_loaded_plus_500ms",
+      "image_loaded_plus_1500ms",
+    ]),
+    appBuild: z.object({
+      frontendCommit: z.string().max(80),
+      frontendBuildTime: z.string().max(80),
+      expectedServiceWorkerVersion: z.string().max(100),
+    }),
+    serviceWorker: z.object({
+      controllerPresent: z.boolean(),
+      controllerVersion: z.string().max(100).nullable(),
+      controllerCommit: z.string().max(80).nullable(),
+      controllerScript: z.string().max(300).nullable(),
+    }),
+    pwa: z.object({
+      displayModeStandalone: z.boolean(),
+      navigatorStandalone: z.boolean(),
+      isIOS: z.boolean(),
+    }),
+    viewport: z.object({
+      innerHeight: z.number().int().min(0).max(100_000),
+      innerWidth: z.number().int().min(0).max(100_000),
+      visualViewportHeight: z.number().int().min(0).max(100_000).nullable(),
+      visualViewportOffsetTop: z.number().int().min(-100_000).max(100_000).nullable(),
+      documentClientHeight: z.number().int().min(0).max(1_000_000),
+      documentScrollHeight: z.number().int().min(0).max(1_000_000),
+      bodyClientHeight: z.number().int().min(0).max(1_000_000),
+      bodyScrollHeight: z.number().int().min(0).max(1_000_000),
+      safeAreaInsets: z.object({
+        top: z.number().int().min(0).max(10_000),
+        right: z.number().int().min(0).max(10_000),
+        bottom: z.number().int().min(0).max(10_000),
+        left: z.number().int().min(0).max(10_000),
+      }),
+    }),
+    activeTab: z.literal("discover"),
+    profileLoaded: z.boolean(),
+    imageLoaded: z.boolean(),
+    imageDecoded: z.boolean(),
+    activeScrollOwner: z.string().max(80),
+    scrollOwner: nullableDiscoverScrollMetric,
+    elements: z.object({
+      html: nullableDiscoverScrollMetric,
+      body: nullableDiscoverScrollMetric,
+      root: nullableDiscoverScrollMetric,
+      appLayout: nullableDiscoverScrollMetric,
+      discoverRoot: nullableDiscoverScrollMetric,
+      bottomNavigation: nullableDiscoverScrollMetric,
+    }),
+    locks: z.object({
+      htmlClassChatOpen: z.boolean(),
+      bodyClassChatOpen: z.boolean(),
+      htmlOverflowHidden: z.boolean(),
+      bodyOverflowHidden: z.boolean(),
+      rootOverflowHidden: z.boolean(),
+      fullViewportPointerOverlayCount: z.number().int().min(0).max(100),
+    }),
+    gesture: z.object({
+      vertical: z.boolean(),
+      startScrollTop: z.number().int().min(-1_000_000).max(1_000_000),
+    }).nullable(),
+  });
+
+  app.post(
+    "/api/diagnostics/discover-scroll",
+    express.text({ type: "text/plain", limit: "12kb" }),
+    (req, res) => {
+      const ip = String(req.headers["x-forwarded-for"] ?? req.ip ?? "unknown").split(",")[0].trim();
+      const now = Date.now();
+      const hit = _discoverScrollDiagHits.get(ip);
+      const current = !hit || now - hit.windowStart > DISCOVER_SCROLL_DIAG_WINDOW_MS
+        ? { windowStart: now, count: 0 }
+        : hit;
+      if (current.count >= DISCOVER_SCROLL_DIAG_MAX_HITS) {
+        return res.status(429).json({ accepted: false, reason: "rate_limited" });
+      }
+
+      let parsedBody: unknown;
+      try {
+        parsedBody = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      } catch {
+        return res.status(400).json({ accepted: false, reason: "invalid_json" });
+      }
+      const payload = discoverScrollPayloadSchema.safeParse(parsedBody);
+      if (!payload.success) {
+        return res.status(400).json({ accepted: false, reason: "invalid_payload" });
+      }
+
+      current.count += 1;
+      _discoverScrollDiagHits.set(ip, current);
+      console.log("[DISCOVER_SCROLL_DIAG]", JSON.stringify({
+        receiverCommit: SERVER_COMMIT_HASH,
+        receiverBuildTime: SERVER_BUILD_TIME,
+        appVersion: APP_VERSION,
+        ...payload.data,
+      }));
+      return res.status(202).json({ accepted: true });
+    },
+  );
+
 
   // ── Email verification OTP endpoints ────────────────────────────────────
   // These endpoints intentionally bypass isAuthenticated because unverified

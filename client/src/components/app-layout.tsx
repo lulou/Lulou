@@ -178,12 +178,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // Chat rooms render their own fixed layers (header, messages, composer) via messaging.tsx.
     // AppLayout provides a full-screen stacking context and hides its own chrome so there is
     // no overlap and no containing-block interference.
-    <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0 } : { height: "100dvh" }}>
+    <div className="flex flex-col w-full bg-background" data-app-layout style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0 } : { height: "100dvh" }}>
       {/* App-level header — hidden completely for chat rooms to avoid any backdrop-filter
           containment that would re-anchor fixed children from messaging.tsx */}
       {!isChatRoom && !isScrollWithHeaderPage && appHeader}
 
-      <main className={
+      <main data-scroll-owner="app-layout-main" className={
         isChatRoom
           ? "flex-1"
           : isScrollWithHeaderPage
@@ -195,6 +195,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </main>
 
       {!isChatRoom && <nav
+        data-bottom-navigation
         className="border-t bg-background/95 backdrop-blur-md z-30"
         style={{
           paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))",

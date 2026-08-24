@@ -16,6 +16,7 @@ import { discoverQueryOptions } from "@/lib/discover-query-options";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { DISCOVER_CONTENT_ROOT_STYLE } from "@/lib/discover-scroll-layout";
+import { useDiscoverScrollDiagnostics } from "@/lib/discover-scroll-diagnostics";
 import type { Profile } from "@shared/schema";
 import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2, ChevronDown } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -726,6 +727,12 @@ export default function Discover() {
     if (!currentProfile) return undefined;
     return { ...currentProfile, photos: photoData?.photos ?? EMPTY_PHOTOS };
   }, [currentProfile, photoData?.photos]);
+  const discoverContentRef = useRef<HTMLDivElement>(null);
+  useDiscoverScrollDiagnostics({
+    rootRef: discoverContentRef,
+    enabled: isTabActive,
+    profileLoaded: !!displayProfile,
+  });
 
   const [pendingPhotoUrls, setPendingPhotoUrls] = useState<Set<string>>(new Set());
   const { data: photoReactionData } = useQuery<{ photoUrls: string[] }>({
@@ -1332,7 +1339,11 @@ export default function Discover() {
   });
 
   return (
-    <div style={DISCOVER_CONTENT_ROOT_STYLE}>
+    <div
+      ref={discoverContentRef}
+      data-discover-scroll-root="discover-root"
+      style={DISCOVER_CONTENT_ROOT_STYLE}
+    >
       <div className="bg-background/95 backdrop-blur-sm border-b px-5 py-3">
         <div className="max-w-md mx-auto flex items-center gap-2">
           <h1 className="font-serif text-lg font-bold truncate" data-testid="text-discover-sticky-name">
