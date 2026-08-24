@@ -1,0 +1,73 @@
+Proceed with Task #93 now as soon as the slot is available.
+
+Use the confirmed diagnosis you just found.
+
+IMPLEMENT ONLY THESE FIXES:
+
+1. DISCOVER FIRST-LOAD SCROLL
+- Fix the photo viewer touchmove handling so it can only call preventDefault() when a real active horizontal photo gesture has been established.
+- Vertical page scrolling must NEVER be blocked by a stale/default gesture origin.
+- Preserve horizontal photo swiping.
+- Preserve the app shell as the single vertical scroll owner.
+- Do not add another nested scrollbar.
+
+2. INTENTION WHEEL — ONLY 3 PROMINENT IDLE CARDS
+- Keep the FULL candidate pool internally.
+- Change only the idle presentation so exactly:
+ LEFT + CENTER + RIGHT
+ are the three prominent large cards.
+- Cards beyond those three must not remain visibly spread across the idle stage.
+- Do not alter spin randomness, winner selection or eligibility.
+
+3. INTENTION WHEEL — HORIZONTAL CONTAINMENT
+- Constrain/clip transformed card overflow at the dedicated Wheel stage.
+- The PAGE itself must never horizontally scroll.
+- Do not globally hide overflow if that could break Wheel animation.
+- Preserve winner motion and geometry handoff.
+
+STRICTLY PRESERVE:
+- Discover eligibility/filtering
+- Open ❤️
+- Profile scrolling
+- fixed bottom nav
+- Wheel spin physics
+- winner selection
+- Wheel timing
+- Halo success lifecycle
+- matching
+- auth
+- payments
+- calls
+- chat
+- Connection DNA
+- database/schema
+
+TESTS REQUIRED:
+- first-load Discover vertical swipe works immediately
+- horizontal photo swipe still works
+- vertical swipe cannot be blocked without an active photo gesture
+- Wheel data can contain >3 candidates
+- idle Wheel shows only 3 prominent large cards
+- no document-level horizontal overflow
+- existing Wheel/Halo tests still pass
+
+Then:
+- run tests
+- run production build
+- inspect final diff
+- commit
+- push
+- verify HEAD == origin/main
+
+Final report:
+- exact files changed
+- exact Discover gesture fix
+- exact Wheel idle-card logic change
+- exact overflow-containment fix
+- test results
+- build result
+- commit hash
+- origin/main hash
+- physical iPhone verification status
+
+Do not claim physical iPhone PASS unless actually tested there.
