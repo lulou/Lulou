@@ -18,7 +18,7 @@ import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { DISCOVER_CONTENT_ROOT_STYLE } from "@/lib/discover-scroll-layout";
 import { useDiscoverScrollDiagnostics } from "@/lib/discover-scroll-diagnostics";
 import type { Profile } from "@shared/schema";
-import { MessageCircle, HelpCircle, Send, ArrowUpRight, BadgeCheck, Loader2, ChevronDown, MoreHorizontal, RotateCcw, ShieldBan, UserRoundX, X } from "lucide-react";
+import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2, ChevronDown, MoreHorizontal, RotateCcw, ShieldBan, UserRoundX } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { ProfileInfoRow } from "@/components/profile-info-row";
@@ -77,8 +77,7 @@ function PhotoHaloAction({
       aria-label="Open profile"
       data-testid={`button-send-halo-${photoIndex}`}
     >
-      <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
-      Open
+      Open ❤️
     </button>
   );
 }
@@ -1505,7 +1504,7 @@ export default function Discover() {
 
       <button
         type="button"
-        className="fixed z-40 flex h-12 w-12 items-center justify-center rounded-full border border-black/[0.08] bg-white/[0.96] text-foreground shadow-[0_3px_14px_rgba(25,20,20,0.14)] backdrop-blur-md transition-transform active:scale-95 disabled:opacity-50"
+        className="fixed z-40 flex h-10 items-center gap-1.5 rounded-full border border-black/[0.08] bg-white/[0.96] px-3.5 text-sm font-medium text-foreground shadow-[0_2px_8px_rgba(25,20,20,0.10)] backdrop-blur-md transition-transform active:scale-[0.97] disabled:opacity-50"
         style={{
           insetInlineStart: "max(1rem, env(safe-area-inset-left, 0px))",
           bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)",
@@ -1515,7 +1514,7 @@ export default function Discover() {
         aria-label="Close profile"
         data-testid="button-close-profile-floating"
       >
-        <X className="h-5 w-5 stroke-[1.8]" aria-hidden="true" />
+        Close 🌙
       </button>
 
       <Sheet open={safetyMenuOpen} onOpenChange={setSafetyMenuOpen}>
