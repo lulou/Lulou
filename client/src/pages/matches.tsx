@@ -4621,7 +4621,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </div>
             )
           ) : (
-            <div ref={composerRef} className="px-2 pt-2 border-t" style={{ borderTop: "1px solid hsl(var(--border))", paddingBottom: inputFocused ? "6px" : "max(0.5rem, env(safe-area-inset-bottom))" }}>
+            <div ref={composerRef} className="px-3 pt-2 border-t" style={{ borderTop: "1px solid hsl(var(--border))", paddingBottom: inputFocused ? "6px" : "max(0.5rem, env(safe-area-inset-bottom))" }}>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
                   <span className="flex gap-0.5 items-center">
@@ -4674,15 +4674,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </p>
                 </div>
               )}
-              <div className="flex gap-2 items-end">
-                {/* ── Input wrapper with embedded mic ── */}
+              <div
+                className="w-full rounded-[1.5rem] border border-foreground/[0.09] bg-card/[0.98] px-3 pt-2.5 pb-2 shadow-[0_3px_14px_rgba(25,20,20,0.08)] backdrop-blur-xl"
+                data-testid={`chat-composer-surface-${match.id}`}
+              >
+                {/* ── Borderless typing area inside the unified composer ── */}
                 {/*
                   IMPORTANT: The textarea is ALWAYS in the DOM. During recording we apply
                   `invisible pointer-events-none` so it takes up the exact same space but
                   isn't visible. An absolutely-positioned overlay shows the waveform on top.
                   This prevents ANY layout shift when recording starts/stops.
                 */}
-                <div className="relative flex-1">
+                <div className="relative">
                   <Textarea
                     ref={textareaRef}
                     value={message}
@@ -4691,7 +4694,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       if (e.target.value.trim()) sendTyping();
                     }}
                     placeholder={t("write_meaningful_placeholder")}
-                    className={`resize-none min-h-[40px] max-h-[96px] text-base pr-8 transition-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
+                    className={`min-h-12 max-h-[132px] resize-none border-0 bg-transparent px-1 py-2 text-base leading-6 shadow-none transition-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent focus:outline-none outline-none${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => {
                       // CRITICAL: if iOS fires blur while recording, refocus SYNCHRONOUSLY
@@ -4719,9 +4722,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       Colors use Lulou primary rose (hsl 350 45% 52%) throughout. */}
                   {voicePhase === "recording" && (
                     <div
-                      className="absolute inset-0 flex items-center gap-2 px-3 pr-10 rounded-md select-none pointer-events-none"
+                      className="absolute inset-0 flex items-center gap-2 rounded-[1rem] px-3 select-none pointer-events-none"
                       style={{
-                        border: "1px solid hsl(350 45% 52% / 0.35)",
                         background: "hsl(350 45% 52% / 0.05)",
                       }}
                     >
@@ -4767,11 +4769,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       </div>
                     </div>
                   )}
-                  {/* Mic inside the input — hold to record, release to send.
-                      IMPORTANT: e.preventDefault() on pointerdown is CRITICAL on iOS.
+                  {/* Internal composer controls. e.preventDefault() on the mic's
+                      pointerdown is CRITICAL on iOS.
                       Without it, pressing the mic button blurs the textarea → iOS keyboard
                       dismisses → visual viewport changes height → the entire composer jumps.
                       e.preventDefault() keeps focus on the textarea so the keyboard stays up. */}
+                  <div className="mt-1 flex min-h-11 items-center gap-1 border-t border-foreground/[0.06] pt-1.5">
                   <button
                     tabIndex={-1}
                     onPointerDown={e => {
@@ -4867,7 +4870,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     }}
                     onContextMenu={e => e.preventDefault()}
                     onMouseDown={e => e.preventDefault()}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center select-none"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground select-none transition-transform active:scale-90 hover:bg-foreground/[0.06]"
                     style={{
                       touchAction: "none",
                       WebkitUserSelect: "none" as React.CSSProperties["WebkitUserSelect"],
@@ -4890,38 +4893,26 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   {/* Pulsing halo ring around mic while recording — Lulou rose, no layout impact */}
                   {voicePhase === "recording" && (
                     <span
-                      className="absolute right-2 bottom-[10px] w-[18px] h-[18px] rounded-full animate-ping pointer-events-none"
+                      className="absolute bottom-3 left-3 h-[18px] w-[18px] rounded-full animate-ping pointer-events-none"
                       style={{ background: "hsl(350 45% 52% / 0.22)", animationDuration: "1.4s" }}
                     />
                   )}
-                </div>
-                {/*
-                  AI starters and phone buttons use !inputFocused as a RENDER condition
-                  (not just visibility) so the input is truly full-width when the keyboard is open.
-                  This is SAFE with e.preventDefault() on the mic button: mic press never causes
-                  a blur when the keyboard is open, so inputFocused stays true and these buttons
-                  are never inserted into the DOM mid-recording (which would cause a shift).
-                  When recording starts while the keyboard is CLOSED (inputFocused=false),
-                  the buttons are already in the DOM — we use visibility:hidden so they keep
-                  their flex space without being removed.
-                */}
-                {/* ✨ Conversation starters — hidden while input is focused */}
-                {aiStartersEnabled && !inputFocused && (
+                {/* Conversation starters remain inside the single composer while typing. */}
+                {aiStartersEnabled && voicePhase === "idle" && (
                   <Button
                     size="icon"
                     variant="ghost"
                     tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => setShowAIStarters(v => !v)}
-                    className={showAIStarters ? "text-primary" : "text-muted-foreground"}
-                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
+                    className={`h-10 w-10 shrink-0 rounded-full hover:bg-foreground/[0.06] ${showAIStarters ? "text-primary" : "text-muted-foreground"}`}
                     data-testid={`button-ai-starters-${match.id}`}
                   >
                     <Sparkles className="w-4 h-4" />
                   </Button>
                 )}
-                {/* 📞 Voice call shortcut — only when keyboard is closed */}
-                {!allCallsDone && !inputFocused && (
+                {/* Voice call shortcut */}
+                {!allCallsDone && voicePhase === "idle" && (
                   <button
                     tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}
@@ -4930,8 +4921,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       else setPurchasePromptFeature("phone");
                     }}
                     disabled={startPaidCall.isPending}
-                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
-                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                     data-testid={`button-phone-composer-${match.id}`}
                     title={(phoneCredits ?? 0) > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
                   >
@@ -4945,11 +4935,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     />
                   </button>
                 )}
-                {/* 🎥 Video / face call shortcut — always visible at any call-capable
-                    stage so the icon is next to the phone icon in the composer.
-                    Grey/locked when no credits; active (indigo glow) when available.
-                    Previously gated on allCallsDone which hid it during early stages. */}
-                {!inputFocused && (
+                {/* Video call shortcut */}
+                {voicePhase === "idle" && (
                   <button
                     tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}
@@ -4958,8 +4945,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       else setPurchasePromptFeature("video");
                     }}
                     disabled={startPaidCall.isPending}
-                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
-                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                     data-testid={`button-video-composer-${match.id}`}
                     title={t("start_video_call")}
                   >
@@ -4973,8 +4959,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     />
                   </button>
                 )}
-                {/* ➤ Send / Cancel — same size="icon" in both states so the flex row doesn't shift */}
-                {voicePhase === "recording" ? (
+                {voicePhase === "recording" && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -4985,21 +4970,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   >
                     <X className="w-4 h-4" />
                   </Button>
-                ) : (
-                  <Button
-                    size="icon"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => { if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); } }}
-                    disabled={!message.trim()}
-                    data-testid={`button-send-${match.id}`}
-                  >
-                    <Send className="w-4 h-4" />
-                  </Button>
                 )}
+                {voicePhase === "idle" && message.length >= MAX_CHARS - 50 && (
+                  <span className="ms-auto px-1 text-[10px] tabular-nums text-muted-foreground/65 select-none">
+                    {message.length}/{MAX_CHARS}
+                  </span>
+                )}
+                  </div>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-1 text-start">
-                {message.length}/{MAX_CHARS}
-              </p>
 
               {/* ── AI Starters panel ── */}
               {showAIStarters && aiStartersEnabled && (

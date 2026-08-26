@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 describe("chat composer regressions", () => {
   it("keeps the composer unified without a standalone send control", () => {
     const messaging = readFileSync("client/src/pages/messaging.tsx", "utf8");
+    const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
+    const activeComposerStart = matches.indexOf('data-testid={`chat-composer-surface-${match.id}`}');
+    const activeComposerEnd = matches.indexOf("/* ── AI Starters panel ── */", activeComposerStart);
+    const activeComposer = matches.slice(activeComposerStart, activeComposerEnd);
 
     expect(messaging).not.toContain('data-testid="button-send"');
     expect(messaging).not.toContain("<Send ");
@@ -16,6 +20,19 @@ describe("chat composer regressions", () => {
     expect(messaging).toContain('data-testid="button-phone-composer"');
     expect(messaging).toContain('data-testid="button-video-composer"');
     expect(messaging).not.toContain('data-testid="button-send-message"');
+
+    // The expanded Connection view is the composer rendered on iPhone.
+    expect(activeComposerStart).toBeGreaterThan(-1);
+    expect(activeComposer).toContain('data-testid={`input-message-${match.id}`}');
+    expect(activeComposer).toContain('data-testid={`button-mic-input-${match.id}`}');
+    expect(activeComposer).toContain('data-testid={`button-ai-starters-${match.id}`}');
+    expect(activeComposer).toContain('data-testid={`button-phone-composer-${match.id}`}');
+    expect(activeComposer).toContain('data-testid={`button-video-composer-${match.id}`}');
+    expect(activeComposer).toContain("message.length >= MAX_CHARS - 50");
+    expect(activeComposer).not.toContain('data-testid={`button-send-${match.id}`}');
+    expect(activeComposer).not.toContain("<Send ");
+    expect(activeComposer).not.toContain("!inputFocused");
+    expect(matches).not.toContain('data-testid={`button-send-${match.id}`}');
   });
 
   it("preserves keyboard submission, the character cap, and internal input scrolling", () => {

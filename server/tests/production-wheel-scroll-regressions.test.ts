@@ -111,9 +111,13 @@ describe("production Discover and Wheel regressions", () => {
     expect(discover).toContain("Close 🌙");
     expect(discover).not.toContain("ArrowUpRight");
     expect(discover).not.toContain("<X");
+    expect(discover.match(/border border-primary\/35 bg-primary/g)).toHaveLength(2);
+    expect(discover).not.toContain("bg-white/95");
     expect(discover).not.toContain("Send Halo");
     expect(discover).toContain('data-testid="button-close-profile-floating"');
     expect(discover).toContain('className="fixed z-40');
+    expect(discover).toContain('insetInlineStart: "max(1rem, env(safe-area-inset-left, 0px))"');
+    expect(discover).toContain('bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)"');
     expect(discover).not.toContain("leftAction=");
     expect(discover).toContain('data-testid="button-discover-safety-menu"');
     expect(discover).toContain('"/api/discover/remove-profile"');
