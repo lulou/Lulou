@@ -100,7 +100,7 @@ describe("production Discover and Wheel regressions", () => {
     })).toBe(true);
   });
 
-  it("keeps Discover actions inside the active photo and safety actions server-side", () => {
+  it("keeps Open on the active photo while Close floats at profile level", () => {
     const discover = readFileSync("client/src/pages/discover.tsx", "utf8");
     const photoViewer = readFileSync("client/src/components/profile-photo-viewer.tsx", "utf8");
     const storage = readFileSync("server/storage.ts", "utf8");
@@ -109,11 +109,15 @@ describe("production Discover and Wheel regressions", () => {
 
     expect(discover).toContain("Open");
     expect(discover).not.toContain("Send Halo");
+    expect(discover).toContain('data-testid="button-close-profile-floating"');
+    expect(discover).toContain('className="fixed z-40');
+    expect(discover).not.toContain("leftAction=");
     expect(discover).toContain('data-testid="button-discover-safety-menu"');
     expect(discover).toContain('"/api/discover/remove-profile"');
     expect(discover).toContain('"/api/discover/block-profile"');
-    expect(photoViewer).toContain("leftAction?: PhotoAction");
-    expect(photoViewer).toContain("currentLeftAction");
+    expect(photoViewer).toContain("currentAction");
+    expect(photoViewer).not.toContain("leftAction");
+    expect(photoViewer).not.toContain("currentLeftAction");
     expect(routes).toContain('type: "remove" | "block"');
     expect(routes).toContain('app.post("/api/discover/block-profile"');
     expect(storage).toContain('.eq("type", "block")');

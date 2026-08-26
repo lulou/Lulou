@@ -17,8 +17,6 @@ interface ProfilePhotoViewerProps {
    * renderer form so a reaction is always tied to the currently visible URL.
    */
   action?: PhotoAction;
-  /** Optional mirrored control for card-level actions such as passing a profile. */
-  leftAction?: PhotoAction;
   nameSlot?: ReactNode;
   children?: ReactNode;
 }
@@ -54,7 +52,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   height = PROFILE_PHOTO_HEIGHT,
   className = "",
   action,
-  leftAction,
   nameSlot,
 }: ProfilePhotoViewerProps) {
   const n = photos.length;
@@ -103,9 +100,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const currentAction = typeof action === "function"
     ? action(currentPhoto, safeIdx)
     : action;
-  const currentLeftAction = typeof leftAction === "function"
-    ? leftAction(currentPhoto, safeIdx)
-    : leftAction;
 
   const goTo = useCallback(
     (next: number) => {
@@ -634,28 +628,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             </div>
           )}
 
-          {/* Mirrored card action — used by Discover for the profile-level pass
-              control. Kept inside the active photo so it cannot overlap tabs. */}
-          {currentLeftAction && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 14,
-                left: 14,
-                zIndex: 3,
-                pointerEvents: "none",
-              }}
-            >
-              <div
-                style={{ pointerEvents: "auto" }}
-                onPointerDown={e => e.stopPropagation()}
-                onPointerUp={e => e.stopPropagation()}
-                onClick={e => e.stopPropagation()}
-              >
-                {currentLeftAction}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Photo bubble overlay — entrance animation on tap/arrow nav */}

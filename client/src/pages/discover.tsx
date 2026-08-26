@@ -66,10 +66,10 @@ function PhotoHaloAction({
   const disabled = isDisabled || isReacted || isPending;
   return (
     <button
-      className={`flex min-h-11 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold shadow-[0_6px_18px_rgba(0,0,0,0.18)] transition-all active:scale-95 disabled:cursor-default ${
+      className={`flex h-10 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium shadow-[0_2px_8px_rgba(25,20,20,0.10)] transition-all active:scale-[0.97] disabled:cursor-default ${
         isReacted
-          ? "bg-white/95 text-primary ring-1 ring-white/70"
-          : "bg-primary text-white"
+          ? "border-primary/15 bg-primary/[0.10] text-primary"
+          : "border-black/[0.08] bg-white/95 text-foreground backdrop-blur-sm"
       }`}
       onClick={() => onOpen(photoUrl)}
       disabled={disabled}
@@ -91,7 +91,6 @@ const PhotoBubbles = memo(function PhotoBubbles({
   onOpenPhoto,
   reactedPhotoUrls,
   pendingPhotoUrls,
-  onCloseProfile,
   isDisabled,
   isPhotosLoading,
 }: {
@@ -100,7 +99,6 @@ const PhotoBubbles = memo(function PhotoBubbles({
   onOpenPhoto: (photoUrl: string) => void;
   reactedPhotoUrls: string[];
   pendingPhotoUrls: ReadonlySet<string>;
-  onCloseProfile: () => void;
   isDisabled?: boolean;
   isPhotosLoading?: boolean;
 }) {
@@ -118,18 +116,6 @@ const PhotoBubbles = memo(function PhotoBubbles({
           isDisabled={isDisabled}
         />
       )}
-      leftAction={
-        <button
-          type="button"
-          className="flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-white/95 text-foreground shadow-[0_6px_18px_rgba(0,0,0,0.18)] transition-all active:scale-95 disabled:cursor-default disabled:opacity-60"
-          onClick={onCloseProfile}
-          disabled={isDisabled}
-          aria-label="Close profile"
-          data-testid="button-close"
-        >
-          <X className="h-5 w-5" aria-hidden="true" />
-        </button>
-      }
     />
   );
 });
@@ -1507,7 +1493,6 @@ export default function Discover() {
               reactedPhotoUrls={reactedPhotoUrls}
               pendingPhotoUrls={pendingPhotoUrls}
               isDisabled={interact.isPending || isExiting}
-              onCloseProfile={() => triggerInteract("close")}
               isPhotosLoading={isPhotosLoading}
             />
             <Card className="mt-2" style={{ boxShadow: "0 2px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }} data-testid="card-profile">
@@ -1517,6 +1502,21 @@ export default function Discover() {
             </Card>
         </div>
       </div>
+
+      <button
+        type="button"
+        className="fixed z-40 flex h-12 w-12 items-center justify-center rounded-full border border-black/[0.08] bg-white/[0.96] text-foreground shadow-[0_3px_14px_rgba(25,20,20,0.14)] backdrop-blur-md transition-transform active:scale-95 disabled:opacity-50"
+        style={{
+          insetInlineStart: "max(1rem, env(safe-area-inset-left, 0px))",
+          bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)",
+        }}
+        onClick={() => triggerInteract("close")}
+        disabled={interact.isPending || isExiting}
+        aria-label="Close profile"
+        data-testid="button-close-profile-floating"
+      >
+        <X className="h-5 w-5 stroke-[1.8]" aria-hidden="true" />
+      </button>
 
       <Sheet open={safetyMenuOpen} onOpenChange={setSafetyMenuOpen}>
         <SheetContent side="bottom" className="mx-auto max-w-md rounded-b-none px-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-7">

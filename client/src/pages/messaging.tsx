@@ -2020,8 +2020,11 @@ export default function Messaging() {
                   </p>
                 </div>
               )}
-              <div className="w-full rounded-[1.45rem] border border-border/60 bg-card/95 px-3 pt-2.5 pb-2 shadow-[0_8px_28px_rgba(0,0,0,0.08)]">
-                {/* ── Main input area ── */}
+              <div
+                className="w-full rounded-[1.5rem] border border-foreground/[0.09] bg-card/[0.98] px-3 pt-2.5 pb-2 shadow-[0_3px_14px_rgba(25,20,20,0.08)] backdrop-blur-xl"
+                data-testid="chat-composer-surface"
+              >
+                {/* ── Borderless typing area inside the unified composer ── */}
                 <div className="relative">
                   {voicePhase === "recording" ? (
                     <div className="flex min-h-[44px] items-center gap-2 rounded-xl bg-red-50/40 px-2 dark:bg-red-950/20 select-none">
@@ -2036,7 +2039,7 @@ export default function Messaging() {
                       value={message}
                       onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
                       placeholder={t("write_meaningful_placeholder")}
-                      className="min-h-[44px] max-h-[120px] overflow-y-auto resize-none rounded-xl border-0 bg-transparent px-1 py-1.5 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent focus:outline-none outline-none"
+                      className="min-h-12 max-h-[132px] overflow-y-auto resize-none border-0 bg-transparent px-1 py-2 text-base leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent focus:outline-none outline-none"
                       onFocus={() => {
                         setInputFocused(true);
                         // Scroll to newest after iOS keyboard animation (~300ms)
@@ -2059,8 +2062,8 @@ export default function Messaging() {
                   )}
                 </div>
 
-                {/* ── Existing chat controls inside the unified composer ── */}
-                <div className="mt-0.5 flex min-h-10 items-center gap-0.5">
+                {/* ── Internal control row — no detached toolbar or send column ── */}
+                <div className="mt-1 flex min-h-11 items-center gap-1 border-t border-foreground/[0.06] pt-1.5">
                   {/* Mic — hold to record, slide away to cancel */}
                   <button
                     onPointerDown={e => {
@@ -2077,32 +2080,31 @@ export default function Messaging() {
                     onPointerLeave={() => { if (voicePhase === "recording") cancelRecording(); }}
                     onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
                     onContextMenu={e => e.preventDefault()}
-                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full select-none transition-transform active:scale-90 hover:bg-foreground/[0.06]"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground select-none transition-transform active:scale-90 hover:bg-foreground/[0.06]"
                     data-testid="button-mic-input"
                     title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to send" : "Hold to record voice note") : "Unlock voice notes"}
                   >
                     <Mic
                       className="h-[18px] w-[18px] transition-all duration-300"
                       style={voicePhase === "recording"
-                        ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
+                        ? { color: "rgb(239,68,68)" }
                         : voiceNotesUnlocked
-                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                        ? { color: "hsl(var(--primary))" }
                         : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
                     />
                   </button>
 
-                  {/* Conversation starters — hidden while typing */}
+                   {/* Conversation starters */}
                    {aiStartersEnabled && voicePhase === "idle" && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
+                    <button
+                      type="button"
                       onClick={() => { setUserClosedStarters(false); setShowAIStarters(v => !v); }}
-                       className={`h-10 w-10 shrink-0 rounded-full border-0 bg-transparent shadow-none hover:bg-foreground/[0.06] ${startersVisible ? "text-primary" : "text-muted-foreground"}`}
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-transform active:scale-90 hover:bg-foreground/[0.06] ${startersVisible ? "text-primary" : "text-muted-foreground"}`}
                       title="Conversation starters"
                       data-testid="button-ai-starters"
                     >
                       <Sparkles className="h-4 w-4" />
-                    </Button>
+                    </button>
                   )}
 
                   {/* Voice call shortcut */}
@@ -2113,7 +2115,7 @@ export default function Messaging() {
                         else setPurchasePromptFeature("phone");
                       }}
                       disabled={startPaidCall.isPending}
-                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                       data-testid="button-phone-composer"
                       title={phoneCredits > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
                     >
@@ -2122,7 +2124,7 @@ export default function Messaging() {
                         style={!callCreditsData
                           ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
                           : phoneCredits > 0
-                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                          ? { color: "hsl(var(--primary))" }
                           : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
                       />
                     </button>
@@ -2136,7 +2138,7 @@ export default function Messaging() {
                         else setPurchasePromptFeature("video");
                       }}
                       disabled={startPaidCall.isPending}
-                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                       data-testid="button-video-composer"
                       title={t("start_video_call")}
                     >
@@ -2145,15 +2147,15 @@ export default function Messaging() {
                         style={!callCreditsData
                           ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
                           : videoCredits > 0
-                          ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
+                          ? { color: "hsl(var(--primary))" }
                           : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
                       />
                     </button>
                   )}
 
-                  <div className="ms-auto flex shrink-0 items-center gap-1.5">
-                    {voicePhase === "idle" && (
-                      <span className="text-[10px] tabular-nums text-muted-foreground/70 select-none">
+                  <div className="ms-auto flex shrink-0 items-center gap-1">
+                    {voicePhase === "idle" && message.length >= MAX_CHARS - 75 && (
+                      <span className="px-1 text-[10px] tabular-nums text-muted-foreground/65 select-none">
                         {message.length}/{MAX_CHARS}
                       </span>
                     )}

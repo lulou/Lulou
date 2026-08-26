@@ -9,11 +9,13 @@ describe("chat composer regressions", () => {
     expect(messaging).not.toContain("<Send ");
     expect(messaging).toContain('data-testid="input-message"');
     expect(messaging).toContain("messageInputRef");
-    expect(messaging).toContain("rounded-[1.45rem]");
+    expect(messaging).toContain('data-testid="chat-composer-surface"');
+    expect(messaging).toContain("rounded-[1.5rem]");
     expect(messaging).toContain('data-testid="button-mic-input"');
     expect(messaging).toContain('data-testid="button-ai-starters"');
     expect(messaging).toContain('data-testid="button-phone-composer"');
     expect(messaging).toContain('data-testid="button-video-composer"');
+    expect(messaging).not.toContain('data-testid="button-send-message"');
   });
 
   it("preserves keyboard submission, the character cap, and internal input scrolling", () => {
