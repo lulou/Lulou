@@ -107,8 +107,8 @@ describe("production Discover and Wheel regressions", () => {
     const routes = readFileSync("server/routes.ts", "utf8");
     const migration = readFileSync("supabase/migrations/add_discover_safety_actions.sql", "utf8");
 
-    expect(discover).toContain("Send Halo");
-    expect(discover).not.toContain("Open ❤️");
+    expect(discover).toContain("Open");
+    expect(discover).not.toContain("Send Halo");
     expect(discover).toContain('data-testid="button-discover-safety-menu"');
     expect(discover).toContain('"/api/discover/remove-profile"');
     expect(discover).toContain('"/api/discover/block-profile"');

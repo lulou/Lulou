@@ -1900,7 +1900,7 @@ export default function Messaging() {
       {activeTab === "chat" && (
         <div
           ref={composerRef}
-          className="bg-background/95 border-t px-3 pt-2 sm:px-4"
+          className="bg-transparent px-3 pt-1.5 sm:px-4"
           data-ui-version="composer-104"
           style={{
             position: "fixed",
@@ -2020,7 +2020,7 @@ export default function Messaging() {
                   </p>
                 </div>
               )}
-              <div className="w-full rounded-[1.35rem] border border-border/80 bg-card/90 px-3 pt-2.5 pb-2 shadow-sm">
+              <div className="w-full rounded-[1.45rem] border border-border/60 bg-card/95 px-3 pt-2.5 pb-2 shadow-[0_8px_28px_rgba(0,0,0,0.08)]">
                 {/* ── Main input area ── */}
                 <div className="relative">
                   {voicePhase === "recording" ? (
@@ -2060,7 +2060,7 @@ export default function Messaging() {
                 </div>
 
                 {/* ── Existing chat controls inside the unified composer ── */}
-                <div className="mt-1 flex min-h-9 items-center gap-1">
+                <div className="mt-0.5 flex min-h-10 items-center gap-0.5">
                   {/* Mic — hold to record, slide away to cancel */}
                   <button
                     onPointerDown={e => {
@@ -2077,7 +2077,7 @@ export default function Messaging() {
                     onPointerLeave={() => { if (voicePhase === "recording") cancelRecording(); }}
                     onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
                     onContextMenu={e => e.preventDefault()}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full select-none transition-transform active:scale-90 hover:bg-muted/40"
+                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full select-none transition-transform active:scale-90 hover:bg-foreground/[0.06]"
                     data-testid="button-mic-input"
                     title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to send" : "Hold to record voice note") : "Unlock voice notes"}
                   >
@@ -2092,12 +2092,12 @@ export default function Messaging() {
                   </button>
 
                   {/* Conversation starters — hidden while typing */}
-                  {aiStartersEnabled && voicePhase === "idle" && !inputFocused && (
+                   {aiStartersEnabled && voicePhase === "idle" && (
                     <Button
                       size="icon"
                       variant="ghost"
                       onClick={() => { setUserClosedStarters(false); setShowAIStarters(v => !v); }}
-                      className={`h-9 w-9 shrink-0 rounded-full ${startersVisible ? "text-primary" : "text-muted-foreground"}`}
+                       className={`h-10 w-10 shrink-0 rounded-full border-0 bg-transparent shadow-none hover:bg-foreground/[0.06] ${startersVisible ? "text-primary" : "text-muted-foreground"}`}
                       title="Conversation starters"
                       data-testid="button-ai-starters"
                     >
@@ -2106,14 +2106,14 @@ export default function Messaging() {
                   )}
 
                   {/* Voice call shortcut */}
-                  {!allCallsDone && voicePhase === "idle" && !inputFocused && (
+                   {!allCallsDone && voicePhase === "idle" && (
                     <button
                       onClick={() => {
                         if (phoneCredits > 0) startPaidCall.mutate({ isVideo: false });
                         else setPurchasePromptFeature("phone");
                       }}
                       disabled={startPaidCall.isPending}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                       data-testid="button-phone-composer"
                       title={phoneCredits > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
                     >
@@ -2129,14 +2129,14 @@ export default function Messaging() {
                   )}
 
                   {/* Video call shortcut */}
-                  {!allCallsDone && voicePhase === "idle" && !inputFocused && (
+                   {!allCallsDone && voicePhase === "idle" && (
                     <button
                       onClick={() => {
                         if (videoCredits > 0) startPaidCall.mutate({ isVideo: true });
                         else setPurchasePromptFeature("video");
                       }}
                       disabled={startPaidCall.isPending}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                       data-testid="button-video-composer"
                       title={t("start_video_call")}
                     >

@@ -18,7 +18,7 @@ import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { DISCOVER_CONTENT_ROOT_STYLE } from "@/lib/discover-scroll-layout";
 import { useDiscoverScrollDiagnostics } from "@/lib/discover-scroll-diagnostics";
 import type { Profile } from "@shared/schema";
-import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2, ChevronDown, MoreHorizontal, RotateCcw, ShieldBan, UserRoundX } from "lucide-react";
+import { MessageCircle, HelpCircle, Send, ArrowUpRight, BadgeCheck, Loader2, ChevronDown, MoreHorizontal, RotateCcw, ShieldBan, UserRoundX, X } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { ProfileInfoRow } from "@/components/profile-info-row";
@@ -66,7 +66,7 @@ function PhotoHaloAction({
   const disabled = isDisabled || isReacted || isPending;
   return (
     <button
-      className={`flex min-h-11 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold shadow-lg transition-all active:scale-95 disabled:cursor-default ${
+      className={`flex min-h-11 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold shadow-[0_6px_18px_rgba(0,0,0,0.18)] transition-all active:scale-95 disabled:cursor-default ${
         isReacted
           ? "bg-white/95 text-primary ring-1 ring-white/70"
           : "bg-primary text-white"
@@ -74,11 +74,11 @@ function PhotoHaloAction({
       onClick={() => onOpen(photoUrl)}
       disabled={disabled}
       aria-pressed={isReacted}
-      aria-label="Send Halo"
+      aria-label="Open profile"
       data-testid={`button-send-halo-${photoIndex}`}
     >
-      <Send className="h-4 w-4" aria-hidden="true" />
-      Send Halo
+      <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+      Open
     </button>
   );
 }
@@ -121,13 +121,13 @@ const PhotoBubbles = memo(function PhotoBubbles({
       leftAction={
         <button
           type="button"
-          className="flex h-12 w-12 items-center justify-center rounded-full border border-white/70 bg-white/95 text-lg shadow-lg transition-all active:scale-95 disabled:cursor-default disabled:opacity-60"
+          className="flex h-11 w-11 items-center justify-center rounded-full border border-white/70 bg-white/95 text-foreground shadow-[0_6px_18px_rgba(0,0,0,0.18)] transition-all active:scale-95 disabled:cursor-default disabled:opacity-60"
           onClick={onCloseProfile}
           disabled={isDisabled}
           aria-label="Close profile"
           data-testid="button-close"
         >
-          <span role="img" aria-label="Close">🌙</span>
+          <X className="h-5 w-5" aria-hidden="true" />
         </button>
       }
     />

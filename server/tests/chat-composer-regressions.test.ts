@@ -9,7 +9,7 @@ describe("chat composer regressions", () => {
     expect(messaging).not.toContain("<Send ");
     expect(messaging).toContain('data-testid="input-message"');
     expect(messaging).toContain("messageInputRef");
-    expect(messaging).toContain("rounded-[1.35rem]");
+    expect(messaging).toContain("rounded-[1.45rem]");
     expect(messaging).toContain('data-testid="button-mic-input"');
     expect(messaging).toContain('data-testid="button-ai-starters"');
     expect(messaging).toContain('data-testid="button-phone-composer"');

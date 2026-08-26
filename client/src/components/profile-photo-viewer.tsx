@@ -605,8 +605,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             <div
               style={{
                 position: "absolute",
-                bottom: 12,
-                right: 10,
+                bottom: 14,
+                right: 14,
                 zIndex: 3,
                 pointerEvents: "none",
               }}
@@ -640,8 +640,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             <div
               style={{
                 position: "absolute",
-                bottom: 12,
-                left: 10,
+                bottom: 14,
+                left: 14,
                 zIndex: 3,
                 pointerEvents: "none",
               }}
