@@ -100,6 +100,28 @@ describe("production Discover and Wheel regressions", () => {
     })).toBe(true);
   });
 
+  it("keeps Discover actions inside the active photo and safety actions server-side", () => {
+    const discover = readFileSync("client/src/pages/discover.tsx", "utf8");
+    const photoViewer = readFileSync("client/src/components/profile-photo-viewer.tsx", "utf8");
+    const storage = readFileSync("server/storage.ts", "utf8");
+    const routes = readFileSync("server/routes.ts", "utf8");
+    const migration = readFileSync("supabase/migrations/add_discover_safety_actions.sql", "utf8");
+
+    expect(discover).toContain("Send Halo");
+    expect(discover).not.toContain("Open ❤️");
+    expect(discover).toContain('data-testid="button-discover-safety-menu"');
+    expect(discover).toContain('"/api/discover/remove-profile"');
+    expect(discover).toContain('"/api/discover/block-profile"');
+    expect(photoViewer).toContain("leftAction?: PhotoAction");
+    expect(photoViewer).toContain("currentLeftAction");
+    expect(routes).toContain('type: "remove" | "block"');
+    expect(routes).toContain('app.post("/api/discover/block-profile"');
+    expect(storage).toContain('.eq("type", "block")');
+    expect(storage).toContain("blockedUserIds");
+    expect(storage).toContain("async getIncomingOpens");
+    expect(migration).toContain("interactions_discover_safety_actions_unique");
+  });
+
   it("uses the persistence-aware completion path after Halo acknowledgement", () => {
     const intent = readFileSync("client/src/pages/intent.tsx", "utf8");
 

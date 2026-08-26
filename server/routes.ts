@@ -797,6 +797,10 @@ const interactionBodySchema = z.object({
   type: z.enum(["open", "close"]),
 });
 
+const discoverSafetyActionBodySchema = z.object({
+  profileUserId: z.string().min(1),
+});
+
 const messageBodySchema = z.object({
   content: z.string().min(1).max(500),
 });
@@ -3237,6 +3241,64 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[DISCOVER] Error:", error?.message, `(${Date.now() - t0} ms)`);
       res.status(500).json({ message: "Failed to discover profiles" });
+    }
+  });
+
+  // Discover safety actions intentionally share the interactions store rather
+  // than creating a parallel user-block system. `remove` is a one-way feed
+  // dismissal; `block` is filtered in both directions by buildExcludedUserIds.
+  // The partial unique index in supabase/migrations makes repeated block/remove
+  // requests idempotent even when two requests arrive concurrently.
+  async function saveDiscoverSafetyAction(
+    fromUserId: string,
+    toUserId: string,
+    type: "remove" | "block",
+  ): Promise<{ created: boolean }> {
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from("interactions")
+      .select("id")
+      .eq("from_user_id", fromUserId)
+      .eq("to_user_id", toUserId)
+      .eq("type", type)
+      .limit(1);
+    if (existingError) throw new Error(`Could not check ${type} action: ${existingError.message}`);
+    if (existing && existing.length > 0) return { created: false };
+
+    const { error: insertError } = await supabaseAdmin
+      .from("interactions")
+      .insert({ from_user_id: fromUserId, to_user_id: toUserId, type });
+    // The unique index turns a concurrent duplicate into an idempotent success.
+    if (insertError && insertError.code !== "23505") {
+      throw new Error(`Could not save ${type} action: ${insertError.message}`);
+    }
+    return { created: !insertError };
+  }
+
+  app.post("/api/discover/remove-profile", isAuthenticated, writeLimiter, async (req: any, res) => {
+    try {
+      const parsed = discoverSafetyActionBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid profile" });
+      const userId = req.user.id;
+      if (parsed.data.profileUserId === userId) return res.status(400).json({ message: "Cannot remove yourself" });
+      const result = await saveDiscoverSafetyAction(userId, parsed.data.profileUserId, "remove");
+      res.json({ removed: true, ...result });
+    } catch (error: any) {
+      console.error("[DISCOVER_REMOVE]", error?.message);
+      res.status(500).json({ message: "Could not remove this profile" });
+    }
+  });
+
+  app.post("/api/discover/block-profile", isAuthenticated, writeLimiter, async (req: any, res) => {
+    try {
+      const parsed = discoverSafetyActionBodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid profile" });
+      const userId = req.user.id;
+      if (parsed.data.profileUserId === userId) return res.status(400).json({ message: "Cannot block yourself" });
+      const result = await saveDiscoverSafetyAction(userId, parsed.data.profileUserId, "block");
+      res.json({ blocked: true, ...result });
+    } catch (error: any) {
+      console.error("[DISCOVER_BLOCK]", error?.message);
+      res.status(500).json({ message: "Could not block this profile" });
     }
   });
 

@@ -3,9 +3,9 @@
  *
  * ## Compression
  * `convertPhotoToJpeg` and `recompressPhotoDataUrl` run a canvas resize + JPEG
- * encode pipeline and return a base64 data URL.  Target ≤ 150 KB per photo so
- * the photos text[] column SELECT stays under Supabase's 8-second statement
- * timeout.
+ * encode pipeline and return a base64 data URL.  New photos are uploaded to
+ * Storage, so the image can retain enough detail for a Retina Discover hero;
+ * base64 remains a compatibility fallback only.
  *
  * ## Storage upload (new photos)
  * `uploadPhotoToStorage` converts an already-compressed base64 data URL to a
@@ -26,9 +26,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const MAX_DIM         = 800;
-const QUALITY_INITIAL = 0.72;
-const TARGET_BYTES    = 150_000; // ~112 KB as a base64 string
+// A Discover hero displays at roughly 390 CSS pixels on a modern iPhone.
+// 1600px keeps 3× screens sharp without asking the browser to upscale a tiny
+// thumbnail. The Storage URL is the normal persisted form, so this does not
+// inflate the profile-list query (which deliberately omits `photos`).
+const MAX_DIM         = 1600;
+const QUALITY_INITIAL = 0.82;
+const TARGET_BYTES    = 450_000; // high-quality Storage upload; base64 is fallback only
 const MAX_PASSES      = 4;
 
 /** Photos larger than this string length may cause DB statement timeouts. */

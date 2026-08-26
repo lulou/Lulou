@@ -18,7 +18,7 @@ import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { DISCOVER_CONTENT_ROOT_STYLE } from "@/lib/discover-scroll-layout";
 import { useDiscoverScrollDiagnostics } from "@/lib/discover-scroll-diagnostics";
 import type { Profile } from "@shared/schema";
-import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2, ChevronDown } from "lucide-react";
+import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2, ChevronDown, MoreHorizontal, RotateCcw, ShieldBan, UserRoundX } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { ProfileInfoRow } from "@/components/profile-info-row";
@@ -30,12 +30,23 @@ import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
 import { useLocation } from "wouter";
 import { formatDistance, useUnits } from "@/lib/units";
 import type { CandidateFeed } from "@/lib/candidate-feed";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // Full-width draggable photo card.
 // Uses ProfilePhotoViewer (shared): photos follow finger, spring-settle on release, gap between slides.
 // Gallery photos fetch on card mount; carousel lazy-loads ±1 from current.
 
-type PhotoOpenActionProps = {
+type PhotoHaloActionProps = {
   photoUrl: string;
   photoIndex: number;
   onOpen: (photoUrl: string) => void;
@@ -44,18 +55,18 @@ type PhotoOpenActionProps = {
   isDisabled?: boolean;
 };
 
-function PhotoOpenAction({
+function PhotoHaloAction({
   photoUrl,
   photoIndex,
   onOpen,
   isReacted,
   isPending,
   isDisabled = false,
-}: PhotoOpenActionProps) {
+}: PhotoHaloActionProps) {
   const disabled = isDisabled || isReacted || isPending;
   return (
     <button
-      className={`rounded-full px-4 py-2.5 text-sm font-semibold shadow-lg transition-all active:scale-95 disabled:cursor-default ${
+      className={`flex min-h-11 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold shadow-lg transition-all active:scale-95 disabled:cursor-default ${
         isReacted
           ? "bg-white/95 text-primary ring-1 ring-white/70"
           : "bg-primary text-white"
@@ -63,10 +74,11 @@ function PhotoOpenAction({
       onClick={() => onOpen(photoUrl)}
       disabled={disabled}
       aria-pressed={isReacted}
-      aria-label="Open ❤️"
-      data-testid={`button-open-photo-${photoIndex}`}
+      aria-label="Send Halo"
+      data-testid={`button-send-halo-${photoIndex}`}
     >
-      Open ❤️
+      <Send className="h-4 w-4" aria-hidden="true" />
+      Send Halo
     </button>
   );
 }
@@ -79,6 +91,7 @@ const PhotoBubbles = memo(function PhotoBubbles({
   onOpenPhoto,
   reactedPhotoUrls,
   pendingPhotoUrls,
+  onCloseProfile,
   isDisabled,
   isPhotosLoading,
 }: {
@@ -87,6 +100,7 @@ const PhotoBubbles = memo(function PhotoBubbles({
   onOpenPhoto: (photoUrl: string) => void;
   reactedPhotoUrls: string[];
   pendingPhotoUrls: ReadonlySet<string>;
+  onCloseProfile: () => void;
   isDisabled?: boolean;
   isPhotosLoading?: boolean;
 }) {
@@ -95,7 +109,7 @@ const PhotoBubbles = memo(function PhotoBubbles({
       photos={photos}
       isLoading={isPhotosLoading}
       action={(photoUrl, photoIndex) => (
-        <PhotoOpenAction
+        <PhotoHaloAction
           photoUrl={photoUrl}
           photoIndex={photoIndex}
           onOpen={onOpenPhoto}
@@ -104,6 +118,18 @@ const PhotoBubbles = memo(function PhotoBubbles({
           isDisabled={isDisabled}
         />
       )}
+      leftAction={
+        <button
+          type="button"
+          className="flex h-12 w-12 items-center justify-center rounded-full border border-white/70 bg-white/95 text-lg shadow-lg transition-all active:scale-95 disabled:cursor-default disabled:opacity-60"
+          onClick={onCloseProfile}
+          disabled={isDisabled}
+          aria-label="Close profile"
+          data-testid="button-close"
+        >
+          <span role="img" aria-label="Close">🌙</span>
+        </button>
+      }
     />
   );
 });
@@ -735,6 +761,8 @@ export default function Discover() {
   });
 
   const [pendingPhotoUrls, setPendingPhotoUrls] = useState<Set<string>>(new Set());
+  const [safetyMenuOpen, setSafetyMenuOpen] = useState(false);
+  const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
   const { data: photoReactionData } = useQuery<{ photoUrls: string[] }>({
     queryKey: ["/api/profile-photo-reactions", currentProfile?.userId],
     enabled: !!currentProfile?.userId,
@@ -776,6 +804,78 @@ export default function Discover() {
         });
         queryClient.invalidateQueries({ queryKey: context.key });
       }
+    },
+  });
+
+  const removeProfileFromCurrentFeed = useCallback((profileId: string) => {
+    setShownIds(prev => {
+      const next = new Set(prev);
+      next.add(profileId);
+      return next;
+    });
+    queryClient.setQueryData<Profile[]>(["/api/discover"], old =>
+      old ? old.filter(profile => profile.userId !== profileId) : old
+    );
+    setAccumulatedProfiles(prev => prev.filter(profile => profile.userId !== profileId));
+  }, [queryClient]);
+
+  const restoreProfileToCurrentFeed = useCallback((profile: Profile, previousDiscover?: Profile[]) => {
+    if (previousDiscover) queryClient.setQueryData<Profile[]>(["/api/discover"], previousDiscover);
+    setAccumulatedProfiles(prev =>
+      prev.some(candidate => candidate.userId === profile.userId) ? prev : [profile, ...prev]
+    );
+    setShownIds(prev => {
+      const next = new Set(prev);
+      next.delete(profile.userId);
+      return next;
+    });
+  }, [queryClient]);
+
+  const removeProfile = useMutation({
+    mutationFn: async (profile: Profile) => {
+      const res = await apiRequest("POST", "/api/discover/remove-profile", { profileUserId: profile.userId });
+      const data = await res.json().catch(() => ({})) as { message?: string };
+      if (!res.ok) throw new Error(data.message || "Could not remove this profile");
+      return profile;
+    },
+    onMutate: async (profile) => {
+      setSafetyMenuOpen(false);
+      await queryClient.cancelQueries({ queryKey: ["/api/discover"] });
+      const previousDiscover = queryClient.getQueryData<Profile[]>(["/api/discover"]);
+      removeProfileFromCurrentFeed(profile.userId);
+      return { previousDiscover, profile };
+    },
+    onError: (error: Error, _profile, context) => {
+      if (context) restoreProfileToCurrentFeed(context.profile, context.previousDiscover);
+      toast({ title: error.message || "Could not remove this profile", variant: "destructive" });
+    },
+    onSuccess: (profile) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+      toast({ title: `${profile.firstName} removed from Discover` });
+    },
+  });
+
+  const blockProfile = useMutation({
+    mutationFn: async (profile: Profile) => {
+      const res = await apiRequest("POST", "/api/discover/block-profile", { profileUserId: profile.userId });
+      const data = await res.json().catch(() => ({})) as { message?: string };
+      if (!res.ok) throw new Error(data.message || "Could not block this user");
+      return profile;
+    },
+    onMutate: async (profile) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/discover"] });
+      const previousDiscover = queryClient.getQueryData<Profile[]>(["/api/discover"]);
+      removeProfileFromCurrentFeed(profile.userId);
+      return { previousDiscover, profile };
+    },
+    onError: (error: Error, _profile, context) => {
+      if (context) restoreProfileToCurrentFeed(context.profile, context.previousDiscover);
+      toast({ title: error.message || "Could not block this user", variant: "destructive" });
+    },
+    onSuccess: (profile) => {
+      setBlockConfirmOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+      toast({ title: `${profile.firstName} has been blocked` });
     },
   });
 
@@ -1324,7 +1424,7 @@ export default function Discover() {
           key={`inline-gallery-${gIdx}`}
           photos={inlineGroups[gIdx]}
           action={(photoUrl, photoIndex) => (
-            <PhotoOpenAction
+            <PhotoHaloAction
               photoUrl={photoUrl}
               photoIndex={photoIndex}
               onOpen={handleOpenPhoto}
@@ -1342,6 +1442,7 @@ export default function Discover() {
     <div
       ref={discoverContentRef}
       data-discover-scroll-root="discover-root"
+      data-ui-version="discover-103"
       style={DISCOVER_CONTENT_ROOT_STYLE}
     >
       <div className="bg-background/95 backdrop-blur-sm border-b px-5 py-3">
@@ -1352,6 +1453,31 @@ export default function Discover() {
           {displayProfile.photoVerified && (
             <BadgeCheck className="w-4 h-4 text-primary shrink-0" />
           )}
+          <div className="ms-auto flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-muted-foreground/20 bg-background text-foreground shadow-sm transition-colors active:scale-95 disabled:opacity-40"
+              style={lastActedProfile && !undoPass.isPending
+                ? { borderColor: "hsl(var(--primary) / 0.5)", background: "hsl(var(--primary) / 0.08)" }
+                : undefined}
+              onClick={handleUndoPass}
+              disabled={undoPass.isPending || !lastActedProfile}
+              aria-label="Undo last action"
+              data-testid="button-undo-pass"
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-muted-foreground/20 bg-background text-foreground shadow-sm transition-colors active:scale-95 disabled:opacity-50"
+              onClick={() => setSafetyMenuOpen(true)}
+              disabled={removeProfile.isPending || blockProfile.isPending}
+              aria-label="Profile safety options"
+              data-testid="button-discover-safety-menu"
+            >
+              <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </div>
       <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
@@ -1381,6 +1507,7 @@ export default function Discover() {
               reactedPhotoUrls={reactedPhotoUrls}
               pendingPhotoUrls={pendingPhotoUrls}
               isDisabled={interact.isPending || isExiting}
+              onCloseProfile={() => triggerInteract("close")}
               isPhotosLoading={isPhotosLoading}
             />
             <Card className="mt-2" style={{ boxShadow: "0 2px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }} data-testid="card-profile">
@@ -1391,27 +1518,67 @@ export default function Discover() {
         </div>
       </div>
 
-      <button
-        className="fixed bottom-20 end-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl"
-        onClick={() => triggerInteract("close")}
-        disabled={interact.isPending || isExiting}
-        data-testid="button-close"
-      >
-        <span role="img" aria-label={t("close_label")}>🌙</span>
-      </button>
+      <Sheet open={safetyMenuOpen} onOpenChange={setSafetyMenuOpen}>
+        <SheetContent side="bottom" className="mx-auto max-w-md rounded-b-none px-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-7">
+          <SheetHeader className="text-start">
+            <SheetTitle>Profile options</SheetTitle>
+            <SheetDescription>Choose how you would like to manage this profile.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-5 space-y-2">
+            <button
+              type="button"
+              className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-border px-4 text-start transition-colors active:bg-muted disabled:opacity-50"
+              onClick={() => currentProfile && removeProfile.mutate(currentProfile)}
+              disabled={!currentProfile || removeProfile.isPending || blockProfile.isPending}
+              data-testid="button-remove-discover-profile"
+            >
+              <UserRoundX className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+              <span>
+                <span className="block font-semibold">Remove profile</span>
+                <span className="block text-sm text-muted-foreground">They will no longer appear in your Discover feed.</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-destructive/25 px-4 text-start text-destructive transition-colors active:bg-destructive/5 disabled:opacity-50"
+              onClick={() => {
+                setSafetyMenuOpen(false);
+                setBlockConfirmOpen(true);
+              }}
+              disabled={!currentProfile || removeProfile.isPending || blockProfile.isPending}
+              data-testid="button-block-discover-profile"
+            >
+              <ShieldBan className="h-5 w-5" aria-hidden="true" />
+              <span>
+                <span className="block font-semibold">Block user</span>
+                <span className="block text-sm text-muted-foreground">You will no longer be shown to each other.</span>
+              </span>
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
-      <button
-        className="fixed bottom-20 start-4 z-40 w-12 h-12 rounded-full border transition-all active:scale-90 hover:shadow-xl flex items-center justify-center text-lg shadow-lg backdrop-blur-sm disabled:opacity-40"
-        style={lastActedProfile && !undoPass.isPending
-          ? { borderColor: "hsl(var(--primary) / 0.5)", background: "hsl(var(--primary) / 0.08)" }
-          : { borderColor: "hsl(var(--muted-foreground) / 0.2)", background: "hsl(var(--background) / 0.9)" }}
-        onClick={handleUndoPass}
-        disabled={undoPass.isPending || !lastActedProfile}
-        title="Undo Last Action"
-        data-testid="button-undo-pass"
-      >
-        <span role="img" aria-label={t("undo_label")}>↩️</span>
-      </button>
+      <AlertDialog open={blockConfirmOpen} onOpenChange={setBlockConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Block {currentProfile?.firstName ?? "this user"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will no longer be shown to each other in Discover or the Intention Wheel. This can’t be undone here.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={blockProfile.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => currentProfile && blockProfile.mutate(currentProfile)}
+              disabled={!currentProfile || blockProfile.isPending}
+              data-testid="button-confirm-block-discover-profile"
+            >
+              {blockProfile.isPending ? "Blocking…" : "Block user"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {celebration && (
         <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />

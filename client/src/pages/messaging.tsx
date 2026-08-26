@@ -14,7 +14,7 @@ import { armCallSession, markSessionAsPaid } from "@/lib/live-call-sessions";
 import { getEndedSessionForMatch, clearEndedSessionForMatch } from "@/lib/cancelled-calls";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play, BadgeCheck, Sparkles, ChevronDown, RefreshCw } from "lucide-react";
+import { ArrowLeft, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play, BadgeCheck, Sparkles, ChevronDown, RefreshCw } from "lucide-react";
 import { requestMicStream, prewarmMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { scanContent } from "@/lib/content-filter";
 import { formatLastActive } from "@/lib/last-active";
@@ -459,6 +459,7 @@ export default function Messaging() {
   // ─── Fixed-layout measurement refs ───────────────────────────────────────────
   const headerRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const [headerHeight, setHeaderHeight] = useState(60);
   const [composerHeight, setComposerHeight] = useState(70);
   // Viewport metrics for keyboard tracking + diagnostic display
@@ -719,6 +720,19 @@ export default function Messaging() {
     if (headerRef.current)   setHeaderHeight(headerRef.current.offsetHeight);
     if (composerRef.current) setComposerHeight(composerRef.current.offsetHeight);
   }, []); // runs once after DOM commit, before browser paint
+
+  // Keep the textarea compact when empty, grow with the message, and scroll
+  // internally once it reaches the composer height cap. This runs after the
+  // controlled value changes so draft restoration and successful sends reset
+  // the visual height as well.
+  useLayoutEffect(() => {
+    const textarea = messageInputRef.current;
+    if (!textarea || isRecording) return;
+    textarea.style.height = "0px";
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 44), 120);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 120 ? "auto" : "hidden";
+  }, [message, isRecording]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -1539,10 +1553,6 @@ export default function Messaging() {
         className="bg-background border-b"
         style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, paddingTop: "env(safe-area-inset-top)" }}
       >
-        {/* HEADER_C — messaging.tsx (NOT the branch shown on iPhone) — TEMP */}
-        <div style={{ fontSize: 9, fontFamily: "monospace", background: "#ff0", color: "#000", padding: "2px 4px", lineHeight: 1.4 }}>
-          HEADER_C · messaging.tsx · kbH:{Math.round(keyboardHeight)} hdrH:{Math.round(headerHeight)}
-        </div>
         <div className="px-4 pt-3 pb-0">
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 pb-2">
@@ -1890,14 +1900,16 @@ export default function Messaging() {
       {activeTab === "chat" && (
         <div
           ref={composerRef}
-          className="bg-background border-t"
+          className="bg-background/95 border-t px-3 pt-2 sm:px-4"
+          data-ui-version="composer-104"
           style={{
             position: "fixed",
             left: 0,
             right: 0,
             bottom: keyboardHeight,
             zIndex: 40,
-            paddingBottom: keyboardHeight > 0 ? 0 : "env(safe-area-inset-bottom, 0px)",
+            paddingBottom: keyboardHeight > 0 ? "0px" : "env(safe-area-inset-bottom, 0px)",
+            boxSizing: "border-box",
           }}
         >
           {waitingForPartner && !isCallRinging && !isCallActiveInDetail && !voiceNotePopupOpen && !firstCallPopupOpen ? (
@@ -1936,7 +1948,7 @@ export default function Messaging() {
           ) : allCallsDone && matchDetail ? (
             <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
           ) : (
-            <div style={{ padding: "1rem" }}>
+            <div className="w-full">
               {/* ── AI Starters panel — hidden while recording ── */}
               {!isRecording && startersVisible && !inputFocused && (
                 <div className="mb-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3 space-y-2.5" data-testid="ai-starters-panel">
@@ -2008,23 +2020,23 @@ export default function Messaging() {
                   </p>
                 </div>
               )}
-              <div className="flex gap-2 items-end">
-                {/* ── Input column: textarea + char counter directly beneath ── */}
-                <div className="flex-1 flex flex-col">
+              <div className="w-full rounded-[1.35rem] border border-border/80 bg-card/90 px-3 pt-2.5 pb-2 shadow-sm">
+                {/* ── Main input area ── */}
                 <div className="relative">
                   {voicePhase === "recording" ? (
-                    <div className="flex items-center gap-2 min-h-[44px] px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none">
-                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-                      <span className="text-sm text-muted-foreground flex-1 font-mono tabular-nums">
+                    <div className="flex min-h-[44px] items-center gap-2 rounded-xl bg-red-50/40 px-2 dark:bg-red-950/20 select-none">
+                      <div className="h-2 w-2 shrink-0 rounded-full bg-red-500 animate-pulse" />
+                      <span className="text-sm text-muted-foreground font-mono tabular-nums">
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
                     </div>
                   ) : (
                     <Textarea
+                      ref={messageInputRef}
                       value={message}
                       onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
                       placeholder={t("write_meaningful_placeholder")}
-                      className="resize-none min-h-[44px] max-h-[120px] text-base pr-8 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-primary/60 focus:outline-none outline-none"
+                      className="min-h-[44px] max-h-[120px] overflow-y-auto resize-none rounded-xl border-0 bg-transparent px-1 py-1.5 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent focus:outline-none outline-none"
                       onFocus={() => {
                         setInputFocused(true);
                         // Scroll to newest after iOS keyboard animation (~300ms)
@@ -2038,13 +2050,18 @@ export default function Messaging() {
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
-                          if (message.trim()) doSend(message.trim());
+                          const trimmed = message.trim();
+                          if (trimmed && !sendMessage.isPending) doSend(trimmed);
                         }
                       }}
                       data-testid="input-message"
                     />
                   )}
-                  {/* Mic inside the input — hold to record, slide away to cancel */}
+                </div>
+
+                {/* ── Existing chat controls inside the unified composer ── */}
+                <div className="mt-1 flex min-h-9 items-center gap-1">
+                  {/* Mic — hold to record, slide away to cancel */}
                   <button
                     onPointerDown={e => {
                       e.currentTarget.setPointerCapture(e.pointerId);
@@ -2060,12 +2077,12 @@ export default function Messaging() {
                     onPointerLeave={() => { if (voicePhase === "recording") cancelRecording(); }}
                     onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
                     onContextMenu={e => e.preventDefault()}
-                    className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full select-none transition-transform active:scale-90 hover:bg-muted/40"
                     data-testid="button-mic-input"
                     title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to send" : "Hold to record voice note") : "Unlock voice notes"}
                   >
                     <Mic
-                      className="w-[18px] h-[18px] transition-all duration-300"
+                      className="h-[18px] w-[18px] transition-all duration-300"
                       style={voicePhase === "recording"
                         ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
                         : voiceNotesUnlocked
@@ -2073,94 +2090,84 @@ export default function Messaging() {
                         : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
                     />
                   </button>
-                </div>{/* end relative mic wrapper */}
-                {/* Char counter sits below the input, not beneath the send button */}
-                {voicePhase === "idle" && (
-                  <p className="text-[11px] text-muted-foreground mt-0.5 text-right select-none">
-                    {message.length}/{MAX_CHARS}
-                  </p>
-                )}
-                </div>{/* end flex-col input column */}
 
-                {/* ✨ Conversation starters — hidden while typing */}
-                {aiStartersEnabled && voicePhase === "idle" && !inputFocused && (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => { setUserClosedStarters(false); setShowAIStarters(v => !v); }}
-                    className={startersVisible ? "text-primary" : "text-muted-foreground"}
-                    title="Conversation starters"
-                    data-testid="button-ai-starters"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                  </Button>
-                )}
+                  {/* Conversation starters — hidden while typing */}
+                  {aiStartersEnabled && voicePhase === "idle" && !inputFocused && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => { setUserClosedStarters(false); setShowAIStarters(v => !v); }}
+                      className={`h-9 w-9 shrink-0 rounded-full ${startersVisible ? "text-primary" : "text-muted-foreground"}`}
+                      title="Conversation starters"
+                      data-testid="button-ai-starters"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                    </Button>
+                  )}
 
-                {/* 📞 Voice call shortcut */}
-                {!allCallsDone && voicePhase === "idle" && !inputFocused && (
-                  <button
-                    onClick={() => {
-                      if (phoneCredits > 0) startPaidCall.mutate({ isVideo: false });
-                      else setPurchasePromptFeature("phone");
-                    }}
-                    disabled={startPaidCall.isPending}
-                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
-                    data-testid="button-phone-composer"
-                    title={phoneCredits > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
-                  >
-                    <Phone
-                      className="w-[18px] h-[18px] transition-all duration-300"
-                      style={!callCreditsData
-                        ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                        : phoneCredits > 0
-                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                        : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
-                    />
-                  </button>
-                )}
+                  {/* Voice call shortcut */}
+                  {!allCallsDone && voicePhase === "idle" && !inputFocused && (
+                    <button
+                      onClick={() => {
+                        if (phoneCredits > 0) startPaidCall.mutate({ isVideo: false });
+                        else setPurchasePromptFeature("phone");
+                      }}
+                      disabled={startPaidCall.isPending}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                      data-testid="button-phone-composer"
+                      title={phoneCredits > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
+                    >
+                      <Phone
+                        className="h-[18px] w-[18px] transition-all duration-300"
+                        style={!callCreditsData
+                          ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                          : phoneCredits > 0
+                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                          : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
+                      />
+                    </button>
+                  )}
 
-                {/* 🎥 Video call shortcut */}
-                {!allCallsDone && voicePhase === "idle" && !inputFocused && (
-                  <button
-                    onClick={() => {
-                      if (videoCredits > 0) startPaidCall.mutate({ isVideo: true });
-                      else setPurchasePromptFeature("video");
-                    }}
-                    disabled={startPaidCall.isPending}
-                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
-                    data-testid="button-video-composer"
-                    title={t("start_video_call")}
-                  >
-                    <Video
-                      className="w-[18px] h-[18px] transition-all duration-300"
-                      style={!callCreditsData
-                        ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                        : videoCredits > 0
-                        ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
-                        : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
-                    />
-                  </button>
-                )}
+                  {/* Video call shortcut */}
+                  {!allCallsDone && voicePhase === "idle" && !inputFocused && (
+                    <button
+                      onClick={() => {
+                        if (videoCredits > 0) startPaidCall.mutate({ isVideo: true });
+                        else setPurchasePromptFeature("video");
+                      }}
+                      disabled={startPaidCall.isPending}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                      data-testid="button-video-composer"
+                      title={t("start_video_call")}
+                    >
+                      <Video
+                        className="h-[18px] w-[18px] transition-all duration-300"
+                        style={!callCreditsData
+                          ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                          : videoCredits > 0
+                          ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
+                          : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
+                      />
+                    </button>
+                  )}
 
-                {/* ➤ Send / recording controls */}
-                {sendVoiceNote.isPending ? (
-                  <Button size="icon" disabled data-testid="button-send-voice-note">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  </Button>
-                ) : voicePhase === "recording" ? (
-                  <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
-                    <X className="w-4 h-4" />
-                  </Button>
-                ) : (
-                  <Button
-                    size="icon"
-                    onClick={() => { if (message.trim()) doSend(message.trim()); }}
-                    disabled={!message.trim()}
-                    data-testid="button-send"
-                  >
-                    <Send className="w-4 h-4" />
-                  </Button>
-                )}
+                  <div className="ms-auto flex shrink-0 items-center gap-1.5">
+                    {voicePhase === "idle" && (
+                      <span className="text-[10px] tabular-nums text-muted-foreground/70 select-none">
+                        {message.length}/{MAX_CHARS}
+                      </span>
+                    )}
+                    {sendVoiceNote.isPending ? (
+                      <Button size="icon" disabled className="h-9 w-9 rounded-full" data-testid="button-send-voice-note">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </Button>
+                    ) : voicePhase === "recording" ? (
+                      <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={cancelRecording} data-testid="button-cancel-recording">
+                        <X className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
 
               {/* ── Comment filter confirmation ── */}

@@ -1373,6 +1373,7 @@ export class SupabaseStorage implements IStorage {
     interactedIds: Set<string>;
     activeMatchUserIds: Set<string>;
     inboundOpenerIds: Set<string>;
+    blockedUserIds: Set<string>;
   }> {
     // Base outbound-interaction query.  When a type filter is supplied (Wheel path) we
     // only fetch rows of that specific type, keeping Discover history invisible to the Wheel.
@@ -1381,7 +1382,7 @@ export class SupabaseStorage implements IStorage {
       outboundQuery = (outboundQuery as any).in("type", interactionTypesToExclude);
     }
 
-    const [interactedResult, activeMatchesResult, inboundOpensResult] = await Promise.all([
+    const [interactedResult, activeMatchesResult, inboundOpensResult, blocksResult] = await Promise.all([
       // 1. Profiles the current user has already interacted with (type-filtered for Wheel,
       //    all types for Discover).
       outboundQuery,
@@ -1399,6 +1400,13 @@ export class SupabaseStorage implements IStorage {
         .select("from_user_id")
         .eq("to_user_id", userId)
         .eq("type", "open"),
+      // A block is directional in storage but reciprocal in visibility: neither
+      // member can be surfaced to the other in Discover or the Intention Wheel.
+      this.sb
+        .from("interactions")
+        .select("from_user_id, to_user_id")
+        .eq("type", "block")
+        .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`),
     ]);
 
     if (interactedResult.error) {
@@ -1409,6 +1417,9 @@ export class SupabaseStorage implements IStorage {
     }
     if (inboundOpensResult.error) {
       console.error("[MATCH_FILTER] inbound opens fetch error:", inboundOpensResult.error.message);
+    }
+    if (blocksResult.error) {
+      console.error("[MATCH_FILTER] user block fetch error:", blocksResult.error.message);
     }
 
     // Outbound: profiles this user has already acted on.
@@ -1429,10 +1440,17 @@ export class SupabaseStorage implements IStorage {
       (inboundOpensResult.data || []).map((r: any) => r.from_user_id).filter(Boolean)
     );
 
+    const blockedUserIds = new Set<string>();
+    for (const row of (blocksResult.data || [])) {
+      const otherId = row.from_user_id === userId ? row.to_user_id : row.from_user_id;
+      if (otherId) blockedUserIds.add(otherId as string);
+    }
+
     const excludedIds = new Set<string>([
       ...interactedIds,
       ...activeMatchUserIds,
       ...inboundOpenerIds,
+      ...blockedUserIds,
     ]);
 
     // ── Blocked contact enforcement ──────────────────────────────────────────────
@@ -1480,10 +1498,11 @@ export class SupabaseStorage implements IStorage {
       outbound: interactedIds.size,
       activeMatches: activeMatchUserIds.size,
       inboundLikers: inboundOpenerIds.size,
+      userBlocks: blockedUserIds.size,
       total: excludedIds.size,
     });
 
-    return { excludedIds, interactedIds, activeMatchUserIds, inboundOpenerIds };
+    return { excludedIds, interactedIds, activeMatchUserIds, inboundOpenerIds, blockedUserIds };
   }
 
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99, locationRadius: number = 0, userLat: number | null = null, userLng: number | null = null, userDatingIntent: string | null = null, userConnectionStyle: string | null = null): Promise<Profile[]> {
@@ -3370,7 +3389,7 @@ export class SupabaseStorage implements IStorage {
     // Previously this query fetched ALL outgoing interactions regardless of
     // type, which caused every "close" to permanently hide that sender from
     // the Likes page — even after the sender liked back.  Fixed: .eq("type","open").
-    const [myOpensResult, matchResult1, matchResult2, opensResult] = await Promise.all([
+    const [myOpensResult, matchResult1, matchResult2, opensResult, blocksResult] = await Promise.all([
       this.sb
         .from("interactions")
         .select("to_user_id")
@@ -3385,12 +3404,20 @@ export class SupabaseStorage implements IStorage {
         .eq("type", "open")
         .order("created_at", { ascending: false })
         .limit(100), // slightly above the final 50 to absorb JS-side exclusions
+      this.sb
+        .from("interactions")
+        .select("from_user_id, to_user_id")
+        .eq("type", "block")
+        .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`),
     ]);
 
     const excludeIds = new Set<string>([
       ...(myOpensResult.data || []).map((r: any) => r.to_user_id as string),
       ...(matchResult1.data || []).map((r: any) => r.user1_id as string),
       ...(matchResult2.data || []).map((r: any) => r.user2_id as string),
+      ...(blocksResult.data || []).map((r: any) =>
+        (r.from_user_id === userId ? r.to_user_id : r.from_user_id) as string
+      ),
     ]);
 
     const allIncoming = opensResult.data || [];
