@@ -1,0 +1,285 @@
+The latest physical iPhone screenshots prove two functional problems remain:
+
+Conversation Starters opens correctly, but the content request fails with:
+“Couldn’t load starters. Retry”
+Voice Notes still fail end-to-end and create:
+“Failed — tap to retry”
+bubbles instead of playable audio.
+The microphone visual-state bug appears improved because it is no longer stuck green. Preserve that fix.
+
+Do not redesign the composer.
+Do not change keyboard positioning.
+Do not create another planning-only task.
+Do not merely improve the error UI.
+
+Trace and fix the actual production failures.
+
+1. CONVERSATION STARTERS — FIND WHY THE REQUEST FAILS
+
+The panel placement is now correct.
+
+The failure is the data/API path.
+
+Trace the exact request triggered when the user taps the AI/star icon.
+
+Inspect:
+
+frontend request function
+endpoint URL
+HTTP method
+request payload
+match/profile IDs being supplied
+auth/session headers
+VITE_API_BASE_URL / production API origin
+Railway route
+middleware
+database query
+AI/provider request if one is involved
+environment variables
+response status
+response JSON
+client parsing
+Do not guess.
+
+Add temporary safe diagnostics to determine the exact failing stage.
+
+I want the production failure classified as one of:
+
+route not found
+unauthorized/session missing
+malformed request
+missing IDs/data
+database error
+missing environment variable
+AI provider/API error
+rate limit
+malformed backend response
+client parsing error
+other concrete cause
+Important
+
+The UI already displays the retry state correctly.
+
+Do not spend time redesigning that.
+
+Make the Retry button execute the same corrected request again and successfully populate real starter suggestions.
+
+The successful state must show actual Conversation Starter suggestions, not skeleton placeholders.
+
+2. CHECK THE ACTUAL PRODUCTION ENDPOINT
+
+Test the Conversation Starters endpoint directly against the production Railway API.
+
+Use an authenticated request if the route requires authentication.
+
+If this environment cannot authenticate as a real user, inspect Railway logs while reproducing the physical-iPhone request and identify:
+
+route
+status code
+server error
+provider/database error
+timestamp
+Do not conclude that the feature works because the frontend bundle contains the component.
+
+The physical iPhone proves the actual request is failing.
+
+3. VOICE NOTES — TRACE THE ACTUAL FAILED UPLOAD
+
+The mic state cleanup is improved. Preserve it.
+
+However, recording/upload still fails.
+
+Trace one physical-iPhone voice-note attempt from capture all the way to message creation.
+
+Add safe diagnostics for:
+
+selected MediaRecorder MIME type
+MediaRecorder state
+number of chunks
+final Blob size
+final Blob type
+generated file extension
+FormData field names
+upload URL
+upload HTTP status
+server response status/body category
+storage upload result
+generated public/signed audio URL
+message insertion result
+playback URL
+Do not log audio bytes, auth tokens, private user data, or secrets.
+
+4. CHECK IOS RECORDED FORMAT CORRECTLY
+
+The previous implementation claims to prefer audio/mp4.
+
+Do not assume that means the resulting Blob is valid or that the backend accepts it.
+
+On iPhone Safari/PWA, verify the actual result of:
+
+MediaRecorder.isTypeSupported(...)
+
+and the actual blob.type.
+
+Use the MIME type the device truly produces.
+
+Support sensible audio types including what iOS provides.
+
+Map MIME type to filename extension correctly, for example as appropriate:
+
+audio/mp4 → .m4a or compatible MP4 audio extension
+audio/webm → .webm
+audio/ogg → .ogg
+Do not create a .webm filename for an MP4 Blob or vice versa.
+
+5. INSPECT THE SERVER UPLOAD IMPLEMENTATION
+
+Inspect the actual voice-note upload endpoint.
+
+Verify:
+
+multipart/form-data parsing is configured
+expected form field matches frontend field
+allowed MIME types include the iPhone format
+file-size limits are sufficient
+server does not reject audio/mp4
+Supabase Storage bucket accepts the upload
+storage path is valid
+correct Content-Type is saved
+generated audio URL is usable by the client
+auth ownership checks succeed
+message record accepts the audio message type
+clientRequestId/idempotency logic does not reject the first valid upload
+If the backend currently only allows WebM or another desktop format, fix that properly.
+
+6. TEST STORAGE AND PLAYBACK
+
+After a successful upload:
+
+confirm the file physically exists in storage
+confirm file size is greater than zero
+confirm stored Content-Type is correct
+confirm the returned URL responds successfully
+confirm <audio> can load it
+confirm the receiving user can play it
+Do not mark voice notes fixed after only receiving HTTP 200 from the upload endpoint.
+
+The final user-facing result must be a playable voice note.
+
+7. FIX FAILED RETRY BUBBLES
+
+The screenshot now shows multiple failed voice-note bubbles.
+
+Retry must use the existing captured Blob for that specific failed attempt.
+
+Make sure:
+
+each failed local voice note has a unique stable clientRequestId
+tapping one failed bubble retries only that recording
+repeated taps cannot issue parallel duplicate requests
+successful retry converts that failed bubble to the real sent voice note
+only one server message exists for that clientRequestId
+failed attempts do not decrement unrelated message quotas multiple times
+failure remains retryable if the second request fails
+Also make sure a new recording does not accidentally reuse the previous recording’s request ID.
+
+8. DO NOT REGRESS THE MIC FIX
+
+The microphone should:
+
+be neutral while idle
+be active only during real recording
+return neutral during processing/sending
+remain neutral after failure
+release the iOS microphone indicator after recording
+Do not revert this behavior.
+
+9. PRODUCTION LOGGING / ERROR VISIBILITY
+
+Because this problem only became obvious on the physical iPhone, add concise server diagnostics around these two features.
+
+For Conversation Starters, log safe fields such as:
+
+request reached route
+authenticated/not authenticated
+match/profile identifiers present
+provider/database stage
+status/error category
+For Voice Notes:
+
+request reached route
+request ID
+MIME type
+file size
+upload stage
+storage/message-insert status
+safe error category
+Do not expose secrets.
+
+This logging should make future failures diagnosable from Railway instead of returning only a generic frontend error.
+
+10. DO NOT TOUCH THESE WORKING AREAS
+
+Preserve:
+
+current composer design
+current keyboard anchoring work
+Conversation Starter panel position
+microphone state cleanup
+text messaging
+stage progression
+quotas
+call unlocks
+video unlocks
+WebRTC
+Discover
+Intention Wheel
+navigation
+11. VALIDATE ACTUAL END-TO-END SUCCESS
+
+Conversation Starters is only fixed when:
+
+Tap AI.
+Production request succeeds.
+Real suggestions appear.
+Tap a suggestion.
+Existing intended insertion behavior works.
+Retry also works after a simulated failure.
+Voice Notes are only fixed when:
+
+Hold mic on physical iPhone.
+Record audio.
+Release.
+Mic resets.
+Upload succeeds.
+No “Failed — tap to retry” bubble appears.
+A playable voice-note bubble appears.
+Recipient receives it.
+Recipient can play it.
+Forced network failure creates one retryable failed bubble.
+Retry succeeds.
+Only one final server-side voice-note message exists.
+12. IMPLEMENT AND PUBLISH
+
+Do the debugging and implementation now.
+
+Then:
+
+run focused tests
+run production build
+restart backend
+inspect Railway logs
+commit changes
+publish to GitHub main
+verify Railway production code is updated
+verify Vercel production frontend is updated
+At the end report only:
+
+Exact Conversation Starters root cause
+Exact Voice Note root cause
+Files changed
+Backend/API/storage changes
+Exact iPhone MIME format now supported
+What was tested successfully
+GitHub/Vercel/Railway production release identifiers
+Any remaining physical-iPhone validation step
