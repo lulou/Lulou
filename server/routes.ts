@@ -514,20 +514,19 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     return res.status(401).json({ message: "Unauthorized" });
   }
   const token = authHeader.split(" ")[1];
-  const tokenPrefix = token ? `"${token.slice(0, 20)}"` : `"(empty)"`;
   try {
     const user = verifyJwt(token);
     const _jwtMs = Date.now() - _mwStart;
     if (!user) {
       console.warn(
-        `[AUTH_DIAG] 401 hasAuthHeader=true tokenPrefix=${tokenPrefix} jwtVerifyResult=failed ` +
+        `[AUTH_DIAG] 401 hasAuthHeader=true hasBearer=true jwtVerifyResult=failed ` +
         `elapsed=${_jwtMs}ms method=${req.method} path=${req.path} ` +
         `(see JWT_MALFORMED / JWT_PARSE_ERROR / JWT_NO_SUB / JWT_EXPIRED log above for exact reason)`
       );
       return res.status(401).json({ message: "Unauthorized" });
     }
     console.log(
-      `[AUTH_DIAG] verified hasAuthHeader=true tokenPrefix=${tokenPrefix} userId=${user.id} ` +
+      `[AUTH_DIAG] verified hasAuthHeader=true userIdPrefix=${user.id.slice(0, 8)} ` +
       `elapsed=${_jwtMs}ms method=${req.method} path=${req.path}`
     );
     req.user = user;
@@ -3613,15 +3612,33 @@ export async function registerRoutes(
 
   // Template-based AI conversation starters (no external LLM required).
   app.get("/api/matches/:matchId/ai-starters", isAuthenticated, async (req: any, res) => {
+    const startedAt = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
-      const lang = (req.query.lang as string) || "en";
+      const lang = typeof req.query.lang === "string" && req.query.lang.length <= 12
+        ? req.query.lang
+        : "en";
+      console.log(`[AI_STARTERS] route=hit auth=ok matchIdPresent=${!!matchId} lang=${lang}`);
       const match = await storage.getMatch(matchId, userId);
-      if (!match) return res.status(404).json({ message: "Match not found" });
+      if (!match) {
+        console.warn(`[AI_STARTERS] result=match_not_found elapsedMs=${Date.now() - startedAt}`);
+        return res.status(404).json({ message: "Match not found", code: "match_not_found" });
+      }
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const { data: other } = await supabase.from("profiles").select("*").eq("user_id", otherUserId).maybeSingle();
+      const { data: other, error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .select("*")
+        .eq("user_id", otherUserId)
+        .maybeSingle();
+      if (profileError) {
+        console.error(`[AI_STARTERS] result=profile_lookup_failed code=${profileError.code ?? "unknown"} elapsedMs=${Date.now() - startedAt}`);
+        return res.status(503).json({
+          message: "Conversation starters are temporarily unavailable. Please retry.",
+          code: "profile_lookup_failed",
+        });
+      }
       const starters: string[] = [];
 
       type LangMap = Record<string, string>;
@@ -3660,9 +3677,11 @@ export async function registerRoutes(
       starters.push(pick(T.starter_excited as Record<string, string>, T.starter_excited.en));
       starters.push(pick(T.starter_meeting as Record<string, string>, T.starter_meeting.en));
       const unique = [...new Set(starters)].slice(0, 5);
+      console.log(`[AI_STARTERS] result=success starterCount=${unique.length} profileFound=${!!other} elapsedMs=${Date.now() - startedAt}`);
       res.json({ starters: unique });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to generate starters" });
+    } catch (error: any) {
+      console.error(`[AI_STARTERS] result=failed category=unexpected elapsedMs=${Date.now() - startedAt} error=${error?.message ?? "unknown"}`);
+      res.status(500).json({ message: "Failed to generate starters", code: "starters_unexpected_error" });
     }
   });
 
@@ -5400,8 +5419,7 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
-      console.log(`[VOICE_NOTE_PIPELINE] auth user id=${userId}`);
-      console.log(`[VOICE_NOTE_PIPELINE] match id=${matchId}`);
+      console.log(`[VOICE_NOTE_PIPELINE] auth=ok matchIdPresent=${!!matchId}`);
 
       // Path 1: FormData multipart (new — iOS-compatible via multer)
       // Path 2: Raw binary   (legacy — express.raw() populates req.body as Buffer)
@@ -5439,8 +5457,8 @@ export async function registerRoutes(
         console.log(`[VOICE_NOTE_PIPELINE] temp file created=false (base64 decoded)`);
         console.log(`[VOICE_NOTE_UPLOAD] serverReceived=Base64 size=${audioBuffer.length} mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
       } else {
-        console.error(`[VOICE_NOTE_PIPELINE] file exists false — no audio found. req.file=${JSON.stringify(req.file)} bodyType=${typeof req.body} bodyKeys=${req.body ? Object.keys(req.body) : "null"} ct="${req.headers["content-type"]}"`);
-        console.error(`[VOICE_NOTE_UPLOAD] serverReceived=NOTHING req.file=${JSON.stringify(req.file)} bodyType=${typeof req.body} bodyKeys=${req.body ? Object.keys(req.body) : "null"}`);
+        console.error(`[VOICE_NOTE_PIPELINE] result=no_audio bodyType=${typeof req.body} hasBody=${!!req.body} contentType="${req.headers["content-type"]}"`);
+        console.error(`[VOICE_NOTE_UPLOAD] serverReceived=NOTHING`);
         return res.status(400).json({ message: "Audio data is required" });
       }
 
@@ -5449,6 +5467,7 @@ export async function registerRoutes(
         /^[A-Za-z0-9_-]{8,120}$/.test(req.body.clientRequestId)
         ? req.body.clientRequestId
         : null;
+      console.log(`[VOICE_NOTE_PIPELINE] requestIdPresent=${!!clientRequestId}`);
 
       if (audioBuffer.length > 10_000_000) {
         return res.status(400).json({ message: "Audio file too large (max 10 MB)" });
@@ -5514,7 +5533,7 @@ export async function registerRoutes(
         }
       }
       const tStorage = Date.now();
-      console.log(`[VOICE_NOTE_PIPELINE] storage upload started path="${filePath}" size=${outputBuffer.length}`);
+      console.log(`[VOICE_NOTE_PIPELINE] storage upload started outputSize=${outputBuffer.length}`);
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from("voice-notes")
@@ -5539,11 +5558,11 @@ export async function registerRoutes(
         }
       }
       const storageMs = Date.now() - tStorage;
-      console.log(`[VOICE_NOTE_PIPELINE] storage upload complete path="${filePath}" size=${outputBuffer.length}B storageMs=${storageMs}`);
+      console.log(`[VOICE_NOTE_PIPELINE] storage upload complete outputSize=${outputBuffer.length}B storageMs=${storageMs}`);
       console.log(`[VOICE_NOTE_SPEED] server processed — storageMs=${storageMs}ms`);
 
-      console.log(`[VOICE_NOTE_PIPELINE] final audio url=${publicUrl}`);
-      console.log(`[VOICE_NOTE_SPEED] playback url ready — url=${publicUrl}`);
+      console.log(`[VOICE_NOTE_PIPELINE] playback url generated=true`);
+      console.log(`[VOICE_NOTE_SPEED] playback url ready`);
 
       const tInsert = Date.now();
       console.log(`[VOICE_NOTE_PIPELINE] db insert started`);
@@ -5554,14 +5573,14 @@ export async function registerRoutes(
           senderId: userId,
           content: `__VOICE__:${publicUrl}`,
         });
-        console.log(`[VOICE_NOTE_PIPELINE] db insert complete messageId=${message?.id} insertMs=${Date.now() - tInsert}`);
+        console.log(`[VOICE_NOTE_PIPELINE] db insert complete messageCreated=${!!message?.id} insertMs=${Date.now() - tInsert}`);
       } catch (dbErr: any) {
         console.error(`[VOICE_NOTE_PIPELINE] db insert error="${dbErr.message}"`);
         console.error(`[VOICE_NOTE_SPEED] db inserted FAILED insertMs=${Date.now() - tInsert}ms`);
         return res.status(500).json({ message: "Failed to save voice note. Please try again." });
       }
       const totalMs = Date.now() - tReceive;
-      console.log(`[VOICE_NOTE_SPEED] db inserted — insertMs=${Date.now() - tInsert}ms totalMs=${totalMs}ms messageId=${message?.id}`);
+      console.log(`[VOICE_NOTE_SPEED] db inserted — insertMs=${Date.now() - tInsert}ms totalMs=${totalMs}ms`);
       console.log(`[VOICE_NOTE_PIPELINE] response returned status=200 totalMs=${totalMs}`);
       res.json({ success: true, message });
     } catch (err: any) {

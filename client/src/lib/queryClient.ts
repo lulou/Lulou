@@ -266,7 +266,7 @@ async function throwIfResNotOk(res: Response, url = "", sentSessionId = "") {
 }
 
 /** Returns the application session ID stored for this browser, or "". */
-function getAppSessionId(): string {
+export function getAppSessionId(): string {
   try { return localStorage.getItem("lulou_session_id") ?? ""; } catch { return ""; }
 }
 

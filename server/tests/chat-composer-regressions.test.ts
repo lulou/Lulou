@@ -82,6 +82,8 @@ describe("chat composer regressions", () => {
     expect(matches).toContain("aiStartersError");
     expect(matches).toContain("refetchAIStarters");
     expect(matches).toContain('data-testid={`button-retry-ai-starters-${match.id}`}');
+    expect(matches).toContain('apiRequest("GET", endpoint)');
+    expect(matches).toContain('[AI_STARTERS] request failed');
     expect(matches).toContain("setShowAIStarters(false)");
   });
 
@@ -98,10 +100,14 @@ describe("chat composer regressions", () => {
     expect(matches).toContain("pendingVoiceRetryIdsRef");
     expect(matches).toContain("recordingGenerationRef");
     expect(matches).toContain('formData.append("clientRequestId", tempId)');
+    expect(matches).toContain('getAppSessionId()');
+    expect(matches).toContain('{ "X-Session-Id": appSessionId }');
+    expect(matches).toContain('/mp4|m4a|aac/.test(normalizedMimeType)');
     expect(matches).toContain("onTouchEnd");
     expect(matches).toContain('voicePhase === "recording"');
     expect(routes).toContain("const clientRequestId");
     expect(routes).toContain("idempotent retry clientRequestId");
     expect(routes).toContain("upsert: !!clientRequestId");
+    expect(routes).toContain("[AI_STARTERS] route=hit auth=ok");
   });
 });

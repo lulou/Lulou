@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, batchPrefetchPhotos, getAuthHeaders, API_BASE } from "@/lib/queryClient";
+import { apiRequest, batchPrefetchPhotos, getAppSessionId, getAuthHeaders, API_BASE } from "@/lib/queryClient";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
@@ -2020,11 +2020,31 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     enabled: expanded && showAIStarters && aiStartersEnabled,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { getAuthHeaders } = await import("@/lib/queryClient");
-      const headers = await getAuthHeaders();
-      const res = await fetch(`/api/matches/${match.id}/ai-starters?lang=${encodeURIComponent(langCode)}`, { headers });
-      if (!res.ok) throw new Error("Failed to load starters");
-      return res.json();
+      const endpoint = `/api/matches/${match.id}/ai-starters?lang=${encodeURIComponent(langCode)}`;
+      try {
+        // Use the shared API client rather than a relative fetch. On Vercel,
+        // relative /api requests land on the frontend host (HTML fallback)
+        // instead of the Railway API, and also omit X-Session-Id.
+        const res = await apiRequest("GET", endpoint);
+        const payload = await res.json();
+        if (!Array.isArray(payload?.starters)) {
+          console.error("[AI_STARTERS] malformed response", {
+            status: res.status,
+            hasStartersArray: Array.isArray(payload?.starters),
+            matchIdPresent: !!match.id,
+          });
+          throw new Error("Conversation starter response was malformed");
+        }
+        return { starters: payload.starters.filter((starter: unknown): starter is string => typeof starter === "string") };
+      } catch (error: any) {
+        console.error("[AI_STARTERS] request failed", {
+          endpoint: "matches/:matchId/ai-starters",
+          matchIdPresent: !!match.id,
+          language: langCode,
+          error: error?.message || "unknown",
+        });
+        throw error;
+      }
     },
   });
 
@@ -3166,7 +3186,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // ── Step 1: Validate blob ──
       const durationMs = debugLiveRef.current.blobDurationMs || 0;
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-      const filename = mimeType.includes("mp4") ? "voice.m4a" : mimeType.includes("ogg") ? "voice.ogg" : "voice.webm";
+      const normalizedMimeType = mimeType.toLowerCase();
+      const filename = /mp4|m4a|aac/.test(normalizedMimeType)
+        ? "voice.m4a"
+        : normalizedMimeType.includes("ogg")
+          ? "voice.ogg"
+          : "voice.webm";
 
       console.log(`[VOICE_NOTE_SPEED] recording stopped — blobSize=${blob.size}B mimeType="${mimeType}" durationMs=${durationMs}`);
       console.log(`[VOICE_NOTE_PIPELINE] recording stopped`);
@@ -3195,6 +3220,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         throw new Error(`Auth error — please refresh and try again: ${authErr.message}`);
       }
       const authPresent = !!(authHeaders.Authorization || authHeaders.authorization);
+      const appSessionId = getAppSessionId();
 
       // ── Step 3: Build FormData ─────────────────────────────────────────────────
       // FormData multipart/form-data is the only reliable way to send binary audio
@@ -3214,10 +3240,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       formData.append("clientRequestId", tempId);
 
       console.log(`[VOICE_NOTE_SPEED] upload started — blobSize=${blob.size}B url="${fullUploadUrl.slice(-60)}"`);
-      console.log(`[VOICE_NOTE_PIPELINE] upload url=${fullUploadUrl}`);
+      console.log(`[VOICE_NOTE_PIPELINE] upload target=voice-notes/send`);
       console.log(`[VOICE_NOTE_PIPELINE] upload method=POST`);
       console.log(`[VOICE_NOTE_PIPELINE] body type=FormData`);
       console.log(`[VOICE_NOTE_PIPELINE] auth header present=${authPresent}`);
+      console.log(`[VOICE_NOTE_PIPELINE] app session header present=${!!appSessionId}`);
       debugLiveRef.current.uploadBodyType = "FormData+fetch";
       debugLiveRef.current.uploadStartMs = performance.now();
       addDbg(`upload started FormData isIOS=${isIOS} size=${blob.size} file="${filename}"`);
@@ -3235,8 +3262,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             // No X-Voice-Mime — removed because it triggered CORS preflight failures.
             // mimeType is in the FormData body instead (req.body.mimeType on server).
             ...authHeaders,
+            ...(appSessionId ? { "X-Session-Id": appSessionId } : {}),
           },
           body: formData,
+          credentials: "include",
         });
       } catch (uploadErr: any) {
         debugLiveRef.current.uploadFailMs = performance.now();
