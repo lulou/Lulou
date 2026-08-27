@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
 import { LulouGuide } from "@/components/lulou-guide";
 import { GUIDE_KEYS } from "@/lib/guide-store";
 import { useLocation } from "wouter";
@@ -2722,6 +2722,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voicePhase = isRecording ? "recording" as const : "idle" as const;
+
+  // Keep the active mobile composer compact when empty, grow it with multiline
+  // drafts, and hand scrolling to the textarea after the sensible height cap.
+  // This only measures the input; it does not alter the keyboard viewport logic.
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || isRecording) return;
+    textarea.style.height = "0px";
+    const measuredHeight = textarea.scrollHeight;
+    const nextHeight = Math.min(Math.max(measuredHeight, 32), 132);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = measuredHeight > 132 ? "auto" : "hidden";
+  }, [message, isRecording]);
   const recordingStartMsRef = useRef<number>(0);
   // Module-level shared stream — persists across component mounts so iOS never re-prompts.
   // micStreamRef is kept only for waveform analyser compatibility; actual stream comes from
@@ -4621,7 +4634,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </div>
             )
           ) : (
-            <div ref={composerRef} className="px-3 pt-2 border-t" style={{ borderTop: "1px solid hsl(var(--border))", paddingBottom: inputFocused ? "6px" : "max(0.5rem, env(safe-area-inset-bottom))" }}>
+            <div ref={composerRef} className="px-3 pt-1" style={{ borderTop: "1px solid hsl(var(--border) / 0.3)", paddingBottom: inputFocused ? "2px" : "max(0.375rem, env(safe-area-inset-bottom))" }}>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
                   <span className="flex gap-0.5 items-center">
@@ -4675,7 +4688,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               )}
               <div
-                className="w-full rounded-[1.5rem] border border-foreground/[0.09] bg-card/[0.98] px-3 pt-2.5 pb-2 shadow-[0_3px_14px_rgba(25,20,20,0.08)] backdrop-blur-xl"
+                className="w-full rounded-[1.5rem] border border-foreground/[0.05] bg-card/[0.98] px-2.5 pt-1 pb-1 shadow-[0_2px_10px_rgba(25,20,20,0.06)] backdrop-blur-xl"
                 data-testid={`chat-composer-surface-${match.id}`}
                 data-ui-version="composer-104"
               >
@@ -4695,7 +4708,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       if (e.target.value.trim()) sendTyping();
                     }}
                     placeholder={t("write_meaningful_placeholder")}
-                    className={`min-h-12 max-h-[132px] resize-none border-0 bg-transparent px-1 py-2 text-base leading-6 shadow-none transition-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent focus:outline-none outline-none${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
+                    className={`min-h-8 max-h-[132px] overflow-y-hidden resize-none border-0 bg-transparent px-1 py-1 text-[15px] leading-5 placeholder:text-muted-foreground/75 shadow-none transition-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent focus:outline-none outline-none${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => {
                       // CRITICAL: if iOS fires blur while recording, refocus SYNCHRONOUSLY
@@ -4775,7 +4788,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       Without it, pressing the mic button blurs the textarea → iOS keyboard
                       dismisses → visual viewport changes height → the entire composer jumps.
                       e.preventDefault() keeps focus on the textarea so the keyboard stays up. */}
-                  <div className="mt-1 flex min-h-11 items-center gap-1 border-t border-foreground/[0.06] pt-1.5">
+                  <div className="mt-0.5 flex min-h-10 items-center gap-0.5">
                   <button
                     tabIndex={-1}
                     onPointerDown={e => {

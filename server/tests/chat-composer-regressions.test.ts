@@ -25,6 +25,10 @@ describe("chat composer regressions", () => {
     expect(activeComposerStart).toBeGreaterThan(-1);
     expect(activeComposer).toContain('data-ui-version="composer-104"');
     expect(activeComposer).toContain('data-testid={`input-message-${match.id}`}');
+    expect(activeComposer).toContain("min-h-8");
+    expect(activeComposer).toContain("text-[15px]");
+    expect(activeComposer).toContain("gap-0.5");
+    expect(activeComposer).not.toContain("border-t border-foreground/[0.06]");
     expect(activeComposer).toContain('data-testid={`button-mic-input-${match.id}`}');
     expect(activeComposer).toContain('data-testid={`button-ai-starters-${match.id}`}');
     expect(activeComposer).toContain('data-testid={`button-phone-composer-${match.id}`}');
@@ -33,6 +37,8 @@ describe("chat composer regressions", () => {
     expect(activeComposer).not.toContain('data-testid={`button-send-${match.id}`}');
     expect(activeComposer).not.toContain("<Send ");
     expect(activeComposer).not.toContain("!inputFocused");
+    expect(matches).toContain("useLayoutEffect");
+    expect(matches).toContain('textarea.style.overflowY = measuredHeight > 132 ? "auto" : "hidden"');
     expect(matches).not.toContain('data-testid={`button-send-${match.id}`}');
   });
 
