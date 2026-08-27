@@ -5445,6 +5445,10 @@ export async function registerRoutes(
       }
 
       console.log(`[VOICE_NOTE_SPEED] recording stopped — server received size=${audioBuffer.length}B mimeType=${mimeType} receiveMs=${Date.now() - tReceive}ms`);
+      const clientRequestId = typeof req.body?.clientRequestId === "string" &&
+        /^[A-Za-z0-9_-]{8,120}$/.test(req.body.clientRequestId)
+        ? req.body.clientRequestId
+        : null;
 
       if (audioBuffer.length > 10_000_000) {
         return res.status(400).json({ message: "Audio file too large (max 10 MB)" });
@@ -5492,13 +5496,29 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Voice notes unlock after you've both sent 10 messages." });
       }
 
-      const filePath = `${matchId}/${Date.now()}_${userId}.m4a`;
+      // A retry keeps the original client request ID, making the object path and
+      // message identity stable even if the first successful response was lost.
+      const filePath = clientRequestId
+        ? `${matchId}/${userId}_${clientRequestId}.m4a`
+        : `${matchId}/${Date.now()}_${userId}.m4a`;
+      const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
+      const publicUrl = urlData.publicUrl;
+      if (clientRequestId) {
+        const existingMatch = await adminStorage.getMatch(matchId, userId);
+        const existingMessage = existingMatch?.messages.find(message =>
+          message.senderId === userId && message.content === `__VOICE__:${publicUrl}`,
+        );
+        if (existingMessage) {
+          console.log(`[VOICE_NOTE_PIPELINE] idempotent retry clientRequestId=${clientRequestId} messageId=${existingMessage.id}`);
+          return res.json({ success: true, idempotent: true, message: existingMessage });
+        }
+      }
       const tStorage = Date.now();
       console.log(`[VOICE_NOTE_PIPELINE] storage upload started path="${filePath}" size=${outputBuffer.length}`);
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from("voice-notes")
-        .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: false });
+        .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: !!clientRequestId });
 
       if (uploadError) {
         // If bucket doesn't exist yet, create it and retry once
@@ -5506,7 +5526,7 @@ export async function registerRoutes(
           await supabaseAdmin.storage.createBucket("voice-notes", { public: true }).catch(() => {});
           const { error: retryErr } = await supabaseAdmin.storage
             .from("voice-notes")
-            .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: false });
+            .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: !!clientRequestId });
           if (retryErr) {
             console.error(`[VOICE_NOTE_PIPELINE] storage upload error (after bucket create) error="${retryErr.message}"`);
             console.error(`[VOICE] UPLOAD_FAIL ${retryErr.message}`);
@@ -5522,8 +5542,6 @@ export async function registerRoutes(
       console.log(`[VOICE_NOTE_PIPELINE] storage upload complete path="${filePath}" size=${outputBuffer.length}B storageMs=${storageMs}`);
       console.log(`[VOICE_NOTE_SPEED] server processed — storageMs=${storageMs}ms`);
 
-      const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
-      const publicUrl = urlData.publicUrl;
       console.log(`[VOICE_NOTE_PIPELINE] final audio url=${publicUrl}`);
       console.log(`[VOICE_NOTE_SPEED] playback url ready — url=${publicUrl}`);
 

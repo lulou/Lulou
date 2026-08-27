@@ -15,7 +15,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession, isSelfCancelled } from "@/lib/cancelled-calls";
-import { requestMicStream, prewarmMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
+import { requestMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
@@ -576,6 +576,8 @@ type PendingVoiceNote = {
   tStart: number;
   status: "sending" | "failed";
 };
+
+type VoicePhase = "idle" | "requesting_permission" | "recording" | "processing" | "sending" | "failed";
 
 // Set false once Bug 2 (caller-cancel race) is confirmed fixed in production.
 const DEBUG_CALLS = true;
@@ -1726,17 +1728,59 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const forceScrollRef = useRef(false);
+  const layoutAnchorRafRef = useRef<number | null>(null);
   const wasExpandedRef = useRef(false);
   const guidanceInsertIndexRef = useRef<Map<string, number>>(new Map());
 
   const handleMessagesScroll = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 140;
+  }, []);
+
+  const scheduleBottomAnchor = useCallback((reason: string) => {
+    if (!isAtBottomRef.current) return;
+    if (layoutAnchorRafRef.current !== null) cancelAnimationFrame(layoutAnchorRafRef.current);
+    layoutAnchorRafRef.current = requestAnimationFrame(() => {
+      layoutAnchorRafRef.current = requestAnimationFrame(() => {
+        layoutAnchorRafRef.current = null;
+        const el = messagesContainerRef.current;
+        // A deliberate scroll between frames must always win over a pending layout anchor.
+        if (!el || !isAtBottomRef.current) return;
+        el.scrollTop = el.scrollHeight;
+        isAtBottomRef.current = true;
+        console.log("[CHAT_LAYOUT] bottom anchored", { reason, matchId: match.id.slice(0, 8) });
+      });
+    });
+  }, [match.id]);
+
+  useEffect(() => () => {
+    if (layoutAnchorRafRef.current !== null) cancelAnimationFrame(layoutAnchorRafRef.current);
   }, []);
 
   // Shared leave-chat handler — used by back button AND swipe-back gesture
   const handleLeaveChat = useCallback(() => {
+    if (isRecordingRef.current || mediaRecorderRef.current) {
+      stopRequestedRef.current = true;
+      recordingGenerationRef.current += 1;
+      stopWaveform();
+      stopRecordingTimer();
+      if (composerRef.current) composerRef.current.style.minHeight = "";
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        recorder.onerror = null;
+        try { recorder.stop(); } catch {}
+      }
+      mediaRecorderRef.current = null;
+      releaseMicStream("chat-closed");
+      micStreamRef.current = null;
+      audioChunksRef.current = [];
+      isRecordingRef.current = false;
+      setVoicePhase("idle");
+      setRecordingTime(0);
+    }
     textareaRef.current?.blur();
     onToggleExpand();
   }, [onToggleExpand]);
@@ -1966,7 +2010,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   // ── AI Conversation Starters ──────────────────────────────────────────────
   const aiStartersEnabled = localStorage.getItem("settings_conversation_starter_ai") !== "false";
-  const { data: aiStartersData } = useQuery<{ starters: string[] }>({
+  const {
+    data: aiStartersData,
+    isLoading: aiStartersLoading,
+    isError: aiStartersError,
+    refetch: refetchAIStarters,
+  } = useQuery<{ starters: string[] }>({
     queryKey: ["/api/matches", match.id, "ai-starters", langCode],
     enabled: expanded && showAIStarters && aiStartersEnabled,
     staleTime: 5 * 60 * 1000,
@@ -2163,7 +2212,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       }
     }
     stopTyping();
-    forceScrollRef.current = true;
+    forceScrollRef.current = isAtBottomRef.current;
     sendMessage.mutate({ content, tempId });
   };
 
@@ -2575,16 +2624,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
     if (justExpanded || forceScrollRef.current) {
       // Chat just opened or user just sent a message — jump to bottom instantly
-      el.scrollTop = el.scrollHeight;
+      isAtBottomRef.current = true;
       forceScrollRef.current = false;
-      console.log("[CHAT_REALTIME] scrolled to bottom (force)", { matchId: match.id.slice(0, 8), count: matchDetail?.messages?.length });
+      scheduleBottomAnchor("open-or-send");
     } else if (isAtBottomRef.current) {
       // New message arrived and user is already at the bottom — smooth follow
-      el.scrollTop = el.scrollHeight; // stay inside messages container; never touch outer page
-      console.log("[CHAT_REALTIME] scrolled to bottom (follow)", { matchId: match.id.slice(0, 8), count: matchDetail?.messages?.length });
+      scheduleBottomAnchor("message-change");
     }
     // If user has scrolled up to read history: do nothing
-  }, [matchDetail?.messages?.length, expanded]);
+  }, [matchDetail?.messages?.length, expanded, scheduleBottomAnchor]);
+
+  // The shell height changes after iOS settles visualViewport, and the composer changes
+  // after a draft grows or an accessory panel opens. Re-anchor only people already near
+  // the bottom; readers browsing history keep their exact scroll position.
+  useLayoutEffect(() => {
+    if (!expanded || !isAtBottomRef.current) return;
+    scheduleBottomAnchor("viewport-or-composer-layout");
+  }, [expanded, vpTop, vpHeight, inputFocused, message, showAIStarters, scheduleBottomAnchor]);
 
   useEffect(() => {
     if (detail.callSessionId) {
@@ -2597,6 +2653,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   useEffect(() => {
     setLocalSentCount(0);
   }, [match.id, detail.callStage]);
+
+  // The starter panel belongs to the current conversation only. Clearing it when
+  // leaving or switching chats prevents an old panel from resurfacing elsewhere.
+  useEffect(() => {
+    setShowAIStarters(false);
+    hasAutoShownStartersRef.current = false;
+  }, [match.id]);
+
+  useEffect(() => {
+    if (!expanded) setShowAIStarters(false);
+  }, [expanded]);
 
   // Trigger the mic-hold onboarding tip once per user when they first open any chat
   useEffect(() => {
@@ -2715,13 +2782,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [showSpecificTimePicker, setShowSpecificTimePicker] = useState(false);
   const [specificTimePending, setSpecificTimePending] = useState("");
 
-  // Recording state
-  const [isRecording, setIsRecording] = useState(false);
+  // Recording state. The visual state deliberately follows the recorder lifecycle
+  // instead of an optimistic boolean, so a failed setup can never leave a live-looking mic.
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
+  const isRecording = voicePhase === "recording";
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const voicePhase = isRecording ? "recording" as const : "idle" as const;
+  const recordingGenerationRef = useRef(0);
 
   // Keep the active mobile composer compact when empty, grow it with multiline
   // drafts, and hand scrolling to the textarea after the sensible height cap.
@@ -2735,6 +2804,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = measuredHeight > 132 ? "auto" : "hidden";
   }, [message, isRecording]);
+
+  // Watch the entire bottom region rather than guessing its height. This includes
+  // multiline drafts, typing indicators, starter accessories, and the compact
+  // composer, so a near-bottom conversation stays pinned above it.
+  useEffect(() => {
+    const bottomRegion = composerRef.current;
+    if (!expanded || !bottomRegion || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => scheduleBottomAnchor("bottom-region-resize"));
+    observer.observe(bottomRegion);
+    return () => observer.disconnect();
+  }, [expanded, scheduleBottomAnchor]);
+
   const recordingStartMsRef = useRef<number>(0);
   // Module-level shared stream — persists across component mounts so iOS never re-prompts.
   // micStreamRef is kept only for waveform analyser compatibility; actual stream comes from
@@ -2756,6 +2837,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const waveformRafRef = useRef<number | null>(null);
   const waveformBarEls = useRef<HTMLDivElement[]>([]);
   const [pendingVoiceNotes, setPendingVoiceNotes] = useState<PendingVoiceNote[]>([]);
+  const pendingVoiceRetryIdsRef = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    if (expanded && isAtBottomRef.current) scheduleBottomAnchor("pending-voice-note");
+  }, [expanded, pendingVoiceNotes.length, scheduleBottomAnchor]);
   // Slide-to-cancel: track pointer start X + whether threshold crossed
   const pointerStartXRef = useRef(0);
   const cancelPendingRef = useRef(false);
@@ -2773,12 +2858,40 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
   };
 
+  const resetVoiceCapture = (reason: string, discardChunks = true) => {
+    recordingGenerationRef.current += 1;
+    stopWaveform();
+    stopRecordingTimer();
+    if (composerRef.current) composerRef.current.style.minHeight = "";
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.onerror = null;
+      try { recorder.stop(); } catch {}
+    }
+    mediaRecorderRef.current = null;
+    // Recording streams are intentionally short-lived. This turns off the iOS capture
+    // indicator and guarantees a failed/cancelled recorder cannot remain visually active.
+    releaseMicStream(reason);
+    micStreamRef.current = null;
+    if (discardChunks) audioChunksRef.current = [];
+    isRecordingRef.current = false;
+    stopRequestedRef.current = false;
+    cancelPendingRef.current = false;
+    setCancelPending(false);
+    setVoicePhase("idle");
+    setRecordingTime(0);
+  };
+
   const startRecording = async () => {
     // Guard against double-start. isRecordingRef is set synchronously BEFORE any
     // await so even an immediate pointerUp (before getUserMedia resolves) is caught.
     if (isRecordingRef.current) return;
+    const recordingGeneration = ++recordingGenerationRef.current;
     isRecordingRef.current = true;
     stopRequestedRef.current = false;
+    setVoicePhase("requesting_permission");
     // Record start time synchronously so the elapsed check works for quick releases.
     recordingStartMsRef.current = Date.now();
     // CRITICAL iOS FIX: focus the textarea SYNCHRONOUSLY before any await.
@@ -2794,6 +2907,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const stream = await requestMicStream();
       micStreamRef.current = stream; // also store locally for the waveform analyser
       setMicPermState("granted");
+      // A fast pointer release, navigation, or cancellation while getUserMedia was
+      // pending must finish without creating a recorder after the gesture is over.
+      if (stopRequestedRef.current || recordingGeneration !== recordingGenerationRef.current) {
+        resetVoiceCapture("recording-cancelled-before-start");
+        return;
+      }
 
       // iOS Safari: prefer audio/mp4 first since isTypeSupported may return false for
       // webm/ogg even though audio/mp4 works. Putting it last risks the fallback path
@@ -2809,10 +2928,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // recorder.mimeType is the authoritative type (browser fills it even when we don't
       // specify one). Fall back to mimeType from isTypeSupported, then to platform guess.
       const recorderMime = recorder.mimeType || mimeType;
-      // If both are empty (buggy iOS Safari that doesn't report mimeType), guess from UA.
-      const actualMimeType = recorderMime || (isIOS ? "audio/mp4" : "audio/webm");
-      console.log(`[VOICE_NOTE_SEND] recording started isIOS=${isIOS} mimeType="${mimeType}" recorderMime="${recorder.mimeType}" actualMimeType="${actualMimeType}"`);
-      addDbg(`recStart isIOS=${isIOS} req="${mimeType}" got="${recorder.mimeType}" actual="${actualMimeType}"`);
+      // Safari can leave recorder.mimeType blank. The data-available event below is
+      // authoritative when it supplies a chunk type; this is only a safe fallback.
+      const fallbackMimeType = recorderMime || (isIOS ? "audio/mp4" : "audio/webm");
+      console.log(`[VOICE_NOTE_SEND] recording started isIOS=${isIOS} mimeType="${mimeType}" recorderMime="${recorder.mimeType}" fallbackMime="${fallbackMimeType}"`);
+      addDbg(`recStart isIOS=${isIOS} req="${mimeType}" got="${recorder.mimeType}" fallback="${fallbackMimeType}"`);
       audioChunksRef.current = [];
       const recStartPerfMs = performance.now(); // for computing duration in onstop
       recorder.ondataavailable = e => {
@@ -2820,22 +2940,30 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         addDbg(`chunk ${audioChunksRef.current.length} size=${e.data.size}B`);
       };
       recorder.onstop = () => {
-        // Do NOT stop stream tracks — module keeps the stream alive for the next recording.
         const tStop = performance.now();
         const durationMs = Math.round(tStop - recStartPerfMs);
         debugLiveRef.current.blobDurationMs = durationMs;
         console.log(`[VOICE_NOTE_SEND] recording stopped chunks=${audioChunksRef.current.length} durationMs=${durationMs}`);
         addDbg(`recStop chunks=${audioChunksRef.current.length} durationMs=${durationMs}`);
-        const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
+        const capturedMimeType = audioChunksRef.current.find(chunk => chunk.type)?.type || recorder.mimeType || mimeType || fallbackMimeType;
+        const blob = new Blob(audioChunksRef.current, { type: capturedMimeType });
+        mediaRecorderRef.current = null;
+        releaseMicStream("recording-stopped");
+        micStreamRef.current = null;
+        isRecordingRef.current = false;
+        stopRequestedRef.current = false;
+        audioChunksRef.current = [];
         console.log(`[VOICE_NOTE_SEND] blob size=${blob.size}B type="${blob.type}" durationMs=${Math.round(performance.now() - tStop)}`);
         debugLiveRef.current.blobSize = blob.size;
-        debugLiveRef.current.blobType = blob.type || actualMimeType || "(empty)";
-        addDbg(`onstop blob=${blob.size}B type="${blob.type || "(empty)"}" actual="${actualMimeType}"`);
+        debugLiveRef.current.blobType = blob.type || capturedMimeType || "(empty)";
+        addDbg(`onstop blob=${blob.size}B type="${blob.type || "(empty)"}" captured="${capturedMimeType}"`);
         if (blob.size === 0) {
           // MediaRecorder produced no data — genuine failure (e.g. mic denied mid-session).
           console.error("[VOICE_NOTE_SEND] blob size=0 — recording produced no audio");
           debugLiveRef.current.uploadStatus = "FAILED: blob=0B";
           addDbg(`FAIL blob.size=0 — no audio captured`);
+          setVoicePhase("idle");
+          setRecordingTime(0);
           toast({ title: "Recording failed. Please try again.", variant: "destructive" });
           return;
         }
@@ -2846,12 +2974,20 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           // Show bubble IMMEDIATELY — upload happens in background
           console.log(`[VOICE_NOTE_SEND] optimistic bubble shown tempId=${tempId}`);
           addDbg(`optimistic bubble shown, calling mutate`);
-          setPendingVoiceNotes(prev => [...prev, { tempId, blobUrl, blob, mimeType: actualMimeType, tStart, status: "sending" }]);
-          forceScrollRef.current = true;
-          sendVoiceNote.mutate({ tempId, blobUrl, blob, mimeType: actualMimeType, tStart });
+          setPendingVoiceNotes(prev => [...prev, { tempId, blobUrl, blob, mimeType: capturedMimeType, tStart, status: "sending" }]);
+          forceScrollRef.current = isAtBottomRef.current;
+          setVoicePhase("sending");
+          sendVoiceNote.mutate({ tempId, blobUrl, blob, mimeType: capturedMimeType, tStart });
         }
       };
-      recorder.start(100);
+      recorder.onerror = () => {
+        if (mediaRecorderRef.current !== recorder) return;
+        console.error("[VOICE_NOTE_SEND] MediaRecorder error");
+        addDbg("FAIL MediaRecorder error");
+        resetVoiceCapture("recorder-error");
+        toast({ title: "Recording failed. Please try again.", variant: "destructive" });
+      };
+      recorder.start();
       // ── Live waveform analyser (optional — fails silently on restrictive browsers) ──
       try {
         const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -2881,7 +3017,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         }
       } catch { /* analyser is non-critical — pulse dot is the fallback */ }
       mediaRecorderRef.current = recorder;
-      setIsRecording(true);
+      if (recorder.state !== "recording") {
+        throw new Error("MediaRecorder did not enter the recording state");
+      }
+      setVoicePhase("recording");
       setRecordingTime(0);
       // Light haptic feedback when recording starts (no-op on unsupported browsers)
       try { navigator.vibrate(25); } catch {}
@@ -2894,8 +3033,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // If the user released before setup completed, stop/cancel immediately.
       if (stopRequestedRef.current) stopRecording();
     } catch (err: any) {
-      isRecordingRef.current = false;
-      stopRequestedRef.current = false;
+      resetVoiceCapture("recording-start-failed");
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
       if (isPermission) {
@@ -2942,42 +3080,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     try { navigator.vibrate(15); } catch {}
     cancelPendingRef.current = false;
     setCancelPending(false);
-    setIsRecording(false);
+    setVoicePhase("processing");
     setRecordingTime(0);
   };
 
   const cancelRecording = () => {
-    stopWaveform();
-    stopRecordingTimer();
-    // Release composer height lock.
-    if (composerRef.current) composerRef.current.style.minHeight = "";
-    const mr = mediaRecorderRef.current;
-    if (mr && mr.state !== "inactive") {
-      mr.ondataavailable = null;
-      mr.onstop = null;
-      // Do NOT stop the stream tracks — keep micStreamRef alive for the next recording.
-      try { mr.stop(); } catch { /* ignore */ }
-    }
-    audioChunksRef.current = [];
-    isRecordingRef.current = false;
-    stopRequestedRef.current = false;
+    resetVoiceCapture("recording-cancelled");
     // Distinct haptic pattern for cancel (so user knows it was cancelled, not sent)
     try { navigator.vibrate([20, 30, 20]); } catch {}
     cancelPendingRef.current = false;
-    setCancelPending(false);
-    setIsRecording(false);
-    setRecordingTime(0);
   };
-
-  // Pre-warm the shared mic stream as soon as this chat view mounts.
-  // If the user previously granted mic permission, we call getUserMedia() in the
-  // background NOW (not on button press) so the stream is hot before they hold.
-  // This makes recording feel instant — no async delay on the first hold.
-  useEffect(() => {
-    if (voiceNotesUnlocked && wasMicGrantedBefore()) {
-      prewarmMicStream();
-    }
-  }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show the one-time voice-note unlock popup when: unlocked AND server says not yet seen.
   // localStorage is a fast local cache to prevent a flash before the next query response.
@@ -2996,23 +3108,22 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     // no-op: popup replaced by inline card — do not open firstCallPopupOpen here
   }, [firstCallUnlocked, voiceNoteData?.firstCallPromptSeen, voiceNotePopupOpen, match.id]);
 
-  // Clean up the MediaRecorder, waveform, and pending blob URLs on unmount.
-  // Do NOT stop the module-level mic stream — it must survive component remounts
-  // so iOS never re-prompts and recording starts instantly on the next chat.
+  // Clean up the MediaRecorder, waveform, and capture stream on unmount.
   useEffect(() => {
     return () => {
+      recordingGenerationRef.current += 1;
       stopWaveform();
       stopRecordingTimer();
       const mr = mediaRecorderRef.current;
       if (mr && mr.state !== "inactive") {
         mr.ondataavailable = null;
         mr.onstop = null;
+        mr.onerror = null;
         try { mr.stop(); } catch {}
       }
       isRecordingRef.current = false;
       stopRequestedRef.current = false;
-      // micStreamRef is a local alias — do NOT stop its tracks.
-      // The module-level stream in mic-permission.ts stays alive.
+      releaseMicStream("chat-unmount");
       micStreamRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3036,8 +3147,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   useEffect(() => {
     const el = composerRef.current;
     const r = el?.getBoundingClientRect();
-    const phase = isRecording ? "recording" : "idle";
-    debugLiveRef.current.voicePhase = phase;
+    debugLiveRef.current.voicePhase = voicePhase;
 
     if (isRecording && el && r) {
       const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
@@ -3049,10 +3159,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       debugLiveRef.current.composerAfter = txt2;
       debugLiveRef.current.composerCSSAfter = snapshotComposerCSS(el);
     }
-  }, [isRecording]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [voicePhase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendVoiceNote = useMutation({
-    mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
+    mutationFn: async ({ blob, mimeType, tempId, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
       // ── Step 1: Validate blob ──
       const durationMs = debugLiveRef.current.blobDurationMs || 0;
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
@@ -3101,6 +3211,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       formData.append("audio", blob, filename);
       formData.append("mimeType", mimeType);
       formData.append("durationMs", String(durationMs));
+      formData.append("clientRequestId", tempId);
 
       console.log(`[VOICE_NOTE_SPEED] upload started — blobSize=${blob.size}B url="${fullUploadUrl.slice(-60)}"`);
       console.log(`[VOICE_NOTE_PIPELINE] upload url=${fullUploadUrl}`);
@@ -3192,6 +3303,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       return data;
     },
     onSuccess: (data: any, vars) => {
+      pendingVoiceRetryIdsRef.current.delete(vars.tempId);
+      setVoicePhase("idle");
       const realMsg = data?.message as Message | undefined;
       // Delay blob URL revoke by 15s — the CDN preload audio element references it and the
       // browser may still be mid-fetch. Revoking immediately cuts that off on some browsers.
@@ -3214,9 +3327,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       }
       // Remove the pending entry — real message is now in cache
       setPendingVoiceNotes(prev => prev.filter(v => v.tempId !== vars.tempId));
-      forceScrollRef.current = true;
+      forceScrollRef.current = isAtBottomRef.current;
     },
     onError: (err: any, vars) => {
+      pendingVoiceRetryIdsRef.current.delete(vars.tempId);
+      setVoicePhase("idle");
       // Mark as failed so user can retry — do NOT remove from list
       console.error(`[VOICE_NOTE_SEND] FAILED error="${err?.message}"`);
       debugLiveRef.current.uploadStatus = "FAILED";
@@ -3827,15 +3942,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             >
               <Mic
                 className="w-[18px] h-[18px] transition-all duration-300"
-                style={voiceNotesUnlocked
-                  ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: voicePhase === "recording" ? "drop-shadow(0 0 5px rgba(239,68,68,0.7))" : "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                  : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                style={voicePhase === "recording"
+                  ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                  : { color: "hsl(var(--muted-foreground))", opacity: voiceNotesUnlocked ? 0.75 : 0.35 }}
               />
               <span
                 className="text-[10px] font-semibold leading-none"
-                style={voiceNotesUnlocked ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                style={voicePhase === "recording"
+                  ? { color: "rgb(34,197,94)" }
+                  : { color: "hsl(var(--muted-foreground))", opacity: voiceNotesUnlocked ? 0.75 : 0.6 }}
               >
-                {voiceNotesUnlocked ? (voicePhase === "recording" ? "Rec" : "On") : "Mic"}
+                {voicePhase === "recording" ? "Rec" : "Mic"}
               </span>
             </button>
           </div>
@@ -3966,8 +4083,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       isMe={true}
                       status={pv.status}
                       onRetry={() => {
-                        // Reset to sending + retry the upload
+                        // Retry the same in-memory Blob once. A second tap while the request is
+                        // active must not create a duplicate upload or message.
+                        if (pv.status !== "failed" || pendingVoiceRetryIdsRef.current.has(pv.tempId)) return;
+                        pendingVoiceRetryIdsRef.current.add(pv.tempId);
                         setPendingVoiceNotes(prev => prev.map(v => v.tempId === pv.tempId ? { ...v, status: "sending" } : v));
+                        setVoicePhase("sending");
                         sendVoiceNote.mutate({ tempId: pv.tempId, blobUrl: pv.blobUrl, blob: pv.blob, mimeType: pv.mimeType, tStart: performance.now() });
                       }}
                       onLoadStateChange={(state, url) => {
@@ -4687,6 +4808,56 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </p>
                 </div>
               )}
+              {/* ── Composer companion panel — always sits above the composer ── */}
+              {showAIStarters && aiStartersEnabled && (
+                <div
+                  className="mb-2 overflow-y-auto rounded-2xl border border-border/60 bg-card/95 p-2.5 shadow-[0_-2px_12px_rgba(25,20,20,0.06)] backdrop-blur-xl"
+                  style={{ maxHeight: Math.max(104, Math.min(240, vpHeight - 180)) }}
+                  data-testid={`ai-starters-panel-${match.id}`}
+                >
+                  <p className="mb-2 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    <Sparkles className="h-3 w-3 text-primary" /> Conversation starters
+                  </p>
+                  {aiStartersLoading ? (
+                    <div className="flex flex-wrap gap-1.5" data-testid={`ai-starters-loading-${match.id}`}>
+                      {[1, 2, 3].map(i => <div key={i} className="h-7 w-28 rounded-full bg-muted animate-pulse" />)}
+                    </div>
+                  ) : aiStartersError ? (
+                    <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/60 px-3 py-2" data-testid={`ai-starters-error-${match.id}`}>
+                      <p className="text-xs text-muted-foreground">Couldn’t load starters.</p>
+                      <button
+                        className="shrink-0 text-xs font-medium text-primary"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => refetchAIStarters()}
+                        data-testid={`button-retry-ai-starters-${match.id}`}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : (aiStartersData?.starters?.length ?? 0) === 0 ? (
+                    <p className="rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground" data-testid={`ai-starters-empty-${match.id}`}>
+                      No starters available right now.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(aiStartersData?.starters ?? []).map((starter, i) => (
+                        <button
+                          key={i}
+                          className="rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-left text-xs leading-snug text-primary transition-all hover:bg-primary/10 active:scale-95"
+                          onClick={() => {
+                            setMessage(starter);
+                            setShowAIStarters(false);
+                            requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+                          }}
+                          data-testid={`button-starter-${match.id}-${i}`}
+                        >
+                          {starter}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div
                 className="w-full rounded-[1.5rem] border border-foreground/[0.05] bg-card/[0.98] px-2.5 pt-1 pb-1 shadow-[0_2px_10px_rgba(25,20,20,0.06)] backdrop-blur-xl"
                 data-testid={`chat-composer-surface-${match.id}`}
@@ -4794,6 +4965,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     onPointerDown={e => {
                       // Prevent focus transfer and iOS keyboard dismissal — MUST be first
                       e.preventDefault();
+                      if (!voiceNotesUnlocked) {
+                        toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                        return;
+                      }
+                      if (isRecordingRef.current || voicePhase !== "idle") return;
                       e.currentTarget.setPointerCapture(e.pointerId);
                       // Reset slide-cancel state for this new recording gesture
                       pointerStartXRef.current = e.clientX;
@@ -4838,10 +5014,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         debugLiveRef.current.lastPointerEvent = `DOWN @ ${new Date().toISOString().slice(11,23)}`;
                         addDbg(`ptrDOWN — before: ${txt} minH=${Math.round(r.height)}px locked`);
                       }
-                      if (!voiceNotesUnlocked) {
-                        toast({ description: "Voice notes unlock after you've both sent 10 messages." });
-                        return;
-                      }
                       startRecording();
                     }}
                     onTouchStart={e => {
@@ -4875,6 +5047,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         }
                       }
                     }}
+                    onTouchEnd={e => {
+                      // Safari can occasionally deliver touchend after swallowing pointerup
+                      // during a keyboard transition. The ref makes this harmless if both fire.
+                      e.preventDefault();
+                      stopRequestedRef.current = true;
+                      if (isRecordingRef.current) {
+                        if (cancelPendingRef.current) cancelRecording();
+                        else stopRecording();
+                      }
+                    }}
                     onPointerCancel={e => {
                       e.preventDefault();
                       debugLiveRef.current.lastPointerEvent = `CANCEL @ ${new Date().toISOString().slice(11,23)}`;
@@ -4898,10 +5080,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <Mic
                       className="w-[18px] h-[18px]"
                       style={voicePhase === "recording"
-                        ? { color: "hsl(350,45%,52%)", filter: "drop-shadow(0 0 8px hsl(350 45% 52% / 0.9))", transition: "all 200ms ease" }
-                        : voiceNotesUnlocked
-                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))", transition: "all 200ms ease" }
-                        : { color: "hsl(var(--muted-foreground))", opacity: 0.35, transition: "all 200ms ease" }}
+                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 8px rgba(34,197,94,0.75))", transition: "all 200ms ease" }
+                        : { color: "hsl(var(--muted-foreground))", opacity: voiceNotesUnlocked ? 0.75 : 0.35, transition: "all 200ms ease" }}
                     />
                   </button>
                   {/* Pulsing halo ring around mic while recording — Lulou rose, no layout impact */}
@@ -4994,33 +5174,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
 
-              {/* ── AI Starters panel ── */}
-              {showAIStarters && aiStartersEnabled && (
-                <div className="mt-2 space-y-1.5" data-testid={`ai-starters-panel-${match.id}`}>
-                  <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-primary" /> Conversation starters
-                  </p>
-                  {!aiStartersData ? (
-                    <div className="flex gap-1.5 flex-wrap">
-                      {[1,2,3].map(i => <div key={i} className="h-7 w-28 rounded-full bg-muted animate-pulse" />)}
-                    </div>
-                  ) : (
-                    <div className="flex gap-1.5 flex-wrap">
-                      {(aiStartersData.starters ?? []).map((s, i) => (
-                        <button
-                          key={i}
-                          className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 active:scale-95 transition-all text-left leading-snug"
-                          onClick={() => { setMessage(s); setShowAIStarters(false); }}
-                          data-testid={`button-starter-${match.id}-${i}`}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* ── Comment filter confirmation ── */}
               {filterConfirm && (
                 <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 space-y-2" data-testid={`filter-confirm-${match.id}`}>
@@ -5037,7 +5190,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         const { content, tempId } = filterConfirm;
                         setFilterConfirm(null);
                         stopTyping();
-                        forceScrollRef.current = true;
+                        forceScrollRef.current = isAtBottomRef.current;
                         sendMessage.mutate({ content, tempId });
                       }}
                       data-testid={`button-filter-confirm-${match.id}`}

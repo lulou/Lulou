@@ -6,7 +6,7 @@ describe("chat composer regressions", () => {
     const messaging = readFileSync("client/src/pages/messaging.tsx", "utf8");
     const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
     const activeComposerStart = matches.indexOf('data-testid={`chat-composer-surface-${match.id}`}');
-    const activeComposerEnd = matches.indexOf("/* ── AI Starters panel ── */", activeComposerStart);
+    const activeComposerEnd = matches.indexOf("/* ── Comment filter confirmation ── */", activeComposerStart);
     const activeComposer = matches.slice(activeComposerStart, activeComposerEnd);
 
     expect(messaging).not.toContain('data-testid="button-send"');
@@ -58,5 +58,50 @@ describe("chat composer regressions", () => {
 
     expect(messaging).toContain('data-ui-version="composer-104"');
     expect(discover).toContain('data-ui-version="discover-103"');
+  });
+
+  it("keeps near-bottom conversations anchored through viewport and composer changes", () => {
+    const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
+
+    expect(matches).toContain("el.scrollHeight - el.scrollTop - el.clientHeight <= 140");
+    expect(matches).toContain("scheduleBottomAnchor");
+    expect(matches).toContain('"viewport-or-composer-layout"');
+    expect(matches).toContain('"bottom-region-resize"');
+    expect(matches).toContain("ResizeObserver");
+    expect(matches).toContain("forceScrollRef.current = isAtBottomRef.current");
+  });
+
+  it("keeps Conversation Starters above the composer with recoverable query states", () => {
+    const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
+    const panel = matches.indexOf('data-testid={`ai-starters-panel-${match.id}`}');
+    const composer = matches.indexOf('data-testid={`chat-composer-surface-${match.id}`}');
+
+    expect(panel).toBeGreaterThan(-1);
+    expect(panel).toBeLessThan(composer);
+    expect(matches).toContain("aiStartersLoading");
+    expect(matches).toContain("aiStartersError");
+    expect(matches).toContain("refetchAIStarters");
+    expect(matches).toContain('data-testid={`button-retry-ai-starters-${match.id}`}');
+    expect(matches).toContain("setShowAIStarters(false)");
+  });
+
+  it("uses an explicit recorder lifecycle and retries each failed Blob only once", () => {
+    const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
+    const routes = readFileSync("server/routes.ts", "utf8");
+
+    expect(matches).toContain('type VoicePhase = "idle" | "requesting_permission" | "recording" | "processing" | "sending" | "failed"');
+    expect(matches).toContain('setVoicePhase("requesting_permission")');
+    expect(matches).toContain('setVoicePhase("processing")');
+    expect(matches).toContain('setVoicePhase("sending")');
+    expect(matches).toContain('releaseMicStream("recording-stopped")');
+    expect(matches).toContain("capturedMimeType");
+    expect(matches).toContain("pendingVoiceRetryIdsRef");
+    expect(matches).toContain("recordingGenerationRef");
+    expect(matches).toContain('formData.append("clientRequestId", tempId)');
+    expect(matches).toContain("onTouchEnd");
+    expect(matches).toContain('voicePhase === "recording"');
+    expect(routes).toContain("const clientRequestId");
+    expect(routes).toContain("idempotent retry clientRequestId");
+    expect(routes).toContain("upsert: !!clientRequestId");
   });
 });
