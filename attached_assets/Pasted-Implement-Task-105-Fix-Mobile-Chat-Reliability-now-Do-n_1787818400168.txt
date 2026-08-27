@@ -1,0 +1,304 @@
+Implement Task #105 — Fix Mobile Chat Reliability now.
+
+Do not stay in Plan mode.
+Do not create another task plan.
+Do not ask me to assign it again.
+Do not touch the visual composer design that is now approved.
+
+The current live iPhone screenshots show three functional problems:
+
+The latest message gets hidden behind the composer when the keyboard opens.
+Conversation Starters are not reliably visible/usable.
+Voice notes fail and the microphone can remain stuck in its active green state.
+Implement the fixes now.
+
+1. FIX KEYBOARD / LATEST-MESSAGE ANCHORING
+
+When the user is already at or near the bottom of the conversation and taps the composer:
+
+keyboard opens
+composer moves above keyboard
+newest message must remain fully visible above the composer
+user must not need to manually scroll
+Use the actual chat scroll container.
+
+Maintain a near-bottom state/threshold of roughly 100–150px.
+
+If the user is near the bottom, preserve bottom anchoring when:
+
+composer receives focus
+visualViewport changes
+keyboard opens/closes
+composer height changes
+multiline input expands
+composer collapses after send
+an optimistic outgoing message is inserted
+a realtime incoming message arrives
+If the user intentionally scrolled significantly upward, do not force them back to the bottom.
+
+Do not rely on one arbitrary timeout.
+
+Use the existing viewport/resize logic plus requestAnimationFrame where appropriate so the final layout is calculated after iOS changes the visual viewport.
+
+The final visible order must be:
+
+latest message
+small breathing space
+composer
+keyboard
+
+No latest bubble may sit underneath the composer.
+
+2. FIX CONVERSATION STARTERS
+
+Keep the current AI/star button.
+
+When tapped, the Conversation Starters panel must appear above the composer.
+
+Required order:
+
+conversation
+Conversation Starters
+composer
+keyboard
+
+It must not:
+
+render underneath the composer
+render behind the keyboard
+require scrolling down to discover it
+leave permanent skeleton pills
+alter the existing composer design
+Keep the existing AI/data logic.
+
+Fix only its state and presentation.
+
+Required behavior:
+
+Tap AI → panel opens.
+Tap AI again → panel closes.
+Suggestions are visible above composer.
+Tapping a suggestion uses the existing intended suggestion behavior.
+Panel closes appropriately after selection.
+Leaving the conversation clears the panel state.
+Loading state resolves correctly.
+API failure displays a clean retry/error state rather than endless skeletons.
+If opening the panel changes the bottom reserved height, update the message-list inset/anchoring so it does not cover the latest message.
+
+3. FIX MICROPHONE STATE MACHINE
+
+The microphone must never remain green unless a recording is genuinely active.
+
+Replace any loose/sticky recording boolean with a reliable state flow such as:
+
+idle
+requesting_permission
+recording
+processing
+sending
+failed
+Expected visual behavior:
+
+idle
+neutral mic
+
+requesting permission
+temporary non-recording state
+
+recording
+green mic only while MediaRecorder.state === "recording"
+
+processing/sending
+not green as though recording
+
+success
+return immediately to idle
+
+failure
+return to idle even though the failed bubble remains retryable
+
+Always clean up:
+
+MediaRecorder
+event handlers if necessary
+media stream
+every audio track
+accumulated chunks
+timers
+active recording flags
+Also clean up on:
+
+cancel
+permission rejection
+recorder error
+upload error
+API error
+component unmount
+leaving chat
+4. TRACE AND FIX THE ACTUAL VOICE-NOTE FAILURE
+
+Do not just make the mic stop glowing.
+
+The screenshot shows:
+
+Failed — tap to retry
+
+Trace why the voice note fails on the installed iPhone PWA.
+
+Inspect the complete active voice-note path in matches.tsx and any supporting server/storage code:
+
+navigator.mediaDevices.getUserMedia
+MediaRecorder
+supported MIME-type selection
+chunks
+final Blob
+Blob size
+Blob MIME type
+generated filename/extension
+FormData
+upload request
+authentication
+API endpoint
+request body parsing
+storage/Supabase
+returned audio URL
+voice-note message creation
+realtime insertion
+playback URL
+Do not assume desktop Chrome recording formats work on iPhone.
+
+Use:
+
+MediaRecorder.isTypeSupported(...)
+
+Choose the best actually-supported format at runtime.
+
+Prefer compatible formats in a sensible order based on what Safari/iOS reports rather than blindly hardcoding WebM.
+
+Ensure:
+
+file extension corresponds to Blob MIME type
+server accepts the selected MIME type
+storage accepts it
+playback <audio> source uses the correct content type/URL
+Log safe diagnostic information for failures:
+
+selected MIME type
+blob size
+upload HTTP status
+high-level failure stage
+Do not log private audio data, tokens, or credentials.
+
+5. FIX RETRY
+
+The existing failed bubble says:
+
+Failed — tap to retry
+
+Make it actually retry.
+
+Within the same active chat session:
+
+retain enough information to retry the existing captured voice-note Blob
+tapping failed bubble retries upload/send
+do not start a new recording
+prevent simultaneous duplicate retries
+show sending/retrying state
+success updates/replaces the failed state
+failure returns to retryable state
+If the Blob cannot survive a full page/app reload, that is acceptable.
+
+It must work during the current session.
+
+6. DO NOT CHANGE THE APPROVED COMPOSER DESIGN
+
+Preserve exactly:
+
+current compact rounded composer
+current padding
+current placeholder styling
+mic inside composer
+AI inside composer
+phone inside composer
+video inside composer
+no standalone Send button
+no detached character counter
+current border/shadow
+current keyboard placement
+Do not redesign it.
+
+7. PRESERVE EXISTING PRODUCT RULES
+
+Do not change:
+
+15 / 12 / 20 message stages
+remaining-message counter
+voice-note unlock point
+call unlock rules
+video unlock rules
+call credits
+AI entitlement logic
+realtime text messaging
+match progression
+WebRTC
+header
+progress bar
+8. TEST THE ACTUAL FIXES
+
+Add focused regression tests where practical.
+
+Validate:
+
+Keyboard anchoring
+
+Near bottom → open keyboard → latest bubble stays visible.
+Composer grows → latest bubble stays visible.
+Send → optimistic message stays visible.
+Incoming realtime message while near bottom stays visible.
+User scrolls far up → keyboard open does not force them down.
+Conversation Starters
+
+Tap AI → visible above composer.
+Tap again → closes.
+Suggestions load.
+Error state does not hang on skeletons.
+Suggestion selection works.
+Keyboard does not cover panel.
+Voice notes
+
+Permission success.
+Recording begins.
+Mic turns green only while genuinely recording.
+Recording stops.
+Mic resets immediately.
+Blob is non-zero.
+MIME type is supported.
+Upload/message creation succeeds.
+Playback URL is valid.
+Simulated upload failure resets mic.
+Failed bubble is retryable.
+Retry reuses existing recording.
+Successful retry updates message state.
+9. IMPLEMENT AND PUBLISH
+
+Do the implementation now.
+
+Then:
+
+run focused tests
+run production build
+restart workflow
+commit the changes
+publish to GitHub main
+wait for Vercel production
+verify the new production commit/build is live
+At the end report only:
+
+Root cause of keyboard-covering bug
+Root cause of Conversation Starters bug
+Root cause of voice-note failure
+Files changed
+Exact fixes implemented
+Tests performed
+Production GitHub/Vercel commit
+Any remaining issue that genuinely requires testing on my physical iPhone
