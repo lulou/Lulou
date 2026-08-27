@@ -4677,6 +4677,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div
                 className="w-full rounded-[1.5rem] border border-foreground/[0.09] bg-card/[0.98] px-3 pt-2.5 pb-2 shadow-[0_3px_14px_rgba(25,20,20,0.08)] backdrop-blur-xl"
                 data-testid={`chat-composer-surface-${match.id}`}
+                data-ui-version="composer-104"
               >
                 {/* ── Borderless typing area inside the unified composer ── */}
                 {/*

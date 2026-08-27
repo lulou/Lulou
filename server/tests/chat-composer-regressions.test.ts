@@ -23,6 +23,7 @@ describe("chat composer regressions", () => {
 
     // The expanded Connection view is the composer rendered on iPhone.
     expect(activeComposerStart).toBeGreaterThan(-1);
+    expect(activeComposer).toContain('data-ui-version="composer-104"');
     expect(activeComposer).toContain('data-testid={`input-message-${match.id}`}');
     expect(activeComposer).toContain('data-testid={`button-mic-input-${match.id}`}');
     expect(activeComposer).toContain('data-testid={`button-ai-starters-${match.id}`}');
