@@ -468,37 +468,71 @@ function BrowseStep({
         <button
           className="w-full rounded-2xl text-start transition-all overflow-hidden relative active:opacity-80"
           style={{
-            background: "linear-gradient(135deg, hsl(350 45% 20%), hsl(350 45% 14%))",
-            border: "1px solid hsl(350 45% 35%)",
-            boxShadow: "0 4px 24px hsl(350 45% 30% / 0.25), inset 0 1px 0 hsl(350 45% 50% / 0.15)",
+            background: "linear-gradient(135deg, #351520 0%, #24101a 54%, #170b13 100%)",
+            border: "1px solid rgba(255, 220, 228, 0.26)",
+            boxShadow: "0 12px 30px rgba(51, 17, 29, 0.28), inset 0 1px 0 rgba(255, 238, 241, 0.16)",
           }}
           onClick={() => onBuy(SUPER_ELEVATE)}
           data-testid="button-super-elevate"
         >
           <div
-            className="absolute top-0 end-0 w-40 h-40 rounded-full opacity-10 pointer-events-none"
-            style={{ background: "radial-gradient(circle, hsl(350 45% 70%), transparent)", transform: `translate(${isRTL ? "-30%" : "30%"}, -30%)` }}
+            className="absolute top-0 end-0 w-48 h-48 rounded-full pointer-events-none"
+            style={{
+              background: "radial-gradient(circle, rgba(255, 210, 220, 0.18), rgba(212, 92, 116, 0.05) 42%, transparent 72%)",
+              transform: `translate(${isRTL ? "-30%" : "30%"}, -30%)`,
+            }}
+          />
+          <div
+            className="absolute bottom-0 start-0 w-56 h-24 pointer-events-none"
+            style={{ background: "radial-gradient(ellipse at bottom left, rgba(212, 92, 116, 0.12), transparent 70%)" }}
           />
           <div className="p-5">
             <div className="flex items-start gap-3">
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5"
-                style={{ background: "hsl(350 45% 52% / 0.25)", border: "1px solid hsl(350 45% 52% / 0.4)" }}
+                style={{
+                  background: "rgba(212, 92, 116, 0.24)",
+                  border: "1px solid rgba(255, 218, 226, 0.34)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
+                }}
               >
-                <Zap className="w-4 h-4 text-primary" />
+                <Zap className="w-4 h-4" style={{ color: "#ffe7ec" }} />
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <p className="font-serif font-bold text-base text-primary">{getPkgLabel(SUPER_ELEVATE.id, t)}</p>
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full text-primary" style={{ background: "hsl(350 45% 52% / 0.2)", border: "1px solid hsl(350 45% 52% / 0.3)" }}>
+                  <p
+                    className="font-serif font-bold text-base"
+                    style={{ color: "#fff4f5", letterSpacing: "-0.01em", textShadow: "0 1px 14px rgba(255, 205, 216, 0.16)" }}
+                  >
+                    {getPkgLabel(SUPER_ELEVATE.id, t)}
+                  </p>
+                  <span
+                    className="text-xs font-semibold px-2.5 py-1 rounded-full"
+                    style={{
+                      color: "#ffe8ed",
+                      background: "rgba(255, 236, 240, 0.12)",
+                      border: "1px solid rgba(255, 224, 231, 0.28)",
+                    }}
+                  >
                     {t("duration_60_min")}
                   </span>
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full text-primary" style={{ background: "hsl(350 45% 52% / 0.2)", border: "1px solid hsl(350 45% 52% / 0.3)" }}>
+                  <span
+                    className="text-xs font-semibold px-2.5 py-1 rounded-full"
+                    style={{
+                      color: "#ffe8ed",
+                      background: "rgba(212, 92, 116, 0.22)",
+                      border: "1px solid rgba(255, 208, 219, 0.30)",
+                    }}
+                  >
                     {t("eight_x_visibility")}
                   </span>
                 </div>
-                <p className="text-sm text-primary/70 mt-1 leading-snug">{getPkgDesc(SUPER_ELEVATE.id, t)}</p>
-                <p className="text-2xl font-bold text-primary mt-3">{SUPER_ELEVATE.price}</p>
+                <p className="text-sm mt-2 leading-relaxed" style={{ color: "rgba(255, 239, 242, 0.74)" }}>
+                  {getPkgDesc(SUPER_ELEVATE.id, t)}
+                </p>
+                <p className="text-2xl font-bold mt-3" style={{ color: "#fff7e9", letterSpacing: "-0.02em" }}>
+                  {SUPER_ELEVATE.price}
+                </p>
               </div>
             </div>
           </div>

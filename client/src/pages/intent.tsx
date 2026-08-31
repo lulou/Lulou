@@ -3128,9 +3128,8 @@ export default function IntentPage() {
           to   { opacity: 1; }
         }
         @keyframes winnerGlow {
-          0%   { box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 0 7px rgba(212,92,116,0.9), 0 0 48px 20px rgba(212,92,116,0.55); }
-          50%  { box-shadow: 0 0 0 4px rgba(255,255,255,1.0), 0 0 0 10px rgba(212,92,116,1.0), 0 0 72px 32px rgba(212,92,116,0.75); }
-          100% { box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 0 7px rgba(212,92,116,0.9), 0 0 48px 20px rgba(212,92,116,0.55); }
+          0%, 100% { box-shadow: 0 16px 34px rgba(0,0,0,0.42), 0 0 0 1px rgba(255,239,242,0.42), 0 0 0 5px rgba(212,92,116,0.16); }
+          50%       { box-shadow: 0 18px 38px rgba(0,0,0,0.44), 0 0 0 1px rgba(255,247,249,0.58), 0 0 0 7px rgba(212,92,116,0.24), 0 0 28px rgba(212,92,116,0.20); }
         }
         @keyframes spinRoomIn {
           from { opacity: 0; }
@@ -3332,7 +3331,7 @@ export default function IntentPage() {
                     style={{
                       position: "absolute", left: x, top: y,
                       width: 44, height: 44, borderRadius: "50%", overflow: "hidden",
-                      boxShadow: "0 0 0 2.5px rgba(255,255,255,0.55), 0 0 20px rgba(188,78,96,0.70), 0 4px 14px rgba(0,0,0,0.50)",
+                      boxShadow: "0 0 0 2px rgba(255,237,241,0.72), 0 5px 16px rgba(0,0,0,0.46), 0 0 18px rgba(188,78,96,0.28)",
                       animation: "counterRotate 5s linear infinite",
                       transformOrigin: "22px 22px",
                     }}
@@ -3370,11 +3369,11 @@ export default function IntentPage() {
                 // the prominent idle presentation.
                 const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
-                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.84 : 0.66;
+                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.88 : 0.72;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
-                const restingTilt = restingSlot === 0 ? 0 : restingSlot < 0 ? 14 : -14;
+                const restingTilt = restingSlot === 0 ? 0 : restingSlot < 0 ? 8 : -8;
                 const restingZ = Math.round(restingCarouselRadius * (restingDistance === 0 ? 0.28 : restingDistance === 1 ? 0.18 : 0.08));
                 const restingVisible = isWheelIdleCardVisible(i);
 
@@ -3382,18 +3381,21 @@ export default function IntentPage() {
                 const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
 
                 const boxShadow = isSelected && !dispersed
-                  ? undefined
+                  ? "0 16px 34px rgba(0,0,0,0.42), 0 0 0 1px rgba(255,239,242,0.42), 0 0 0 5px rgba(212,92,116,0.16)"
                   : depthFactor > 0.75 && !dispersed
-                  ? `0 0 ${Math.round(glowAlpha * 28)}px ${Math.round(glowAlpha * 12)}px rgba(188,78,96,${(glowAlpha * 0.38).toFixed(2)}), 0 8px 24px rgba(0,0,0,0.32)`
-                  : "0 4px 18px rgba(0,0,0,0.22)";
+                  ? `0 ${Math.round(10 + glowAlpha * 8)}px ${Math.round(24 + glowAlpha * 10)}px rgba(0,0,0,0.34), 0 0 ${Math.round(glowAlpha * 18)}px rgba(188,78,96,${(glowAlpha * 0.18).toFixed(2)})`
+                  : "0 8px 22px rgba(0,0,0,0.26)";
 
                 return (
                   <div
                     key={profile.id}
                     style={{
                       width: itemWidth, height: itemHeight,
-                      borderRadius: 20, overflow: "hidden",
+                      borderRadius: 26, overflow: "hidden",
                       position: "absolute", left: 0, top: 0,
+                      border: isSelected && !dispersed
+                        ? "1px solid rgba(255,239,242,0.34)"
+                        : "1px solid rgba(255,255,255,0.14)",
                       transform: isResting
                         ? `translateX(${restingX}px) translateZ(${restingZ}px) rotateY(${restingTilt}deg) scale(${restingScale})`
                         : dispersed && !isSelected
@@ -3413,7 +3415,7 @@ export default function IntentPage() {
                         ? (restingDistance === 0 ? 100 : restingDistance === 1 ? 80 : 60)
                         : Math.round(depthFactor * 100),
                       boxShadow,
-                      animation: isSelected && !dispersed ? "winnerGlow 1.6s ease-in-out infinite" : undefined,
+                      animation: isSelected && !dispersed ? "winnerGlow 2.8s ease-in-out infinite" : undefined,
                       transition: dispersed
                         ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)"
                         : isResting ? "transform 0.35s ease, opacity 0.35s ease, filter 0.35s ease, box-shadow 0.3s ease" : "box-shadow 0.3s ease",
@@ -3422,9 +3424,9 @@ export default function IntentPage() {
                   >
                     <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
                     {/* Subtle bottom depth gradient */}
-                    <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.06) 78%, rgba(0,0,0,0.22) 100%)", pointerEvents: "none" }} />
+                    <div style={{ position: "absolute", inset: 0, borderRadius: 26, background: "linear-gradient(175deg, rgba(8,3,12,0) 48%, rgba(8,3,12,0.08) 70%, rgba(8,3,12,0.34) 100%)", pointerEvents: "none" }} />
                     {isSelected && !dispersed && (
-                      <div style={{ position: "absolute", inset: 0, borderRadius: 20, boxShadow: "inset 0 0 0 2.5px rgba(255,255,255,0.80)", pointerEvents: "none" }} />
+                      <div style={{ position: "absolute", inset: 0, borderRadius: 26, boxShadow: "inset 0 0 0 1px rgba(255,247,249,0.64), inset 0 1px 0 rgba(255,255,255,0.28)", pointerEvents: "none" }} />
                     )}
                   </div>
                 );
