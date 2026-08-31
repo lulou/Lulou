@@ -1,0 +1,226 @@
+The attached live iPhone screenshots prove the previous Intention Wheel visual pass did not achieve the requested result.
+
+Do not treat this as a deployment issue.
+Do not make another tiny shadow/border adjustment.
+Do not create another planning-only task.
+
+Fix the actual active Intention Wheel card implementation.
+
+There are TWO problems:
+
+1. The profile cards still look basically the same as before — animated, game-like, Android-ish.
+2. After the wheel finishes spinning, the cards return in a broken stacked/angled arrangement instead of a clean professional resting layout.
+
+## 1. FIND THE REAL ACTIVE WHEEL CARD IMPLEMENTATION
+
+Search the entire Intention Wheel implementation for every card/carousel/spin render branch.
+
+Identify exactly which JSX/CSS/animation branch produces the attached screenshots on iPhone.
+
+Check:
+- resting wheel cards
+- spinning cards
+- winner/reveal state
+- post-spin reset state
+- locked-spin state
+- free-spin state
+- any duplicate mobile-only branches
+- any alternate animation state components
+
+Do not assume the previous edits hit the active branch.
+
+Prove which component/state is rendered in each of the three screenshots.
+
+## 2. REDESIGN THE PROFILE CARDS MORE SUBSTANTIALLY
+
+The current cards still look like game carousel tiles.
+
+I want them to feel like premium iOS dating profile cards.
+
+Change the actual card presentation more visibly:
+
+- reduce exaggerated 3D tilt
+- remove cartoonish stacked-card angles
+- remove cheap-looking perspective effects
+- reduce neon/glow framing
+- use cleaner iOS depth
+- use softer natural shadow
+- use premium rounded corners
+- improve spacing between cards
+- improve photo cropping
+- make center card feel elevated but elegant
+- make side cards feel partially visible, not dramatically rotated
+- reduce visual clutter
+- keep focus on the profile photography
+
+The resting state should feel more like:
+high-end iOS card carousel
+NOT:
+slot machine / arcade / animated Android carousel
+
+## 3. SPINNING STATE
+
+The spinning animation also needs to feel premium.
+
+Current spin still feels too game-like.
+
+During spinning:
+
+- remove aggressive 3D flipping
+- avoid cards rotating at large angles
+- avoid sudden perspective jumps
+- avoid cheap “slot machine” motion
+- use smooth horizontal/curved movement
+- use subtle scale changes
+- use subtle blur/depth on non-focused cards
+- keep motion fluid and elegant
+- use easing that feels native/premium
+- maintain 60fps where possible
+
+The center/focused card should transition smoothly rather than snap.
+
+Do not change:
+- spin timing logic
+- random selection logic
+- eligibility
+- pricing
+- streak logic
+
+Only change the presentation/animation.
+
+## 4. FIX THE POST-SPIN BROKEN STATE
+
+The final attached screenshot shows the wheel returning with cards stacked/angled incorrectly after the spin finishes.
+
+This must be fixed.
+
+After the reveal completes:
+
+- reset every card transform
+- reset translate/rotate/scale values
+- reset z-index ordering
+- reset blur/opacity
+- reset animation state
+- return to one deterministic resting layout
+- do not leave stale transform values from the spinning animation
+- do not leave cards half-rotated or overlapping incorrectly
+
+The resting layout after a completed spin must look exactly as polished as the initial resting state.
+
+Inspect:
+- animation completion callbacks
+- state transitions
+- transform persistence
+- Framer Motion variants if used
+- transition keys
+- CSS transform inheritance
+- stale inline styles
+- delayed timeouts
+- selected-card state
+- winner state reset
+
+Fix the actual state cleanup rather than masking it with CSS.
+
+## 5. TARGET RESTING LAYOUT
+
+Use a cleaner composition:
+
+Center card:
+- largest
+- nearly straight-on
+- premium shadow
+- subtle scale emphasis
+- no exaggerated tilt
+
+Side cards:
+- smaller
+- partially visible
+- very slight angle or no angle
+- softer opacity/depth
+- positioned cleanly behind/alongside center
+
+Think:
+Apple Wallet / premium iOS carousel / luxury dating app
+
+Not:
+casino wheel / slot machine / arcade carousel
+
+## 6. PHOTO QUALITY
+
+Make sure the active Intention Wheel cards use the best available profile image source.
+
+Do not stretch low-resolution thumbnails.
+
+Use:
+- correct object-fit
+- high-resolution source
+- proper image decoding/loading
+- no unnecessary blur except intentional depth effect on side cards
+
+The cards must look crisp on Retina iPhones.
+
+## 7. IOS VISUAL LANGUAGE
+
+Make the wheel feel:
+- luxurious
+- restrained
+- premium
+- smooth
+- native to iPhone
+
+Reduce:
+- neon
+- glow
+- exaggerated depth
+- large rotation
+- cartoonish movement
+- arcade styling
+
+Increase:
+- clean spacing
+- refined depth
+- smooth easing
+- understated rose highlights
+- crisp images
+- elegant card proportions
+
+## 8. DO NOT CHANGE
+
+Do not change:
+- Intention Wheel eligibility
+- free-spin logic
+- streak logic
+- spin randomness
+- pricing
+- bottom navigation
+- Discover
+- messaging
+- profile logic
+- Super Elevate
+- DNA
+
+Only fix the active Intention Wheel card visuals and animation/reset behavior.
+
+## 9. VALIDATE AGAINST THESE SCREENSHOTS
+
+Before completion, verify all three states:
+
+A. Initial resting state
+- clean premium card carousel
+- no Android/game look
+
+B. While spinning
+- smooth professional iOS motion
+- no exaggerated flipping/tilt
+
+C. After spin completes
+- cards reset to the same clean resting layout
+- no broken overlap
+- no stale rotation
+- no stacked malformed state
+
+Do not report success based only on build/tests.
+
+Inspect the actual rendered wheel at iPhone dimensions.
+
+Implement the changes now.

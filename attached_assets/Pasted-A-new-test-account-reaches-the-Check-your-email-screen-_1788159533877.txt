@@ -1,0 +1,72 @@
+A new test account reaches the “Check your email” screen successfully, but the confirmation email is not being sent.
+
+The live iPhone screenshot shows:
+
+“We couldn't send the verification email right now. Please try again shortly.”
+
+Do not redesign the signup UI.
+
+Diagnose and fix the actual email-verification delivery failure.
+
+Check the complete production flow:
+
+1. Supabase Auth signup response
+2. Whether the user is actually created in auth.users
+3. Email confirmation required setting
+4. Supabase Auth logs for this signup attempt
+5. Supabase email rate limits
+6. SMTP / Resend configuration
+7. RESEND_API_KEY if custom email delivery is involved
+8. Supabase custom SMTP settings
+9. confirmation email template
+10. redirect URL / Site URL / allowed redirect URLs
+11. production domain configuration
+12. resend-confirmation request and exact error returned
+13. whether this specific address has already triggered rate limiting
+
+Do not hide the real backend error behind the generic frontend message during diagnosis.
+
+Add safe diagnostics that classify the failure as:
+
+- rate_limited
+- smtp_failure
+- invalid_email
+- auth_user_creation_failure
+- confirmation_send_failure
+- redirect_configuration
+- provider_error
+- unknown
+
+Do not log passwords, tokens, confirmation links, or secrets.
+
+Important:
+The signup form appears to complete and navigate to the verification screen, so determine whether:
+
+A. the account was created but email delivery failed, or
+B. the account was not fully created.
+
+Also test the “Resend confirmation email” button separately.
+
+For resend:
+- prevent rapid repeated requests
+- show a clear cooldown if Supabase returns a rate limit
+- show success only when Supabase actually accepts the resend
+- do not create another account
+- preserve the existing email address
+
+Check production Supabase/Auth logs around the exact failed request.
+
+If Supabase’s built-in email service is hitting its development/free rate limit, identify that explicitly and tell me whether custom SMTP/Resend needs to be enabled for reliable production delivery.
+
+Do not make unrelated changes.
+
+At the end report only:
+
+1. Exact root cause
+2. Whether the test user was created
+3. Exact Supabase/Auth error
+4. Whether rate limiting is involved
+5. Whether SMTP/Resend configuration is correct
+6. What code/config was changed
+7. What I need to do manually in Supabase/Resend, if anything
+8. Confirmation that a fresh test signup successfully receives the email

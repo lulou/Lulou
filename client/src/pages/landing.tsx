@@ -4,7 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp, Clock, Mic, Video, X, ArrowRight, Users, Calendar, Dna } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase, lastAuthFetchDebug, resetAuthFetchDebug, SUPABASE_URL, SUPABASE_KEY_LEN, AUTH_ENDPOINT } from "@/lib/supabase";
-import { getApprovedCallbackUrl, sendVerificationResend } from "@/lib/auth-helpers";
+import {
+  classifyVerificationDeliveryError,
+  getApprovedCallbackUrl,
+  sendVerificationResend,
+} from "@/lib/auth-helpers";
 import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
 import { useLanguageContext } from "@/contexts/language-context";
@@ -660,6 +664,19 @@ export default function Landing() {
           });
         }
         if (error) {
+          const deliveryFailure = classifyVerificationDeliveryError(error, "signup");
+          console.error("[VERIFY] SIGNUP_DELIVERY_FAILURE", {
+            kind: deliveryFailure.kind,
+            status: deliveryFailure.status,
+            code: deliveryFailure.code,
+            detail: deliveryFailure.safeDetail,
+          });
+          writeDebug({
+            verificationFailureKind: deliveryFailure.kind,
+            verificationFailureStatus: deliveryFailure.status === null ? null : String(deliveryFailure.status),
+            verificationFailureCode: deliveryFailure.code,
+            verificationFailureDetail: deliveryFailure.safeDetail,
+          });
           const raw = makeRaw(error, "signup");
           recordError(raw, "signup");
           const classified = classifyAuthError(error, mode);
@@ -926,8 +943,23 @@ export default function Landing() {
         setResendSent(true);
         setResendCooldown(60);
       } else {
+        console.error("[VERIFY] RESEND_DELIVERY_FAILURE", {
+          kind: result.failure.kind,
+          status: result.failure.status,
+          code: result.failure.code,
+          detail: result.failure.safeDetail,
+        });
+        writeDebug({
+          verificationFailureKind: result.failure.kind,
+          verificationFailureStatus: result.failure.status === null ? null : String(result.failure.status),
+          verificationFailureCode: result.failure.code,
+          verificationFailureDetail: result.failure.safeDetail,
+        });
+        pushDebugError(
+          `[VERIFY] resend ${result.failure.kind} status=${result.failure.status ?? "none"} code=${result.failure.code ?? "none"}: ${result.failure.safeDetail}`,
+        );
         setResendError(result.message);
-        if (result.rateLimit) setResendCooldown(60);
+        setResendCooldown(result.rateLimit ? 60 : 10);
       }
     } finally {
       setResendLoading(false);

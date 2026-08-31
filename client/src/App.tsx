@@ -2003,8 +2003,23 @@ function VerifyEmailGate({
         setResendSent(true);
         setResendCooldown(60);
       } else {
+        console.error("[VERIFY] VERIFY_GATE_RESEND_FAILURE", {
+          kind: result.failure.kind,
+          status: result.failure.status,
+          code: result.failure.code,
+          detail: result.failure.safeDetail,
+        });
+        writeDebug({
+          verificationFailureKind: result.failure.kind,
+          verificationFailureStatus: result.failure.status === null ? null : String(result.failure.status),
+          verificationFailureCode: result.failure.code,
+          verificationFailureDetail: result.failure.safeDetail,
+        });
+        pushDebugError(
+          `[VERIFY] gate resend ${result.failure.kind} status=${result.failure.status ?? "none"} code=${result.failure.code ?? "none"}: ${result.failure.safeDetail}`,
+        );
         setResendError(result.message || t("verify_email_resend_err"));
-        if (result.rateLimit) setResendCooldown(60);
+        setResendCooldown(result.rateLimit ? 60 : 10);
       }
     } finally {
       setResendLoading(false);

@@ -66,6 +66,10 @@ export interface DebugSnapshot {
   signUpErrorMessage: string | null;
   signUpErrorStatus: string | null;
   signUpErrorCode: string | null;
+  verificationFailureKind: string | null;
+  verificationFailureStatus: string | null;
+  verificationFailureCode: string | null;
+  verificationFailureDetail: string | null;
   postSignupNavigateCalled: boolean;
   postSignupProfileCreateStarted: boolean;
   postSignupProfileCreateSucceeded: boolean;
@@ -149,6 +153,10 @@ export const _dbg: DebugSnapshot = {
   signUpErrorMessage: null,
   signUpErrorStatus: null,
   signUpErrorCode: null,
+  verificationFailureKind: null,
+  verificationFailureStatus: null,
+  verificationFailureCode: null,
+  verificationFailureDetail: null,
   postSignupNavigateCalled: false,
   postSignupProfileCreateStarted: false,
   postSignupProfileCreateSucceeded: false,
