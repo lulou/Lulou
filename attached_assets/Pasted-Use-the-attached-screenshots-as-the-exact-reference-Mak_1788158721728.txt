@@ -1,0 +1,122 @@
+Use the attached screenshots as the exact reference.
+
+Make a focused premium iOS polish pass on two areas only:
+
+1. Super Elevate pricing card
+2. Intention Wheel profile cards (including while spinning)
+
+Do not redesign unrelated pages.
+Do not change app logic, pricing logic, wheel logic, or navigation.
+This is a visual/UI refinement pass.
+
+## 1. SUPER ELEVATE CARD — KEEP IT DARK, MAKE TEXT MORE VISIBLE
+
+The dark “Super Elevate” card is the correct direction because it feels premium and clearly signals the best option.
+
+Keep the dark / luxury treatment.
+
+But improve text visibility and readability.
+
+Required changes:
+- Increase contrast of all text on the dark card
+- Make the title “Super Elevate” much easier to read
+- Make the “60 min” and “8x visibility” chips more visible
+- Increase readability of the description text
+- Make the price stand out clearly
+- Keep the premium dark/burgundy look
+- Use elegant contrast, not harsh cheap-looking white blocks
+- Maintain a luxury / old-money / premium iOS feel
+- Ensure all text remains readable on iPhone in real-world brightness
+
+Visual direction:
+- dark plum / burgundy / deep wine card
+- brighter premium text contrast
+- subtle layered glow or lighting
+- clean hierarchy
+- polished, expensive, high-end feel
+
+## 2. INTENTION WHEEL — MAKE PROFILE CARDS FEEL MORE PROFESSIONAL, LUXURY, AND IOS
+
+The current cards inside the Intention Wheel feel too animated / Android-like.
+
+They need to feel:
+- more professional
+- more luxury
+- more premium
+- more iOS-native
+- less cartoonish
+- less game-like
+- less Android/animated
+
+Apply this both:
+- on the visible profile cards in the wheel area
+- during the spinning state / motion state as well
+
+Required improvements:
+- Refine card shape and proportions
+- Improve corner radius so it feels premium iOS, not generic
+- Improve shadows and depth
+- Improve card framing and spacing
+- Improve image presentation so photos feel sharper and more premium
+- Reduce the “animated app” feeling
+- Make the cards feel more like polished luxury profile tiles
+- Improve the center card especially so it feels important and high-end
+- Improve the side cards so they feel elegant and not like cheap carousel cards
+- Keep motion smooth and premium during spinning
+- No harsh or childish animation style
+- Make the spinning state feel refined, glossy, fluid, and expensive
+
+## 3. PHOTO QUALITY / CARD PRESENTATION
+
+For the Intention Wheel profile cards:
+- photos must feel high quality
+- cards should feel crisp and elevated
+- use subtle premium borders/highlights if needed
+- improve depth without making it look busy
+- keep the focus on the person/profile image
+- make the wheel cards feel like premium dating-app UI, not a mini-game
+
+## 4. IOS VISUAL LANGUAGE
+
+Use an iOS-style visual language:
+- cleaner surfaces
+- softer, more natural shadows
+- elegant spacing
+- restrained glow
+- premium depth
+- smooth motion
+- no Android/material-style feeling
+- no overly playful animation styling
+
+Think:
+luxury dating app + premium iPhone UI
+
+## 5. DO NOT CHANGE THESE
+
+Do not change:
+- pricing amounts
+- package names
+- wheel logic
+- spin logic
+- bottom navigation
+- page structure outside these areas
+- existing branding/colors except where needed for readability and premium polish
+
+## 6. IMPLEMENTATION GOAL
+
+Final result should feel:
+- premium
+- luxury
+- polished
+- high-end
+- iOS-native
+- more professional
+- less animated / less Android-like
+
+Implement the changes directly.
+Then run the build and inspect the final iPhone UI carefully.
+Report only:
+1. files changed
+2. exact visual changes made
+3. what was tested
+4. any remaining issue
