@@ -1,0 +1,145 @@
+Implement Task #106 — Make verification emails reach every new member.
+
+The root cause is confirmed:
+
+- Supabase Auth currently has NO custom SMTP configured.
+- The project is using Supabase’s built-in mailer.
+- The built-in mailer cannot reliably deliver confirmation emails to normal external users like georgiageorgia837test1@gmail.com.
+- The resend endpoint can return HTTP 200 even though no actual email is delivered.
+- The exact Gmail test user exists and remains unconfirmed.
+
+Now configure production-grade SMTP for Supabase Auth using Resend.
+
+Do not create another planning-only task.
+
+## 1. USE RESEND AS SUPABASE CUSTOM SMTP
+
+First inspect the existing Lulou Resend setup and confirm:
+
+- RESEND_API_KEY exists or identify if it needs to be added
+- verified sending domain
+- current From address used by Lulou
+- whether luloudating.com or another Lulou domain is verified in Resend
+- correct sender identity for authentication emails
+
+Do not expose secrets.
+
+If RESEND_API_KEY is missing, ask for it through workspace Secrets only.
+
+## 2. CONFIGURE SUPABASE AUTH SMTP
+
+Configure Supabase Auth custom SMTP with the correct Resend SMTP settings.
+
+Verify:
+
+- SMTP host
+- SMTP port
+- SMTP username
+- SMTP password
+- sender email
+- sender name
+- SSL/TLS requirements
+
+Use the officially supported Resend SMTP configuration.
+
+Do not hardcode credentials in source code.
+
+## 3. KEEP EXISTING EMAIL TEMPLATES
+
+Do not replace the existing Lulou Supabase Auth templates.
+
+Preserve:
+
+- confirmation/signup email
+- magic link
+- password reset
+- invite
+- reauthentication
+- change email
+
+Only switch the delivery transport to proper custom SMTP.
+
+## 4. CHECK DOMAIN / DNS READINESS
+
+Confirm the Lulou sending domain is correctly verified in Resend.
+
+Check:
+
+- SPF
+- DKIM
+- domain verification
+- sender address
+- any required DNS records
+
+If something is missing, tell me exactly what manual action is required.
+
+## 5. TEST THE EXACT GMAIL ACCOUNT
+
+After custom SMTP is configured, resend verification to:
+
+georgiageorgia837test1@gmail.com
+
+Do not create another account.
+
+Use the existing unconfirmed user.
+
+Verify:
+
+1. Supabase accepts the resend.
+2. Resend receives the message.
+3. Resend reports delivered/accepted status.
+4. The email actually reaches Gmail.
+5. The confirmation link opens successfully.
+6. email_confirmed_at becomes non-null after confirmation.
+7. The user can sign in and continue onboarding.
+
+## 6. IMPROVE FRONTEND ERROR TRUTHFULNESS
+
+Preserve the current verification page design.
+
+But make sure the UI distinguishes:
+
+- resend accepted
+- rate limited
+- SMTP/provider failure
+- invalid email
+- unknown failure
+
+Do not show success unless Supabase actually accepts the resend.
+
+If custom SMTP is unavailable or misconfigured, show a safe provider error rather than a generic misleading message.
+
+## 7. DO NOT TOUCH UNRELATED FEATURES
+
+Do not change:
+
+- signup UI layout
+- onboarding flow
+- Discover
+- Intention Wheel
+- messaging
+- payments
+- profile logic
+- matching logic
+
+This task is only about reliable production verification-email delivery.
+
+## 8. IMPLEMENT AND VERIFY
+
+After configuration:
+
+- verify Supabase Auth SMTP settings are active
+- verify Resend domain is healthy
+- run one resend to the existing Gmail test user
+- inspect Resend delivery logs
+- confirm actual inbox delivery
+- confirm successful account verification
+
+At the end report only:
+
+1. Whether Resend custom SMTP is now active in Supabase
+2. Exact sender address/name
+3. Whether domain verification/DNS is complete
+4. Whether the exact Gmail received the email
+5. Whether the account was successfully confirmed
+6. Any manual action I still need to perform

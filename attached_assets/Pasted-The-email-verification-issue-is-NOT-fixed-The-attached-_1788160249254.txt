@@ -1,0 +1,157 @@
+The email verification issue is NOT fixed.
+
+The attached live iPhone screenshot still shows:
+
+“We couldn't send the verification email right now. Please try again shortly.”
+
+And no confirmation email has arrived for:
+
+georgiageorgia837test1@gmail.com
+
+Do not tell me the email flow is working based on a temporary test inbox.
+
+Diagnose THIS exact production user and THIS exact resend attempt.
+
+## 1. CHECK THE EXACT USER
+
+In Supabase Auth, find the user for:
+
+georgiageorgia837test1@gmail.com
+
+Report safely:
+
+- whether the auth user exists
+- created_at
+- email_confirmed_at
+- confirmation_sent_at
+- whether the account is currently confirmed
+- whether there are duplicate auth users for this email
+
+Do not expose tokens or confirmation links.
+
+## 2. TRACE THE ACTUAL RESEND REQUEST
+
+Tap/use the same production resend flow that the iPhone app uses.
+
+Capture the exact Supabase response:
+
+- HTTP status
+- error code
+- error message
+- rate-limit fields if present
+
+Do not collapse it into the generic frontend error.
+
+Classify the failure exactly.
+
+## 3. CHECK SUPABASE AUTH EMAIL LOGS
+
+Inspect the production Supabase Auth logs around the current failed resend attempt for this account.
+
+Look specifically for:
+
+- rate limit
+- email provider failure
+- SMTP failure
+- bounced email
+- suppressed recipient
+- rejected recipient
+- invalid sender
+- domain/authentication problem
+- template failure
+- confirmation link generation error
+
+If the available Supabase management token cannot read those logs, say that explicitly and use the SMTP/provider logs instead.
+
+## 4. CHECK EMAIL DELIVERY PROVIDER
+
+Determine whether Lulou is currently using:
+
+- Supabase built-in email delivery
+- custom SMTP
+- Resend
+
+Do not guess.
+
+If Resend/custom SMTP is configured, check the provider delivery logs for this exact recipient and timestamp.
+
+Determine whether the message was:
+
+- accepted
+- delivered
+- bounced
+- blocked
+- suppressed
+- rejected
+- never submitted
+
+If the app is still relying on Supabase's built-in development email sender, identify that clearly.
+
+## 5. CHECK RATE LIMITING
+
+The previous test said a synthetic inbox worked, but this real address still fails.
+
+Check whether this exact email has hit:
+
+- Supabase resend cooldown
+- per-address rate limit
+- project-wide email rate limit
+- abuse protection
+- repeated signup/resend limit
+
+If rate limiting is the cause, show the actual retry-after/cooldown and update the UI to display it accurately.
+
+Do not show “try again shortly” when a known cooldown exists.
+
+## 6. CHECK WHETHER THE EMAIL IS BEING SUPPRESSED
+
+Because repeated test signups/resends have occurred, check whether this address is on any provider suppression/bounce list.
+
+Also check:
+
+- spam/bounce status
+- sender reputation/rejection
+- Gmail rejection
+- duplicate/test-address handling
+
+Do not simply send another email repeatedly.
+
+## 7. VERIFY THE FRONTEND RESULT IS TRUTHFUL
+
+The iPhone currently shows an error.
+
+Make sure:
+
+- success is shown only when Supabase actually accepts the resend
+- rate-limit errors show a cooldown
+- provider failures show a safe provider-error message
+- resend cannot be hammered repeatedly
+- the account is not recreated
+- the same email remains attached to the existing unconfirmed user
+
+## 8. DO NOT CALL THIS FIXED UNTIL THIS EXACT ADDRESS RECEIVES IT
+
+Final validation must use:
+
+georgiageorgia837test1@gmail.com
+
+Do not use another temporary inbox as proof.
+
+The issue is only fixed when:
+
+1. The resend request returns success.
+2. The confirmation email actually arrives at this Gmail address.
+3. The link opens successfully.
+4. The Supabase user becomes confirmed.
+5. The user can sign in and continue onboarding.
+
+At the end report only:
+
+1. Whether this exact auth user exists
+2. Exact current Supabase/Auth error for this address
+3. Whether rate limiting is involved
+4. Which email provider is actually being used
+5. Whether the provider accepted/delivered/rejected the email
+6. Exact root cause
+7. What was changed
+8. Whether georgiageorgia837test1@gmail.com successfully received the confirmation email

@@ -1,0 +1,294 @@
+The latest Intention Wheel is improved, but the attached live iPhone screenshots still show a major visual problem:
+
+It still looks like a game/carousel experience rather than a premium dating feature.
+
+Do not make another small tweak.
+
+The next pass should DE-GAMEIFY the entire Intention Wheel.
+
+The target is:
+“If Hinge introduced a daily curated connection feature, how would it feel?”
+
+Do not copy Hinge branding.
+Use Hinge as the benchmark for restraint, maturity, photo-first hierarchy, typography, and iOS polish.
+
+## 1. REMOVE THE “SLOT MACHINE” FEEL
+
+The current large center card with side cards floating behind it still looks like a spinning game.
+
+Redesign the resting state so it feels more editorial and curated.
+
+Preferred direction:
+
+- one dominant profile image/card
+- minimal side peeks
+- much less visible carousel machinery
+- no obvious “deck” arrangement
+- no giant dark stage around the cards
+- photography should dominate
+- people should feel like the product, not the wheel mechanic
+
+The main card should look like a premium dating profile preview, not a carousel tile.
+
+## 2. REDUCE THE DARK PURPLE GAME SCREEN
+
+The full-screen dark purple background still makes the page feel like a mobile game.
+
+Keep a luxury evening identity, but introduce more tonal variation and structure.
+
+Use:
+- near-black / warm charcoal
+- deep wine accents
+- subtle surface layers
+- soft section separation
+- almost no obvious purple glow
+
+Avoid one huge uninterrupted dark-purple canvas.
+
+The page should feel like a luxury iOS interface, not a game level.
+
+## 3. REDESIGN “TONIGHT’S POSSIBLE CONNECTIONS”
+
+The small circular avatars still look like game inventory/status tokens.
+
+Replace them with a more premium presentation.
+
+Options:
+- small rounded-rectangle portrait previews
+- overlapping editorial mini-cards
+- subtle horizontal profile strip
+
+Do NOT use glowing circles.
+
+Do NOT make them look like collectible tokens.
+
+Keep the section understated.
+
+## 4. CHANGE THE MAIN ACTION LANGUAGE VISUALLY
+
+Even if the action still says Spin internally, the UI should not visually scream “spin a wheel”.
+
+The CTA should feel like:
+- Reveal tonight’s connection
+- Find tonight’s connection
+- Discover tonight’s connection
+
+Do not necessarily change the actual wording/business logic unless needed, but visually the action should feel like a dating CTA, not an arcade control.
+
+Use:
+- elegant pill or rounded rectangle
+- no circular casino-style control
+- no surrounding halo
+- no oversized icon
+- subtle Lulou accent
+
+## 5. COMPLETELY REDESIGN THE SPINNING SCREEN
+
+The current full-screen spinning screenshot still looks like a game animation.
+
+There is too much empty dark space and the floating cards feel like slot-machine reels.
+
+Make the transition much more editorial.
+
+Preferred concept:
+
+When activated:
+- background gently dims
+- one main card smoothly transitions through candidates
+- candidates crossfade/slide with subtle depth
+- no huge orbit
+- no floating carousel in empty space
+- no dramatic 3D motion
+- no “wheel spinning” spectacle
+
+Think:
+Apple Photos / Hinge profile transition / luxury editorial reveal
+
+NOT:
+casino reel / roulette / slot machine
+
+The user should feel:
+“Lulou is selecting my curated connection.”
+
+Not:
+“I am spinning for a prize.”
+
+## 6. REDESIGN “FINDING TONIGHT’S CONNECTION…”
+
+The current text sitting alone under the spinning cards feels game-like.
+
+Use a more refined loading state.
+
+Possible direction:
+
+“Finding your connection…”
+
+or equivalent existing copy presented with:
+- small elegant typography
+- subtle progress cue
+- minimal animation
+- no dramatic tracking
+- no huge empty space
+
+Keep existing product copy if necessary, but improve presentation significantly.
+
+## 7. WINNER / RESULT SHOULD FEEL LIKE AN INTRODUCTION
+
+After selection, transition into a profile-focused reveal.
+
+The final connection should feel like:
+“Meet [Name]”
+
+rather than a prize.
+
+Use:
+- large sharp profile photo
+- name / age
+- subtle compatibility or context if already available
+- elegant Open ❤️ / Close 🌙 actions if appropriate to existing flow
+- minimal special effects
+
+No sparkles.
+No glow explosion.
+No prize animation.
+
+## 8. POST-SPIN RESTING STATE
+
+The final attached screenshot still returns to a carousel with three visible large panels.
+
+Make the reset state deterministic and editorial.
+
+After the result closes:
+- same polished resting layout as initial state
+- no leftover blur
+- no awkward blank side card
+- no dark empty card
+- no stale transform
+- no oversized center framing
+- no inconsistent spacing
+
+The third screenshot shows a dark/blank right-side card.
+Fix that.
+
+Every visible card must either:
+- contain a valid profile image, or
+- not render at all
+
+Never leave a blank dark card in the carousel.
+
+## 9. IMAGE QUALITY
+
+Photos still need to be treated as the hero.
+
+Use:
+- high-resolution sources
+- correct crop
+- no unnecessary blur on the focused profile
+- subtle depth blur only on background/transition cards
+- strong Retina sharpness
+
+The center card must never look soft or compressed.
+
+## 10. TYPOGRAPHY
+
+The page still uses too much spaced uppercase text.
+
+Reduce that.
+
+Use:
+- more sentence case
+- cleaner hierarchy
+- less artificial tracking
+- stronger serif/sans relationship
+- more natural iOS typography rhythm
+
+“Tonight’s possible connections” should feel like editorial supporting text, not a game HUD label.
+
+## 11. HEADER / STATUS
+
+The speaker button and progress indicators still feel like game HUD elements.
+
+Make them quieter.
+
+Use:
+- smaller iOS-style sound control
+- subtle progress text
+- less visual grouping
+- no thick circular container unless absolutely necessary
+
+## 12. FULL-PAGE COMPOSITION
+
+The entire page should be visually rebalanced.
+
+Current problem:
+too much attention on mechanics.
+
+Target:
+more attention on people and curation.
+
+The visual hierarchy should be:
+
+1. Intention Wheel / curated connection concept
+2. Hero profile imagery
+3. Explanation / possible connections
+4. Main CTA
+5. Progress/streak
+6. Navigation
+
+Not:
+1. game mechanic
+2. carousel
+3. spin button
+4. progress meter
+
+## 13. DO NOT CHANGE LOGIC
+
+Do not change:
+- candidate selection
+- randomization
+- streak rules
+- free spin logic
+- daily limits
+- unlock rules
+- purchases
+- Supabase
+- navigation
+- Discover
+- messaging
+- DNA
+- matching logic
+
+Only redesign the Intention Wheel experience visually.
+
+## 14. IMPORTANT ACTIVE RENDERERS
+
+You already identified:
+1. page-level resting carousel
+2. SpinRoom RAF-driven renderer
+
+Both must be redesigned together.
+
+Do not leave the spinning renderer visually disconnected from the resting page.
+
+## 15. VALIDATE AGAINST THESE LIVE SCREENSHOTS
+
+Before completion compare:
+
+A. Resting state
+Current screenshot still feels like a game carousel.
+
+B. Spin state
+Current screenshot still feels like a slot-machine animation.
+
+C. Post-spin state
+Current screenshot still contains awkward card spacing and a blank/dark card.
+
+Fix all three.
+
+Do not report completion based only on build/tests.
+
+The final standard is:
+
+“Would this look believable as a premium feature inside Hinge or another top-tier iOS dating app?”
+
+If not, keep refining.

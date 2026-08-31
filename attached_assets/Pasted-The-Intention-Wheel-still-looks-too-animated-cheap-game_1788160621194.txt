@@ -1,0 +1,318 @@
+The Intention Wheel still looks too animated, cheap, game-like, and Android-style overall.
+
+The issue is NOT just the profile-card geometry anymore.
+
+I want a full visual redesign of the entire Intention Wheel page so it feels like a top-tier premium iOS dating feature — the level of polish you would expect if a product like Hinge designed an “Intention Wheel”.
+
+Do not copy Hinge branding or exact UI.
+
+Use Hinge only as a benchmark for:
+- restraint
+- premium spacing
+- typography hierarchy
+- photo-first design
+- iOS polish
+- clean motion
+- mature dating-app feel
+
+The current Intention Wheel looks too much like:
+- a casino feature
+- a game
+- an animated Android app
+- a neon carousel
+
+I want it to feel:
+- sophisticated
+- luxury
+- elegant
+- mature
+- premium
+- iOS-native
+- editorial
+- dating-focused, not game-focused
+
+## 1. REMOVE THE CHEAP/GAME-LIKE VISUAL LANGUAGE
+
+Reduce or remove:
+
+- large neon glows
+- pulsing halos
+- floating sparkles
+- excessive pink ambient light
+- exaggerated 3D card effects
+- arcade-like spin presentation
+- cartoonish visual feedback
+- heavy dark-gradient gaming aesthetic
+- unnecessary decorative dots/effects
+- overly dramatic shadows
+- glowing borders everywhere
+
+Do not make the page visually dead.
+
+Keep subtle atmosphere, but make it restrained and expensive.
+
+Think:
+luxury editorial dating app
+
+NOT:
+casino / slot machine / mobile game
+
+## 2. REDESIGN THE PAGE HIERARCHY
+
+The entire screen should have a stronger, calmer structure.
+
+Create a cleaner hierarchy:
+
+### Header
+- Intention Wheel title
+- subtle sound control
+- subtle progress indicator
+- more breathing room
+- no cluttered game HUD feeling
+
+### Main profile area
+- large premium profile cards
+- photography is the hero
+- clean spacing around cards
+- restrained depth
+- no neon frame competing with the person
+
+### Possible connections
+- simplify this section visually
+- smaller elegant thumbnails
+- cleaner caption
+- no excessive glow rings
+- make it feel like a curated preview, not a game inventory
+
+### Primary action
+- redesign the Spin / Unlock control so it feels like a premium dating-app CTA
+- not like a giant arcade button
+
+### Progress/streak
+- make Day 1 / Day 2 / Day 3 progress much cleaner
+- less like a game progression bar
+- more like subtle premium status/progress information
+
+## 3. BACKGROUND
+
+The current dark purple/black background is too game-like.
+
+Keep Lulou’s dark luxury identity, but refine it.
+
+Use:
+- deep warm plum / charcoal / near-black
+- subtle tonal gradients
+- extremely restrained rose undertones
+- almost no visible neon glow
+
+Avoid:
+- bright radial glow behind every component
+- saturated purple haze
+- obvious game-screen gradients
+
+The background should feel like a luxury evening interface.
+
+## 4. TYPOGRAPHY
+
+Improve typography throughout.
+
+The title and labels should feel editorial and premium.
+
+Use:
+- stronger hierarchy
+- fewer all-caps labels
+- more elegant letter spacing
+- cleaner secondary text
+- improved contrast
+- less “game UI” copy styling
+
+For example:
+
+“Tonight’s Possible Connections”
+
+should feel like a refined dating feature label, not a game section header.
+
+Reduce excessive tracking where it feels artificial.
+
+## 5. PROFILE CARDS
+
+Continue the card improvements, but push them further.
+
+The cards should feel like top-tier profile photography.
+
+Center card:
+- larger
+- straight-on
+- elegant 26–30px corner radius
+- minimal framing
+- subtle soft shadow
+- crisp high-resolution image
+- no giant neon outline
+
+Side cards:
+- partially visible
+- minimal or zero rotation
+- slightly reduced scale
+- lower contrast or mild blur only if needed
+- clean layering
+
+No dramatic perspective.
+
+No “deck of cards” game look.
+
+## 6. SPINNING STATE
+
+The spinning experience should feel elegant and cinematic, not arcade-like.
+
+Use:
+- smooth inertial movement
+- refined easing
+- subtle focus shifts
+- gentle scale transitions
+- minimal rotation
+- clean depth
+- no flashy flipping
+- no abrupt snapping
+- no oversized glow pulses
+
+Think Apple-quality animation.
+
+The user should feel like they are revealing a curated connection, not pulling a slot machine.
+
+## 7. WINNER / REVEAL STATE
+
+The current reveal screen also feels too game-like.
+
+Redesign it to feel more intimate and premium.
+
+The selected profile should:
+- sit cleanly centered
+- have strong photo focus
+- minimal surrounding effects
+- subtle rose accent
+- elegant transition into the result
+
+Remove:
+- excessive sparkles
+- large empty glowing space
+- arcade-style reveal effects
+
+Make the reveal feel like:
+“Here is tonight’s connection.”
+
+Not:
+“You won a prize.”
+
+## 8. SPIN BUTTON
+
+The current large circular pink Spin button feels very game-like.
+
+Redesign it.
+
+Possible direction:
+- premium pill/button
+- cleaner rounded rectangle
+- subtle Lulou accent
+- less glow
+- less oversized
+- no arcade ring around it
+
+It should still be obvious and satisfying to press, but look like a dating CTA rather than a casino button.
+
+Keep the existing Spin / Unlock logic exactly the same.
+
+## 9. PROGRESS / STREAK UI
+
+Redesign:
+- 0/10
+- Day 2
+- Day 3
+- “Like 10x daily for 3 days to earn a free spin”
+
+Make it much more subtle and elegant.
+
+Use:
+- thin progress lines
+- small labels
+- restrained accent colour
+- clear spacing
+
+Avoid game-style progression indicators.
+
+## 10. SOUND CONTROL / STATUS DOTS
+
+Make the speaker icon and progress dots feel iOS-native.
+
+Use:
+- lighter visual weight
+- smaller controls
+- subtle translucency
+- cleaner spacing
+- no thick outlined circular buttons
+
+## 11. IOS DESIGN PRINCIPLES
+
+Apply these consistently across the entire page:
+
+- fewer visible borders
+- fewer glowing outlines
+- restrained shadows
+- consistent corner radii
+- excellent alignment
+- more negative space
+- thinner icons
+- simpler controls
+- premium typography
+- touch targets that feel native
+- subtle feedback instead of flashy animation
+- photography and people remain the visual focus
+
+## 12. DO NOT CHANGE PRODUCT LOGIC
+
+Do not change:
+
+- spin randomness
+- streak rules
+- eligibility
+- daily limits
+- unlock rules
+- Intention Wheel candidate selection
+- pricing
+- navigation
+- Supabase logic
+- matching behavior
+- Discover
+- messaging
+- DNA
+
+This is a full visual redesign of the Intention Wheel experience only.
+
+## 13. IMPORTANT — REDESIGN THE ACTIVE RENDERERS
+
+You previously identified two active implementations:
+
+1. Page-level resting carousel
+2. SpinRoom RAF-driven spinning/winner renderer
+
+The new design must apply consistently to BOTH.
+
+Do not redesign only one branch.
+
+The resting state, spinning state, and result/reveal state must feel like one coherent premium iOS product.
+
+## 14. FINAL STANDARD
+
+Ask yourself:
+
+“If this exact Intention Wheel feature existed inside a top-tier iPhone dating app like Hinge, would this screen feel professionally designed enough to ship?”
+
+If the answer is no, keep refining.
+
+The final result should no longer look like an animated mini-game.
+
+It should feel like a premium, exclusive dating experience.
+
+Implement this visual redesign directly.
+
+Do not create another planning-only task.
+Do not touch unrelated features.

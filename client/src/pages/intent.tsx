@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, Component, type ReactNode, type ErrorInfo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck, Heart } from "lucide-react";
+import { Loader2, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck, Heart } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,7 +31,7 @@ import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
 import { setServiceWorkerReloadBlocked } from "@/lib/service-worker";
 import { canApplyWheelCandidateUpdate, resolveWheelDismissal } from "@/lib/wheel-presentation-guard";
 import { canStartHaloSend, SPIN_ROOM_TIMING } from "@/lib/spin-room-timing";
-import { getWheelRestingDistance, isWheelIdleCardVisible } from "@/lib/wheel-idle-presentation";
+import { getWheelRestingDistance } from "@/lib/wheel-idle-presentation";
 import { formatDistance, useUnits } from "@/lib/units";
 import type { CandidateFeed } from "@/lib/candidate-feed";
 
@@ -120,7 +120,7 @@ class IntentResultBoundary extends Component<
           padding: "32px 28px",
           background: "rgba(13,8,18,0.96)",
         }}>
-          <p style={{ fontSize: 32, marginBottom: 12 }}>🌙</p>
+          <Moon style={{ width: 30, height: 30, marginBottom: 12, color: "rgba(226,176,164,0.82)" }} />
           <p style={{
             fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.80)",
             textAlign: "center", marginBottom: 6,
@@ -178,9 +178,8 @@ class IntentResultBoundary extends Component<
 // Cards rotate in the positive-angle direction (counter-clockwise in math coords,
 // visually left-to-right across the front).
 const ORBIT_N     = 5;
-const ORBIT_RX    = 130;   // px — horizontal radius
-const ORBIT_RY    = 15;    // px — vertical radius (subtle tilt-plane depth cue)
-const ORBIT_SPEED_FAST = 4.2;  // rad/s — normaliser for glow intensity
+const ORBIT_RX    = 18;    // px — quiet editorial slide between portraits
+const ORBIT_RY    = 0;     // flat plane: no visible orbit or reel arc
 
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -555,15 +554,15 @@ function MatchRevealOverlay({
           background: "linear-gradient(180deg, rgba(4,1,8,0.80) 0%, rgba(10,3,16,0.44) 42%, rgba(4,1,8,0.94) 100%)",
         }} />
         <div className="absolute inset-0" style={{
-          background: "radial-gradient(ellipse 78% 52% at 50% 44%, rgba(188,78,96,0.34) 0%, transparent 68%)",
+          background: "linear-gradient(180deg, rgba(40,24,33,0.08), rgba(16,8,13,0.18))",
         }} />
       </div>
 
       {/* ── Layer 1 — confetti burst ── */}
-      <ConfettiBurst active={true} />
+      {/* Confetti intentionally omitted: the reveal should feel like an introduction, not a prize. */}
 
       {/* ── Layer 2 — floating ambient particles ── */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+      {false && <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
         {REVEAL_PARTICLES.map(p => (
           <div key={p.id} style={{
             position: "absolute",
@@ -575,7 +574,7 @@ function MatchRevealOverlay({
             animation: `floatParticle ${p.dur}s ${p.delay}s ease-in-out infinite`,
           }} />
         ))}
-      </div>
+      </div>}
 
       {/* ── Layer 3 — full-height scrollable identity card (name at very top) ── */}
       {/* Hierarchy: Name → Details → Photo → Badge → Elevate → Tagline → CTAs */}
@@ -837,42 +836,41 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const bubbleSize = vw < 380 ? 30 : 36;
-  const bubbleGap  = vw < 380 ? 5  : 7;
-  const maxCount   = vw < 380 ? 5  : 6;
+  const cardWidth = vw < 380 ? 62 : 68;
+  const cardHeight = vw < 380 ? 84 : 92;
+  const cardGap = 8;
+  const maxCount = 3;
   const preview = useMemo(() => items.slice(0, Math.min(maxCount, items.length)), [items, maxCount]);
   if (preview.length < 2) return null;
 
   return (
     <div
       style={{
-        width: "100%", padding: "4px 16px 8px",
+        width: "100%", padding: "4px 24px 10px",
         animation: "previewFadeIn 0.7s 0.2s ease both",
       }}
     >
       <p style={{
-        fontSize: 9, fontWeight: 800, letterSpacing: "0.22em",
-        textTransform: "uppercase", textAlign: "center",
-        color: "rgba(255,255,255,0.56)",
-        marginBottom: 10, opacity: 0.7,
+        fontSize: 12, fontWeight: 500, letterSpacing: 0,
+        textAlign: "start",
+        color: "rgba(255,239,235,0.64)",
+        marginBottom: 10, opacity: 0.82,
       }}>
         {t("tonight_connections")}
       </p>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: bubbleGap }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "flex-start", gap: cardGap, overflow: "hidden" }}>
         {preview.map((profile, i) => (
           <div
             key={profile.userId}
-            style={{ flexShrink: 0, animation: `previewBubbleIn 0.45s ${0.08 + i * 0.06}s ease both` }}
+            style={{ flexShrink: 0, width: cardWidth, animation: `previewBubbleIn 0.45s ${0.08 + i * 0.06}s ease both` }}
             onClick={() => onTap?.(profile)}
             data-testid={`button-preview-bubble-${i}`}
           >
             <div style={{
-              width: bubbleSize, height: bubbleSize, borderRadius: "50%", overflow: "hidden",
+              width: cardWidth, height: cardHeight, borderRadius: 16, overflow: "hidden",
               position: "relative",
-              boxShadow: onTap
-                ? "0 2px 10px rgba(188,78,96,0.22), 0 1px 4px rgba(0,0,0,0.18)"
-                : "0 2px 8px rgba(188,78,96,0.14), 0 1px 4px rgba(0,0,0,0.14)",
-              border: "1.5px solid rgba(212,92,116,0.22)",
+              boxShadow: "0 8px 20px rgba(12,7,9,0.22)",
+              border: "1px solid rgba(255,241,236,0.12)",
               cursor: onTap ? "pointer" : "default",
               transition: "transform 0.12s ease",
             }}>
@@ -881,22 +879,10 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
             </div>
           </div>
         ))}
-        {items.length > maxCount && (
-          <div style={{
-            width: bubbleSize, height: bubbleSize, borderRadius: "50%", flexShrink: 0,
-            background: "rgba(255,255,255,0.08)",
-            border: "1.5px solid rgba(212,92,116,0.18)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.58)" }}>
-              +{items.length - maxCount}
-            </span>
-          </div>
-        )}
       </div>
       <p style={{
-        fontSize: 10, textAlign: "center", marginTop: 8, fontStyle: "italic",
-        color: "rgba(255,255,255,0.46)",
+        fontSize: 10, textAlign: "start", marginTop: 8,
+        color: "rgba(255,244,239,0.38)",
       }}>
         {t("spin_random_desc")}
       </p>
@@ -1011,7 +997,7 @@ function WheelDebugPanel() {
       }}
     >
       <div style={{ color: "rgba(212,92,116,0.9)", fontWeight: 700, marginBottom: 3 }}>
-        🔧 WHEEL LOG · {__COMMIT_HASH__} · {entries.length} events
+        WHEEL LOG · {__COMMIT_HASH__} · {entries.length} events
       </div>
       {!hasData && (
         <div style={{ color: "#555", fontStyle: "italic" }}>— no events yet —</div>
@@ -1507,24 +1493,21 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 118 : viewportW < 430 ? 136 : ITEM_WIDTH;
+  const itemWidth  = viewportW < 380 ? 228 : viewportW < 430 ? 244 : 260;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
   // transforms remain unchanged below.
-  const restingCarouselRadius = Math.min(
-    radius,
-    Math.max(116, Math.floor(viewportW * 0.36)),
-  );
+  const restingCarouselRadius = Math.min(radius, Math.max(116, Math.floor(viewportW * 0.36)));
   const carouselRadius = (isSpinning || dispersed) ? radius : restingCarouselRadius;
   // Explicit resting slots prevent the 72° five-card ring from turning side
   // portraits into foreshortened strips on narrow phones. Side cards use
   // uniform scale plus a modest Y tilt, preserving their portrait ratio.
-  const restingSideOffset = Math.min(102, Math.max(92, Math.floor(viewportW * 0.26)));
-  const restingOuterOffset = Math.min(140, Math.max(116, Math.floor(viewportW * 0.36)));
+  const restingSideOffset = 0;
+  const restingOuterOffset = 0;
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
-  const wheelBufferY = isCompact ? 110 : viewportW < 380 ? 144 : 170;
+  const wheelBufferY = isCompact ? 46 : viewportW < 380 ? 56 : 64;
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -1805,6 +1788,8 @@ export default function IntentPage() {
     setReplySavedFor(null);
     setShowProfile(false);
     setDispersed(false);
+    angleRef.current = 0;
+    setAngle(0);
     setSelectedIndex(null);
     setSelectedProfile(null);
     setShowConfetti(false);
@@ -1875,6 +1860,9 @@ export default function IntentPage() {
   useEffect(() => {
     if (!showSpinRoom) {
       cancelAnimationFrame(orbitRafRef2.current);
+      orbitCardRefs.current.forEach((el) => {
+        if (el) el.removeAttribute('style');
+      });
       spinPhaseRef.current     = 'idle';
       orbitSpeedRef2.current   = 0;
       orbitAngleRef2.current   = 0;
@@ -1912,23 +1900,23 @@ export default function IntentPage() {
       el.style.position = 'absolute';
       el.style.left = '50%';
       el.style.top = '50%';
-      el.style.width = '152px';
-      el.style.height = '228px';
+      el.style.width = '220px';
+      el.style.height = '320px';
       el.style.visibility = 'visible';
-      el.style.borderRadius = '18px';
+      el.style.borderRadius = '28px';
       el.style.boxShadow = '';
       el.style.willChange = 'transform, opacity, filter, box-shadow, left, top, width, height';
       const theta  = orbitAngleRef2.current + (2 * Math.PI / N) * i;
       const sinT   = Math.sin(theta);
       const cosT   = Math.cos(theta);
       const depth  = (sinT + 1) / 2;
-      const scale  = (0.55 + depth * 0.45).toFixed(3);
+      const scale  = (0.985 + depth * 0.015).toFixed(3);
       const x      = (cosT * ORBIT_RX).toFixed(1);
       const y      = (sinT * ORBIT_RY).toFixed(1);
       el.style.transition = 'none';
       el.style.transform  = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(${scale})`;
-      el.style.opacity    = (0.25 + depth * 0.75).toFixed(3);
-      el.style.filter     = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
+      el.style.opacity    = (0.04 + Math.pow(depth, 8) * 0.96).toFixed(3);
+      el.style.filter     = '';
       el.style.zIndex     = String(Math.round(depth * 100));
     }
     orbitFrontCandRef.current = 0; // card 0 is at front initially
@@ -2030,21 +2018,19 @@ export default function IntentPage() {
           const sinT2  = Math.sin(theta2);
           const cosT2  = Math.cos(theta2);
           const depth2 = (sinT2 + 1) / 2;
-          const scale2 = (0.55 + depth2 * 0.45).toFixed(3);
+          const scale2 = (0.985 + depth2 * 0.015).toFixed(3);
           const x2     = (cosT2 * ORBIT_RX).toFixed(1);
           const y2     = (sinT2 * ORBIT_RY).toFixed(1);
           el.style.transform = `translate(calc(-50% + ${x2}px), calc(-50% + ${y2}px)) scale(${scale2})`;
-          el.style.opacity   = (0.25 + depth2 * 0.75).toFixed(3);
-          el.style.filter    = depth2 < 0.92 ? `blur(${((1 - depth2) * 8).toFixed(1)}px)` : '';
+          el.style.opacity   = (0.04 + Math.pow(depth2, 8) * 0.96).toFixed(3);
+          el.style.filter    = '';
           el.style.zIndex    = String(Math.round(depth2 * 100));
           if (depth2 > frontDepth2) { frontDepth2 = depth2; frontI2 = i; }
         }
         orbitFrontCandRef.current = frontI2;
-        // Glow dims as orbit slows
+        // Keep the stage tonal as the orbit slows; the cards provide the motion.
         if (orbitGlowRef.current) {
-          const frac2 = 1 - easeApproach;
-          orbitGlowRef.current.style.boxShadow =
-            `0 0 ${Math.round(14 + frac2 * 44)}px ${Math.round(8 + frac2 * 22)}px rgba(212,92,116,${(0.08 + frac2 * 0.32).toFixed(2)})`;
+          orbitGlowRef.current.style.boxShadow = '0 24px 70px rgba(12,6,10,0.18)';
         }
 
         // ── Convergence gate: fire pullforward when the approach duration has
@@ -2138,12 +2124,12 @@ export default function IntentPage() {
         const sinT  = Math.sin(theta);
         const cosT  = Math.cos(theta);
         const depth = (sinT + 1) / 2;
-        const scale = (0.55 + depth * 0.45).toFixed(3);
+        const scale = (0.985 + depth * 0.015).toFixed(3);
         const x     = (cosT * ORBIT_RX).toFixed(1);
         const y     = (sinT * ORBIT_RY).toFixed(1);
         el.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(${scale})`;
-        el.style.opacity   = (0.25 + depth * 0.75).toFixed(3);
-        el.style.filter    = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
+        el.style.opacity   = (0.04 + Math.pow(depth, 8) * 0.96).toFixed(3);
+        el.style.filter    = '';
         el.style.zIndex    = String(Math.round(depth * 100));
         if (depth > frontDepth) { frontDepth = depth; frontI = i; }
 
@@ -2180,15 +2166,9 @@ export default function IntentPage() {
         });
       }
 
-      // Glow intensity tracks speed
+      // Keep the stage quiet at every speed rather than pulsing like a game.
       if (orbitGlowRef.current) {
-        const frac   = Math.min(orbitSpeedRef2.current / ORBIT_SPEED_FAST, 1);
-        const spread = Math.round(24 + frac * 64);
-        const blurG  = Math.round(14 + frac * 44);
-        const alpha  = (0.12 + frac * 0.44).toFixed(2);
-        orbitGlowRef.current.style.boxShadow =
-          `0 0 ${blurG}px ${Math.round(spread * 0.35)}px rgba(212,92,116,${alpha}),` +
-          `0 0 ${blurG * 2}px ${Math.round(spread * 0.7)}px rgba(212,92,116,${(+alpha * 0.5).toFixed(2)})`;
+        orbitGlowRef.current.style.boxShadow = '0 24px 70px rgba(12,6,10,0.18)';
       }
 
       orbitRafRef2.current = requestAnimationFrame(tick);
@@ -2295,7 +2275,7 @@ export default function IntentPage() {
       winnerEl.style.filter     = '';
       winnerEl.style.visibility = 'visible';
       winnerEl.style.zIndex     = '200';
-      winnerEl.style.boxShadow  = '0 0 18px 4px rgba(212,92,116,0.08)';
+      winnerEl.style.boxShadow  = '0 22px 64px rgba(12,6,10,0.34)';
       logWheelState({
         event: 'hero_geometry_locked',
         startRect: `${startRect.left.toFixed(1)},${startRect.top.toFixed(1)} ${startRect.width.toFixed(1)}x${startRect.height.toFixed(1)}`,
@@ -2317,7 +2297,7 @@ export default function IntentPage() {
     }
     if (orbitGlowRef.current) {
       orbitGlowRef.current.style.transition = '';
-      orbitGlowRef.current.style.boxShadow  = '0 0 18px 4px rgba(212,92,116,0.08)';
+      orbitGlowRef.current.style.boxShadow  = '0 24px 70px rgba(12,6,10,0.18)';
     }
     if (!winnerLockChimePlayedRef.current) {
       winnerLockChimePlayedRef.current = true;
@@ -2539,12 +2519,9 @@ export default function IntentPage() {
         winnerEl.style.width = `${lerp(startRect.width, targetRect.width, progress).toFixed(2)}px`;
         winnerEl.style.height = `${lerp(startRect.height, targetRect.height, progress).toFixed(2)}px`;
         winnerEl.style.borderRadius = `${lerp(18, 0, progress).toFixed(2)}px`;
-        const gt  = Math.min(1, elapsed / 7000);
-        const gr  = Math.round(18 + gt * 28);
-        const gsp = Math.round(4 + gt * 8);
+        const gt = Math.min(1, elapsed / 7000);
         winnerEl.style.boxShadow =
-          `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.22).toFixed(3)}), ` +
-          `0 6px ${Math.round(24 + gt * 8)}px rgba(0,0,0,${(0.50 + gt * 0.10).toFixed(3)})`;
+          `0 ${Math.round(18 + gt * 8)}px ${Math.round(46 + gt * 18)}px rgba(12,6,10,${(0.30 + gt * 0.12).toFixed(3)})`;
         const geometryBucket = Math.floor(elapsed / 500);
         if (geometryBucket > geometryLogBucket) {
           geometryLogBucket = geometryBucket;
@@ -2559,14 +2536,9 @@ export default function IntentPage() {
           postWheelDiag('scale', { ...payload, phase: spinPhaseRef.current, winnerUserId: winner.userId });
         }
       }
-      // Ambient orb glow only supports the original winner; it never owns hero geometry.
+      // A static tonal shadow supports the original winner without a reveal bloom.
       if (orbitGlowRef.current) {
-        const gt  = Math.min(1, elapsed / 7000);
-        const gr  = Math.round(18 + gt * 42);
-        const gsp = Math.round(4  + gt * 16);
-        orbitGlowRef.current.style.boxShadow =
-          `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.30).toFixed(3)}), ` +
-          `0 0 ${gr * 2}px ${gsp * 2}px rgba(212,92,116,${(0.0 + gt * 0.15).toFixed(3)})`;
+        orbitGlowRef.current.style.boxShadow = '0 24px 70px rgba(12,6,10,0.18)';
       }
       // Loser cards: fade from approach-residual opacity → 0 over first 1800 ms.
       const loserT = elapsed < 1800 ? Math.max(0, 1 - elapsed / 1800) : 0;
@@ -2715,7 +2687,7 @@ export default function IntentPage() {
     const showSuccess = (qty: number) => {
       queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
       toast({
-        title: `✨ ${qty === 1 ? "1 Halo" : `${qty} Halos`} added`,
+        title: `${qty === 1 ? "1 Halo" : `${qty} Halos`} added`,
         description: "Spin the wheel to send a Halo tonight.",
       });
     };
@@ -3029,7 +3001,7 @@ export default function IntentPage() {
   return (
     <div
       className="flex-1 flex flex-col overflow-hidden relative"
-      style={{ background: "linear-gradient(180deg, #160d20 0%, #0d0812 100%)" }}
+      style={{ background: "linear-gradient(180deg, #292022 0%, #171416 52%, #110f11 100%)" }}
       data-testid="intent-page"
     >
 
@@ -3215,61 +3187,75 @@ export default function IntentPage() {
         }
         @keyframes spinRoomTensionDarken {
           from { opacity: 0; }
-          to   { opacity: 0.50; }
+          to   { opacity: 0.16; }
         }
       `}</style>
 
       {/* ── Header ── */}
-      <div className="px-5 pt-5 pb-3">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <h1
-            className="font-serif text-2xl font-semibold tracking-tight"
-            style={{ color: "rgba(255,247,250,0.96)" }}
-            data-testid="text-intent-title"
-          >
-            {t("intention_wheel_title")}
-          </h1>
-          <div className="flex items-center gap-3">
+      <div className="px-6 pt-7 pb-4">
+        <div className="flex items-start justify-between gap-5">
+          <div>
+            <h1
+              className="font-serif text-[28px] font-medium tracking-[-0.025em] leading-none"
+              style={{ color: "rgba(255,248,244,0.96)" }}
+              data-testid="text-intent-title"
+            >
+              {t("intention_wheel_title")}
+            </h1>
+            <p style={{
+              margin: "8px 0 0",
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: "rgba(255,238,231,0.48)",
+            }}>
+              {t("spin_random_desc")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
             <button
               onClick={toggleMute}
               data-testid="button-toggle-sound"
               title={muted ? t("enable_sound_title") : t("mute_sound_title")}
               style={{
-                width: 32, height: 32, borderRadius: "50%",
-                border: "1.5px solid rgba(255,255,255,0.16)",
-                background: "rgba(255,255,255,0.05)",
-                color: "rgba(255,255,255,0.72)",
+                width: 28, height: 28, borderRadius: 14,
+                border: "none",
+                background: "transparent",
+                color: "rgba(255,242,236,0.48)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 cursor: "pointer", outline: "none", transition: "color 0.2s",
               }}
             >
-              {muted ? <VolumeX style={{ width: 15, height: 15 }} /> : <Volume2 style={{ width: 15, height: 15 }} />}
+              {muted ? <VolumeX style={{ width: 14, height: 14 }} /> : <Volume2 style={{ width: 14, height: 14 }} />}
             </button>
-            <div data-testid="streak-indicator">
+            <div data-testid="streak-indicator" style={{ minWidth: 58 }}>
               {streakComplete ? (
                 <Badge
                   variant="secondary"
                   className="text-xs"
                   style={{
-                    background: "rgba(212,92,116,0.18)",
-                    border: "1px solid rgba(212,92,116,0.30)",
-                    color: "rgba(255,235,241,0.92)",
+                    background: "transparent",
+                    border: "none",
+                    color: "rgba(255,239,233,0.58)",
                   }}
                   data-testid="badge-streak-complete"
                 >
-                  <Star className="w-3 h-3 me-1" /> {t("spin_earned_label")}
+                  {t("spin_earned_label")}
                 </Badge>
               ) : (
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] text-right" style={{ color: "rgba(255,239,233,0.46)" }} data-testid="text-likes-today">
+                    {dailyLikes}/{DAILY_LIKE_GOAL}
+                  </span>
+                  <div className="flex items-center justify-end gap-1">
                   {Array.from({ length: STREAK_GOAL }).map((_, i) => (
                     <div
                       key={i}
-                      className="w-2 h-2 rounded-full transition-colors"
-                      style={{ background: i < consecutiveDays ? "#d45c74" : "rgba(255,255,255,0.22)" }}
+                      className="h-px w-3 rounded-full transition-colors"
+                      style={{ background: i < consecutiveDays ? "rgba(224,154,151,0.56)" : "rgba(255,240,234,0.14)" }}
                       data-testid={`streak-dot-${i}`}
                     />
                   ))}
-                  <span className="text-xs ms-1" style={{ color: "rgba(255,255,255,0.56)" }} data-testid="text-likes-today">{dailyLikes}/{DAILY_LIKE_GOAL}</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -3283,8 +3269,8 @@ export default function IntentPage() {
         className={`flex-1 min-h-0 w-full flex flex-col items-center overflow-y-auto overflow-x-hidden ${isCompact ? "justify-start pt-4 gap-3" : "justify-start pt-4 gap-5"} transition-all duration-700`}
         style={{
           background: isSpinning
-            ? "radial-gradient(ellipse 90% 65% at 50% 40%, rgba(212,92,116,0.20) 0%, rgba(212,92,116,0.07) 45%, transparent 72%)"
-            : "radial-gradient(ellipse 92% 58% at 50% 12%, rgba(212,92,116,0.13) 0%, rgba(37,16,48,0.32) 42%, transparent 74%), linear-gradient(180deg, #160d20 0%, #0d0812 100%)",
+            ? "linear-gradient(180deg, #241b1e 0%, #151214 100%)"
+            : "linear-gradient(180deg, #302427 0%, #171416 100%)",
           transition: "background 0.5s ease",
         }}
       >
@@ -3292,57 +3278,13 @@ export default function IntentPage() {
           className="relative select-none touch-manipulation"
           style={{
             width: "100%", height: itemHeight + wheelBufferY,
-            perspective: "1000px",
+            perspective: isSpinning ? "1000px" : "none",
             transition: dispersed ? "opacity 0.55s ease" : undefined,
             opacity: dispersed ? 0 : 1,
             pointerEvents: dispersed ? "none" : "auto",
           }}
           data-testid="intent-wheel"
         >
-          <ConfettiBurst active={showConfetti} />
-
-          {/* ── Spin dim overlay — darkens wheel cards during active spin ── */}
-          {isSpinning && (
-            <div style={{
-              position: "absolute", inset: 0, zIndex: 120, pointerEvents: "none",
-              background: "radial-gradient(ellipse 65% 55% at 50% 50%, rgba(188,78,96,0.22) 0%, rgba(0,0,0,0.62) 100%)",
-              animation: "wheelDimIn 0.45s ease forwards",
-              borderRadius: 20,
-            }} />
-          )}
-
-          {/* ── Profile orbit ring — rotating photo ring during active spin ── */}
-          {isSpinning && items.length > 0 && (
-            <div style={{
-              position: "absolute", left: "50%", top: "50%",
-              width: 0, height: 0, zIndex: 160, pointerEvents: "none",
-              animation: "rotateOrbit 5s linear infinite",
-              transformOrigin: "0 0",
-            }}>
-              {items.slice(0, Math.min(items.length, 10)).map((profile, i) => {
-                const n = Math.min(items.length, 10);
-                const angleDeg = (i / n) * 360 - 90;
-                const RING_R = 140;
-                const x = Math.cos(angleDeg * Math.PI / 180) * RING_R;
-                const y = Math.sin(angleDeg * Math.PI / 180) * RING_R;
-                return (
-                  <div
-                    key={profile.userId}
-                    style={{
-                      position: "absolute", left: x, top: y,
-                      width: 44, height: 44, borderRadius: "50%", overflow: "hidden",
-                      boxShadow: "0 0 0 2px rgba(255,237,241,0.72), 0 5px 16px rgba(0,0,0,0.46), 0 0 18px rgba(188,78,96,0.28)",
-                      animation: "counterRotate 5s linear infinite",
-                      transformOrigin: "22px 22px",
-                    }}
-                  >
-                    <ProfilePhoto userId={profile.userId} className="w-full h-full" />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
           {/* 3D carousel — the same existing candidate cards are visible in their
                resting positions before Spin, then remain the legacy wheel behind
                the cinematic SpinRoom overlay. */}
@@ -3350,8 +3292,10 @@ export default function IntentPage() {
             <div
               className="absolute left-1/2 top-1/2"
               style={{
-                transformStyle: "preserve-3d",
-                transform: `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
+                transformStyle: isSpinning ? "preserve-3d" : "flat",
+                transform: !isSpinning && !dispersed
+                  ? "translateX(-50%) translateY(-50%)"
+                  : `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
                 width: itemWidth, height: itemHeight,
               }}
             >
@@ -3369,45 +3313,49 @@ export default function IntentPage() {
                 // the prominent idle presentation.
                 const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
-                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.88 : 0.72;
+                const restingScale = restingDistance === 0 ? 1 : 0.96;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
-                const restingTilt = restingSlot === 0 ? 0 : restingSlot < 0 ? 8 : -8;
-                const restingZ = Math.round(restingCarouselRadius * (restingDistance === 0 ? 0.28 : restingDistance === 1 ? 0.18 : 0.08));
-                const restingVisible = isWheelIdleCardVisible(i);
+                const restingTilt = 0;
+                const restingZ = restingDistance === 0 ? 16 : 0;
+                // The resting page is an introduction, not a deck: only the
+                // first valid profile is presented as the visual hero.
+                const restingVisible = i === 0;
 
                 const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 900 : 0;
                 const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
 
-                const boxShadow = isSelected && !dispersed
-                  ? "0 16px 34px rgba(0,0,0,0.42), 0 0 0 1px rgba(255,239,242,0.42), 0 0 0 5px rgba(212,92,116,0.16)"
+                const boxShadow = isResting
+                  ? "0 24px 58px rgba(7,4,6,0.38), 0 1px 0 rgba(255,255,255,0.08)"
+                  : isSelected && !dispersed
+                  ? "0 22px 46px rgba(0,0,0,0.44), 0 2px 8px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,248,250,0.34)"
                   : depthFactor > 0.75 && !dispersed
                   ? `0 ${Math.round(10 + glowAlpha * 8)}px ${Math.round(24 + glowAlpha * 10)}px rgba(0,0,0,0.34), 0 0 ${Math.round(glowAlpha * 18)}px rgba(188,78,96,${(glowAlpha * 0.18).toFixed(2)})`
-                  : "0 8px 22px rgba(0,0,0,0.26)";
+                  : "0 12px 30px rgba(0,0,0,0.30)";
 
                 return (
                   <div
                     key={profile.id}
                     style={{
                       width: itemWidth, height: itemHeight,
-                      borderRadius: 26, overflow: "hidden",
+                      borderRadius: 28, overflow: "hidden",
                       position: "absolute", left: 0, top: 0,
                       border: isSelected && !dispersed
-                        ? "1px solid rgba(255,239,242,0.34)"
-                        : "1px solid rgba(255,255,255,0.14)",
+                        ? "1px solid rgba(255,248,250,0.28)"
+                        : "1px solid rgba(255,255,255,0.12)",
                       transform: isResting
-                        ? `translateX(${restingX}px) translateZ(${restingZ}px) rotateY(${restingTilt}deg) scale(${restingScale})`
+                        ? `translateX(${restingX}px) translateZ(${restingZ}px) rotate(${restingTilt}deg) scale(${restingScale})`
                         : dispersed && !isSelected
                          ? `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
                         : isSelected && !dispersed
                          ? `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) scale(${(cardScale * 1.10).toFixed(3)})`
                          : `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) scale(${cardScale})`,
                       opacity: isResting
-                        ? (restingVisible ? (restingDistance === 0 ? 1 : restingDistance === 1 ? 0.86 : 0.66) : 0)
+                        ? (restingVisible ? 1 : 0)
                         : dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
                       filter: isResting
-                        ? (restingVisible && restingDistance === 2 ? "blur(0.7px)" : undefined)
+                        ? undefined
                         : !isSpinning && depthFactor < 0.92
                         ? `blur(${((1 - depthFactor) * 3.5).toFixed(1)}px)`
                         : undefined,
@@ -3415,7 +3363,8 @@ export default function IntentPage() {
                         ? (restingDistance === 0 ? 100 : restingDistance === 1 ? 80 : 60)
                         : Math.round(depthFactor * 100),
                       boxShadow,
-                      animation: isSelected && !dispersed ? "winnerGlow 2.8s ease-in-out infinite" : undefined,
+                      pointerEvents: isResting && !restingVisible ? "none" : "auto",
+                      animation: undefined,
                       transition: dispersed
                         ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)"
                         : isResting ? "transform 0.35s ease, opacity 0.35s ease, filter 0.35s ease, box-shadow 0.3s ease" : "box-shadow 0.3s ease",
@@ -3423,29 +3372,44 @@ export default function IntentPage() {
                     data-testid={`intent-profile-${i}`}
                   >
                     <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
-                    {/* Subtle bottom depth gradient */}
-                    <div style={{ position: "absolute", inset: 0, borderRadius: 26, background: "linear-gradient(175deg, rgba(8,3,12,0) 48%, rgba(8,3,12,0.08) 70%, rgba(8,3,12,0.34) 100%)", pointerEvents: "none" }} />
+                    <div style={{
+                      position: "absolute", inset: 0, borderRadius: 28,
+                      background: isResting && restingVisible
+                        ? "linear-gradient(180deg, transparent 48%, rgba(10,7,9,0.10) 65%, rgba(10,7,9,0.88) 100%)"
+                        : "linear-gradient(175deg, rgba(8,3,12,0) 56%, rgba(8,3,12,0.06) 76%, rgba(8,3,12,0.30) 100%)",
+                      pointerEvents: "none",
+                    }} />
+                    {isResting && restingVisible && (
+                      <div style={{
+                        position: "absolute", left: 20, right: 20, bottom: 18,
+                        color: "#fff", pointerEvents: "none",
+                      }}>
+                        <p style={{
+                          margin: 0, fontFamily: "'Playfair Display', Georgia, serif",
+                          fontSize: 24, lineHeight: 1.05, fontWeight: 500,
+                          letterSpacing: "-0.02em", textShadow: "0 2px 14px rgba(0,0,0,0.45)",
+                        }}>
+                          {profile.firstName}
+                          {profile.age ? <span style={{ fontFamily: "inherit", fontWeight: 400 }}>, {profile.age}</span> : null}
+                        </p>
+                        {profile.location ? (
+                          <p style={{
+                            margin: "7px 0 0", display: "flex", alignItems: "center", gap: 5,
+                            fontSize: 11, lineHeight: 1.2, color: "rgba(255,255,255,0.72)",
+                          }}>
+                            <MapPin style={{ width: 11, height: 11 }} />
+                            {profile.location}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
                     {isSelected && !dispersed && (
-                      <div style={{ position: "absolute", inset: 0, borderRadius: 26, boxShadow: "inset 0 0 0 1px rgba(255,247,249,0.64), inset 0 1px 0 rgba(255,255,255,0.28)", pointerEvents: "none" }} />
+                      <div style={{ position: "absolute", inset: 0, borderRadius: 28, boxShadow: "inset 0 0 0 1px rgba(255,247,249,0.38), inset 0 1px 0 rgba(255,255,255,0.20)", pointerEvents: "none" }} />
                     )}
                   </div>
                 );
               })}
             </div>
-          )}
-
-          {/* Centre reticle */}
-          {!dispersed && (
-            <div style={{
-              position: "absolute", left: "50%", top: "50%",
-              transform: "translateX(-50%) translateY(-50%)",
-              width: itemWidth + 16, height: itemHeight + 16, borderRadius: 26,
-              border: isSpinning ? "1.5px solid rgba(188,78,96,0.55)" : "1.5px solid rgba(188,78,96,0.25)",
-              boxShadow: isSpinning ? "0 0 32px 8px rgba(188,78,96,0.20), inset 0 0 24px rgba(188,78,96,0.10)" : "0 0 16px 4px rgba(188,78,96,0.08), inset 0 0 12px rgba(188,78,96,0.05)",
-              animation: isSpinning ? "reticleGlow 0.6s ease-in-out infinite" : "reticleGlow 2.8s ease-in-out infinite",
-              pointerEvents: "none", zIndex: 200,
-              transition: "border-color 0.4s, box-shadow 0.4s",
-            }} />
           )}
 
           {/* ── Name + age caption — only shown during active spin / dispersal ── */}
@@ -3502,27 +3466,28 @@ export default function IntentPage() {
                 onClick={spinWheel}
                 disabled={isSpinning || items.length === 0}
                 style={{
-                  width: 80, height: 80, borderRadius: "50%", border: "none",
+                  width: "100%", maxWidth: 304, height: 54, borderRadius: 17,
+                  border: "1px solid rgba(255,226,217,0.22)",
                   background: isSpinning
-                    ? "radial-gradient(circle at 50% 32%, #e06278, #a83c55)"
-                    : "radial-gradient(circle at 50% 32%, #d45c74 0%, #9d3550 100%)",
+                    ? "rgba(255,226,217,0.10)"
+                    : "linear-gradient(135deg, #a95f68 0%, #864652 100%)",
                   boxShadow: isSpinning
-                    ? "0 4px 18px rgba(157,53,80,0.30)"
-                    : "0 0 0 1px rgba(255,255,255,0.12) inset, 0 6px 22px rgba(157,53,80,0.42)",
+                    ? "0 8px 20px rgba(18,8,13,0.18)"
+                    : "0 10px 24px rgba(73,32,40,0.32)",
                   color: "#fff", cursor: isSpinning ? "default" : "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-                  animation: !isSpinning && canSpin ? "spinBtnPulse 2.6s ease-in-out infinite" : "none",
+                  display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                  animation: "none",
                   transition: "background 0.3s ease, transform 0.12s ease, box-shadow 0.12s ease",
                   outline: "none", WebkitTapHighlightColor: "transparent", flexShrink: 0,
                 }}
-                onMouseEnter={e => { if (!isSpinning) (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
+                onMouseEnter={e => { if (!isSpinning) (e.currentTarget as HTMLElement).style.transform = "scale(1.015)"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
-                onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "scale(0.95)"; }}
-                onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
+                onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "scale(0.985)"; }}
+                onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.015)"; }}
                 data-testid="button-spin"
               >
-                <RotateCw style={{ width: 26, height: 26, animation: isSpinning ? "spinBtn 0.65s linear infinite" : "none" }} />
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", opacity: 0.93 }}>
+                <Heart style={{ width: 16, height: 16, opacity: 0.86 }} />
+                <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.02em", opacity: 0.96 }}>
                   {isSpinning ? "…" : t("spin_label")}
                 </span>
               </button>
@@ -3531,20 +3496,20 @@ export default function IntentPage() {
                 onClick={() => setShowPurchase(true)}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  padding: "11px 22px", borderRadius: 50,
-                  border: "1.5px solid rgba(212,92,116,0.40)",
-                  background: "rgba(212,92,116,0.10)",
-                  color: "rgba(212,92,116,0.90)", cursor: "pointer",
-                  boxShadow: "0 2px 12px rgba(212,92,116,0.14)",
+                  width: "100%", maxWidth: 304, height: 54, padding: "0 22px", borderRadius: 17,
+                  border: "1px solid rgba(255,226,217,0.18)",
+                  background: "rgba(255,226,217,0.07)",
+                  color: "rgba(255,235,228,0.82)", cursor: "pointer",
+                  boxShadow: "0 10px 24px rgba(18,8,13,0.18)",
                   transition: "transform 0.12s ease, background 0.15s ease",
                   outline: "none", WebkitTapHighlightColor: "transparent", flexShrink: 0,
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.04)"; (e.currentTarget as HTMLElement).style.background = "rgba(212,92,116,0.16)"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; (e.currentTarget as HTMLElement).style.background = "rgba(212,92,116,0.10)"; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.015)"; (e.currentTarget as HTMLElement).style.background = "rgba(255,226,217,0.10)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; (e.currentTarget as HTMLElement).style.background = "rgba(255,226,217,0.07)"; }}
                 data-testid="button-spin-locked"
               >
                 <Lock style={{ width: 14, height: 14, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.08em" }}>
+                <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.01em" }}>
                   Tap to unlock spin
                 </span>
               </button>
@@ -3554,13 +3519,13 @@ export default function IntentPage() {
             {(spinStatus?.purchasedSpins ?? 0) > 0 && (
               <div style={{
                 display: "flex", alignItems: "center", gap: 5,
-                background: "rgba(212,92,116,0.12)",
-                border: "1px solid rgba(212,92,116,0.30)",
+                  background: "rgba(255,226,217,0.08)",
+                  border: "1px solid rgba(255,226,217,0.16)",
                 borderRadius: 20, padding: "5px 12px",
                 marginTop: -4,
               }}>
                 <span style={{ fontSize: 12, color: "rgba(212,92,116,0.95)", fontWeight: 700 }}>
-                  ✨ {spinStatus!.purchasedSpins} Halo{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
+                  {spinStatus!.purchasedSpins} Halo{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
                 </span>
               </div>
             )}
@@ -3586,9 +3551,9 @@ export default function IntentPage() {
                     const isDone = i < consecutiveDays;
                     return (
                       <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.12)" }}>
-                          {isDone ? <div className="w-full h-full rounded-full" style={{ background: "#d45c74" }} /> :
-                           isCurrentDay ? <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%`, background: "rgba(212,92,116,0.70)" }} /> : null}
+                        <div className="w-full h-px rounded-full overflow-hidden" style={{ background: "rgba(255,240,234,0.16)" }}>
+                          {isDone ? <div className="w-full h-full rounded-full" style={{ background: "rgba(224,154,151,0.76)" }} /> :
+                           isCurrentDay ? <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%`, background: "rgba(224,154,151,0.62)" }} /> : null}
                         </div>
                         <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.48)" }}>
                           {isDone ? "✓" : isCurrentDay ? `${dailyLikes}/${DAILY_LIKE_GOAL}` : `${t("day_label")} ${i + 1}`}
@@ -3643,7 +3608,7 @@ export default function IntentPage() {
               </div>
               <div className="space-y-2">
                 <Button className="w-full gap-2" onClick={() => { setShowPurchase(false); setShowSpinExtras(true); }} data-testid="button-get-halos">
-                  ✨ Get Halos
+                  Get Halos
                 </Button>
               </div>
               {!streakComplete && (
@@ -3954,7 +3919,7 @@ export default function IntentPage() {
                   aria-label={t("skip_label")}
                 >
                   <Moon className="w-5 h-5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-semibold tracking-[0.12em] uppercase">CLOSE 🌙</span>
+                    <span className="text-xs text-muted-foreground font-semibold tracking-[0.12em] uppercase">CLOSE</span>
                 </button>
 
                 {/* Save For Later button */}
@@ -3977,7 +3942,7 @@ export default function IntentPage() {
                   <span className="text-xs text-muted-foreground font-medium tracking-wide">{t("save_for_later_label")}</span>
                 </button>
 
-                {/* ✨ Send Halo button */}
+                {/* Send Halo button */}
                 <button
                   className="flex-[2] flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95 disabled:opacity-60"
                   style={{
@@ -3992,7 +3957,7 @@ export default function IntentPage() {
                 >
                   {sendSpark.isPending
                     ? <Loader2 className="w-5 h-5 text-white animate-spin" />
-                    : <span className="text-lg leading-none">✨</span>
+                    : <Heart className="w-5 h-5 text-white" />
                   }
                   <span className="text-xs text-white font-semibold tracking-[0.12em] uppercase">
                     {haloSent ? "Halo Sent" : sendSpark.isPending ? "Sending…" : "Send Halo"}
@@ -4009,7 +3974,7 @@ export default function IntentPage() {
         <div
           style={{
             position: "fixed", inset: 0, zIndex: 9999,
-            background: "linear-gradient(160deg, #0d0812 0%, #1a0a2e 60%, #0d0812 100%)",
+            background: "linear-gradient(160deg, #262022 0%, #1c1719 58%, #110f11 100%)",
             overflow: "hidden",
             animation: isHaloDismissing
               ? "spinRoomOut 0.26s cubic-bezier(0.4,0,0.2,1) forwards"
@@ -4049,7 +4014,7 @@ export default function IntentPage() {
                 lineHeight: 1.5, borderRadius: 3,
                 pointerEvents: "none", userSelect: "none",
               }}>
-                <div>🔧 {__COMMIT_HASH__}</div>
+                <div>WHEEL · {__COMMIT_HASH__}</div>
                 <div>phase: {spinRoomPhase}</div>
                 <div>winner: {pendingWinnerRef.current?.profile?.userId?.slice(-6) ?? '—'}</div>
                 <div>selected: {selectedProfile?.userId?.slice(-6) ?? '—'}</div>
@@ -4074,10 +4039,10 @@ export default function IntentPage() {
             <div style={{
               position: "absolute", top: "48%", left: "50%",
               transform: "translate(-50%,-50%)",
-              width: 460, height: 340, borderRadius: "50%",
-              background: "radial-gradient(ellipse at center, rgba(212,92,116,0.14) 0%, transparent 68%)",
+              width: 430, height: 320, borderRadius: "50%",
+              background: "rgba(255,226,217,0.035)",
               pointerEvents: "none",
-              opacity: spinRoomPhase === 'fast' ? 1 : 0.55,
+              opacity: 1,
               transition: "opacity 1.2s ease",
             }} />
 
@@ -4088,15 +4053,16 @@ export default function IntentPage() {
               paddingBottom: 6, paddingLeft: 56, paddingRight: 56, width: "100%",
             }}>
               <p style={{
-                fontSize: 9, fontWeight: 900, letterSpacing: "0.36em",
-                textTransform: "uppercase", color: "rgba(212,92,116,0.88)",
-                marginBottom: 7,
+                fontFamily: "'Playfair Display', Georgia, serif",
+                fontSize: 18, fontWeight: 500, letterSpacing: "-0.01em",
+                color: "rgba(255,244,239,0.88)",
+                marginBottom: 8,
               }}>
                 {t("spin_room_title")}
               </p>
               <p style={{
-                fontSize: 12, color: "rgba(255,255,255,0.28)",
-                fontStyle: "italic", margin: 0,
+                fontSize: 11, color: "rgba(255,239,232,0.42)",
+                margin: 0,
                 opacity: spinRoomPhase === 'accelerate' ? 1 : 0,
                 transition: "opacity 0.7s ease",
               }}>
@@ -4117,15 +4083,16 @@ export default function IntentPage() {
               {/* style object — React must never overwrite the RAF's values.           */}
               {/* No CSS perspective: cards face the viewer straight-on at all times.  */}
               <div style={{
-                position: "relative", width: "100%", height: 280, flexShrink: 0,
+                position: "relative", width: "100%", height: 336, flexShrink: 0,
               }}>
-                {/* Ambient glow orb — intensity driven by orbit speed */}
+              {/* Restrained tonal stage; the RAF still owns its measured ref. */}
                 <div ref={orbitGlowRef} style={{
                   position: "absolute", top: "50%", left: "50%",
-                  width: 220, height: 220, borderRadius: "50%",
+                  width: 240, height: 240, borderRadius: "50%",
                   transform: "translate(-50%,-50%)",
                   pointerEvents: "none", zIndex: 0,
-                  animation: "srAmbientPulse 2.8s ease-in-out infinite",
+                  opacity: 0.025,
+                  background: "rgba(210,161,145,0.12)",
                 }} />
 
                 {/* 5 orbit cards — positions driven entirely by the orbit RAF.        */}
@@ -4143,15 +4110,16 @@ export default function IntentPage() {
                         el.style.position = 'absolute';
                         el.style.left = '50%';
                         el.style.top = '50%';
-                        el.style.width = '152px';
-                        el.style.height = '228px';
-                        el.style.borderRadius = '18px';
+                        el.style.width = '220px';
+                        el.style.height = '320px';
+                        el.style.borderRadius = '28px';
                         el.style.visibility = 'visible';
                       }
                     }}
                     style={{
                       overflow: "hidden",
-                      willChange: "transform, opacity, filter, box-shadow",
+                      willChange: "transform, opacity, filter",
+                      boxShadow: "0 18px 42px rgba(16,8,12,0.34)",
                     }}
                   >
                     <ProfilePhoto
@@ -4161,38 +4129,35 @@ export default function IntentPage() {
                     {/* Bottom readability gradient */}
                     <div style={{
                       position: "absolute", inset: 0,
-                      background: "linear-gradient(to bottom, transparent 55%, rgba(0,0,0,0.45) 100%)",
+                      background: "linear-gradient(to bottom, transparent 62%, rgba(0,0,0,0.34) 100%)",
                       pointerEvents: "none",
                     }} />
                     {/* Subtle rose border */}
                     <div style={{
                       position: "absolute", inset: 0, borderRadius: "inherit",
-                      border: "1px solid rgba(212,92,116,0.18)",
+                      border: "1px solid rgba(255,255,255,0.15)",
                       pointerEvents: "none",
                     }} />
                   </div>
                 ))}
 
-                {/* Edge vignettes — let front card bleed, clip periphery */}
-                <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: 48, background: "linear-gradient(to right, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 110 }} />
-                <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 48, background: "linear-gradient(to left, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 110 }} />
               </div>
 
               {/* Phase status text */}
-              <div style={{ position: "relative", zIndex: 220, marginTop: 32, textAlign: "center", minHeight: 30, pointerEvents: "none" }}>
+              <div style={{ position: "relative", zIndex: 220, marginTop: 18, textAlign: "center", minHeight: 48, pointerEvents: "none" }}>
                 {spinRoomPhase === 'accelerate' && (
-                  <p key="acc" style={{ fontSize: 11, color: "rgba(255,255,255,0.40)", letterSpacing: "0.16em", textTransform: "uppercase", animation: "srTextIn 0.5s ease forwards, srSubtitlePulse 2.2s ease-in-out 0.6s infinite" }}>
-                    Finding tonight's connection…
+                  <p key="acc" style={{ fontSize: 12, color: "rgba(255,240,234,0.58)", letterSpacing: "0.02em", animation: "srTextIn 0.5s ease forwards" }}>
+                    Taking a closer look…
                   </p>
                 )}
                 {spinRoomPhase === 'fast' && (
-                  <p key="fast" style={{ fontSize: 17, color: "rgba(212,92,116,0.72)", letterSpacing: "0.44em", animation: "srTextIn 0.4s ease forwards" }}>✦ ✦ ✦</p>
+                  <p key="fast" style={{ fontSize: 12, color: "rgba(255,240,234,0.42)", letterSpacing: "0.08em", animation: "srTextIn 0.4s ease forwards" }}>A considered introduction</p>
                 )}
                 {spinRoomPhase === 'slow' && (
-                  <p key="slow" style={{ fontSize: 11, fontStyle: "italic", color: "rgba(255,255,255,0.40)", animation: "srTextIn 0.5s ease forwards" }}>Narrowing down…</p>
+                  <p key="slow" style={{ fontSize: 12, fontStyle: "italic", color: "rgba(255,240,234,0.48)", animation: "srTextIn 0.5s ease forwards" }}>Nearly there</p>
                 )}
                 {spinRoomPhase === 'approach' && (
-                  <p key="approach" style={{ fontSize: 11, fontStyle: "italic", color: "rgba(255,255,255,0.50)", animation: "srTextIn 0.5s ease forwards" }}>Almost there…</p>
+                  <p key="approach" style={{ fontSize: 12, fontStyle: "italic", color: "rgba(255,240,234,0.54)", animation: "srTextIn 0.5s ease forwards" }}>A moment for someone new</p>
                 )}
                 {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive' || spinRoomPhase === 'momentum' || spinRoomPhase === 'growing') && momentumLabel && (
                   <p
@@ -4208,22 +4173,23 @@ export default function IntentPage() {
                     }}
                   >{momentumLabel}</p>
                 )}
+                <div style={{
+                  width: 72, height: 1, margin: "14px auto 0",
+                  background: "rgba(255,244,239,0.12)", overflow: "hidden",
+                }}>
+                  <div style={{
+                    height: "100%",
+                    width: spinRoomPhase === 'accelerate' ? "18%"
+                      : spinRoomPhase === 'fast' ? "42%"
+                      : spinRoomPhase === 'slow' ? "66%"
+                      : spinRoomPhase === 'approach' ? "84%"
+                      : "100%",
+                    background: "rgba(224,154,151,0.64)",
+                    transition: "width 1.2s cubic-bezier(0.4,0,0.2,1)",
+                  }} />
+                </div>
               </div>
             </div>
-
-            {/* Floating particles — visible during fast + slow phases */}
-            {SPIN_PARTICLES.map((p, i) => (
-              <div key={i} style={{
-                position: "absolute",
-                left: `${p.x}%`, top: `${p.y}%`,
-                width: p.size, height: p.size, borderRadius: "50%",
-                background: `rgba(212,92,116,${p.alpha})`,
-                pointerEvents: "none",
-                opacity: (spinRoomPhase === 'fast' || spinRoomPhase === 'slow') ? 1 : 0,
-                transition: "opacity 0.5s ease",
-                animation: `srParticle ${p.dur}s ${p.delay}s ease-in-out infinite`,
-              }} />
-            ))}
 
             {/* Close button during carousel stage */}
             <button
@@ -4237,7 +4203,7 @@ export default function IntentPage() {
                 background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.09)",
                 cursor: "pointer", fontSize: 17, lineHeight: 1,
               }}
-            >🌙</button>
+            ><X style={{ width: 17, height: 17, color: "rgba(255,245,240,0.76)" }} /></button>
           </div>
 
           {/* ── REVEAL STAGE — orbit card fills screen, then result overlay mounts ── */}
@@ -4328,22 +4294,10 @@ export default function IntentPage() {
                 </div>
               )}
 
-              {/* ── Rose-gold glow — radial bloom behind the photo ── */}
-              {(spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') && selectedProfile && (
-                <div style={{
-                  position: "absolute", top: "38%", left: "50%",
-                  transform: "translate(-50%, -50%)",
-                  width: 340, height: 340, borderRadius: "50%",
-                  background: "radial-gradient(ellipse at center, rgba(212,175,110,0.20) 0%, rgba(188,78,96,0.12) 40%, transparent 68%)",
-                  pointerEvents: "none", zIndex: 3,
-                  animation: "srAmbientPulse 3.2s ease-in-out infinite",
-                }} />
-              )}
-
               {/* ── Top vignette — safe area + close button backdrop ── */}
               <div style={{
                 position: "absolute", top: 0, left: 0, right: 0, height: 130,
-                background: "linear-gradient(#0d0812 0%, rgba(13,8,18,0.52) 52%, transparent 100%)",
+                  background: "linear-gradient(#171116 0%, rgba(23,17,22,0.42) 52%, transparent 100%)",
                 pointerEvents: "none", zIndex: 4,
               }} />
 
@@ -4351,16 +4305,8 @@ export default function IntentPage() {
               {(spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') && selectedProfile && (
                 <div style={{
                   position: "absolute", bottom: 0, left: 0, right: 0, height: "44%",
-                  background: "linear-gradient(transparent 0%, rgba(13,8,18,0.78) 32%, rgba(13,8,18,0.97) 65%, #0d0812 100%)",
+                  background: "linear-gradient(transparent 0%, rgba(23,17,22,0.78) 32%, rgba(23,17,22,0.97) 65%, #171116 100%)",
                   pointerEvents: "none", zIndex: 4,
-                }} />
-              )}
-
-              {/* ── Subtle rose bloom over upper photo ── */}
-              {(spinRoomPhase === 'reveal' || spinRoomPhase === 'buttons') && selectedProfile && (
-                <div style={{
-                  position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none",
-                  background: "radial-gradient(ellipse 80% 50% at 50% 22%, rgba(212,92,116,0.14) 0%, transparent 62%)",
                 }} />
               )}
 
@@ -4376,8 +4322,8 @@ export default function IntentPage() {
                 }}>
                   {/* Eyebrow — 0.12 s */}
                   <p style={{
-                    fontSize: 9, fontWeight: 900, letterSpacing: "0.42em",
-                    textTransform: "uppercase", color: "rgba(212,92,116,0.94)",
+                    fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
+                    color: "rgba(255,224,213,0.72)",
                     margin: "0 0 10px",
                     animation: "srTextIn 0.50s 0.12s ease both",
                   }}>
@@ -4387,9 +4333,9 @@ export default function IntentPage() {
                   {/* Name — 0.30 s */}
                   <h2 style={{
                     fontFamily: "'Playfair Display', Georgia, serif",
-                    fontSize: "clamp(28px,7.5vw,40px)", fontWeight: 700,
-                    color: "#fff", margin: "0 0 4px", lineHeight: 1.05,
-                    textShadow: "0 2px 28px rgba(0,0,0,0.75)",
+                    fontSize: "clamp(32px,8vw,44px)", fontWeight: 600,
+                    color: "#fff8f4", margin: "0 0 4px", lineHeight: 1.05,
+                    textShadow: "0 2px 18px rgba(0,0,0,0.55)",
                     animation: "srTextIn 0.75s 0.30s ease both",
                   }}>
                     {selectedProfile.firstName}
@@ -4405,7 +4351,7 @@ export default function IntentPage() {
                   {selectedProfile.age && (
                     <p style={{
                       fontSize: 15, fontWeight: 300,
-                      color: "rgba(255,255,255,0.48)", margin: "4px 0 0",
+                      color: "rgba(255,240,233,0.62)", margin: "4px 0 0",
                       animation: "srTextIn 0.50s 0.50s ease both",
                     }}>
                       {selectedProfile.age}
@@ -4417,7 +4363,7 @@ export default function IntentPage() {
                     <p style={{
                       fontFamily: "'Playfair Display', Georgia, serif",
                       fontSize: 14, fontStyle: "italic",
-                      color: "rgba(255,255,255,0.58)", margin: "7px 0 0",
+                      color: "rgba(255,225,214,0.70)", margin: "7px 0 0",
                       animation: "srTextIn 0.55s 0.72s ease both",
                     }}>
                       "{renderText(selectedProfile.signals[0])}"
@@ -4427,7 +4373,7 @@ export default function IntentPage() {
                   {/* Location — 0.92 s */}
                   {selectedProfile.location && (
                     <p style={{
-                      fontSize: 12, color: "rgba(255,255,255,0.28)", margin: "6px 0 0",
+                      fontSize: 12, color: "rgba(255,235,226,0.54)", margin: "6px 0 0",
                       display: "flex", alignItems: "center",
                       justifyContent: "center", gap: 4,
                       animation: "srTextIn 0.45s 0.92s ease both",
@@ -4440,7 +4386,7 @@ export default function IntentPage() {
                   {/* DNA insight — 1.08 s */}
                   <p style={{
                     fontSize: 11, fontStyle: "italic",
-                    color: "rgba(255,210,222,0.48)", margin: "10px 0 0",
+                    color: "rgba(255,224,213,0.62)", margin: "10px 0 0",
                     animation: "srTextIn 0.50s 1.08s ease both",
                     lineHeight: 1.55, letterSpacing: "0.01em",
                     maxWidth: 280,
@@ -4457,7 +4403,7 @@ export default function IntentPage() {
                       <p style={{
                         fontSize: 19, fontWeight: 700,
                         color: "rgba(212,92,116,1.0)", letterSpacing: "0.08em",
-                      }}>✨ Halo Sent</p>
+                      }}>Halo sent</p>
                       <p style={{ fontSize: 13, color: "rgba(255,255,255,0.38)", marginTop: 5 }}>
                         We'll let you know if they feel the same.
                       </p>
@@ -4479,7 +4425,7 @@ export default function IntentPage() {
                           display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                         }}
                       >
-                        <span>🌙</span><span>Close</span>
+                        <span>Close</span>
                       </button>
                       <button
                         onClick={handleSendHalo}
@@ -4488,21 +4434,21 @@ export default function IntentPage() {
                         style={{
                           flex: 2, padding: "16px 10px", borderRadius: 18,
                           background: sendSpark.isPending
-                            ? "rgba(212,92,116,0.38)"
-                            : "linear-gradient(135deg,#d45c74 0%,#9d3550 100%)",
+                            ? "rgba(183,106,114,0.38)"
+                            : "linear-gradient(135deg,#b76a72 0%,#92515e 100%)",
                           boxShadow: sendSpark.isPending
                             ? "none"
-                            : "0 4px 22px rgba(188,78,96,0.50)",
+                            : "0 10px 24px rgba(73,32,40,0.30)",
                           border: "none", color: "#fff",
                           fontSize: 13, fontWeight: 700,
-                          letterSpacing: "0.14em", textTransform: "uppercase",
+                          letterSpacing: "0.02em",
                           cursor: sendSpark.isPending ? "default" : "pointer",
                           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                         }}
                       >
                         {sendSpark.isPending
                           ? <Loader2 style={{ width: 15, height: 15, animation: "spinBtn 0.65s linear infinite" }} />
-                          : <span style={{ fontSize: 16, lineHeight: 1 }}>✦</span>
+                          : <span style={{ fontSize: 13, lineHeight: 1 }}>Send</span>
                         }
                         <span>{sendSpark.isPending ? "Sending…" : "Send Halo"}</span>
                       </button>
@@ -4523,7 +4469,7 @@ export default function IntentPage() {
                   background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.14)",
                   cursor: "pointer", fontSize: 17, lineHeight: 1,
                 }}
-              >🌙</button>
+              ><X style={{ width: 17, height: 17, color: "rgba(255,245,240,0.76)" }} /></button>
             </div>
           </IntentResultBoundary>
           )}
@@ -4630,7 +4576,7 @@ export default function IntentPage() {
                   borderRadius: 20, padding: "5px 14px",
                 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(212,92,116,1)" }}>
-                    ✨ {spinStatus!.purchasedSpins} Halo{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
+                    {spinStatus!.purchasedSpins} Halo{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
                   </span>
                 </div>
               )}
@@ -4647,7 +4593,7 @@ export default function IntentPage() {
               fontSize: 10, fontWeight: 800, letterSpacing: "0.24em",
               textTransform: "uppercase", color: "rgba(212,92,116,0.72)",
               textAlign: "center", marginBottom: 14,
-            }}>✨ {t("halo_get_more")}</p>
+            }}>{t("halo_get_more")}</p>
 
             {/* Halo packs */}
             <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
