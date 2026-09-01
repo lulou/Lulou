@@ -116,15 +116,16 @@ export default function AuthCallbackPage() {
       // Clean the hash / code param from the URL bar for security.
       window.history.replaceState(null, "", window.location.pathname);
 
-      // Pause long enough for the user to read the success message, then
-      // hand off to AppContent.  use-auth.ts has already set isLoading:true
-      // (SIGNED_IN handler), so AppContent shows its own spinner — not Landing
-      // — while the async session-check IIFE finishes.
-      const redirectDelay = isSignupVerification ? 1500 : 1000;
-      setTimeout(() => {
-        console.log(`${CB_TAG} → navigating to /`, { elapsed: ms() });
-        setLocation("/");
-      }, redirectDelay);
+      // Signup links often open inside Gmail's in-app browser. Keep the verified
+      // state visible there and let the user explicitly continue, rather than
+      // immediately replacing it with the app's session/profile loading gates.
+      // Recovery and magic-link flows still hand off automatically.
+      if (!isSignupVerification) {
+        setTimeout(() => {
+          console.log(`${CB_TAG} → navigating to /`, { elapsed: ms() });
+          setLocation("/");
+        }, 1000);
+      }
     }
 
     function fail(msg: string, reason?: string) {
@@ -177,7 +178,40 @@ export default function AuthCallbackPage() {
         });
     }
 
-    // ── 3. Implicit hash flow — getSession() ─────────────────────────────────
+    // ── 3. Implicit hash flow — explicitly restore the session ───────────────
+    // Gmail/Safari/PWA handoffs can reach this route with a valid hash before
+    // the SDK's automatic URL detection has persisted it. Restore it directly
+    // instead of waiting for an auth event that may never fire.
+    const accessToken = hashParams.get("access_token");
+    const refreshToken = hashParams.get("refresh_token");
+    if (accessToken && refreshToken) {
+      console.log(`${CB_TAG} implicit tokens detected — calling setSession`, {
+        elapsed: ms(),
+        hashKeys: [...hashParams.keys()],
+      });
+      supabase.auth
+        .setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ data: { session }, error }) => {
+          console.log(`${CB_TAG} setSession result`, {
+            elapsed: ms(),
+            hasSession: !!session,
+            userId: session?.user?.id?.slice(0, 8) ?? null,
+            emailConfirmedAt: session?.user?.email_confirmed_at ?? null,
+            error: error?.message ?? null,
+          });
+          if (error) {
+            fail(error.message, "implicit_set_session_error");
+          } else if (session && !done) {
+            succeed("implicit_set_session_success", session);
+          }
+        })
+        .catch((err: unknown) => {
+          const msg = (err instanceof Error ? err.message : null) ?? "Session restoration failed";
+          fail(msg, "implicit_set_session_throw");
+        });
+    }
+
+    // ── 4. Existing-session fallback — getSession() ──────────────────────────
     // detectSessionInUrl:true means the SDK may have already parsed the
     // #access_token hash and stored the session before this useEffect runs.
     // Check immediately — this covers the fast-init case.
@@ -195,7 +229,7 @@ export default function AuthCallbackPage() {
       }
     });
 
-    // ── 4. onAuthStateChange — covers events fired after mount ────────────────
+    // ── 5. onAuthStateChange — covers events fired after mount ────────────────
     // The SDK immediately fires INITIAL_SESSION to a new subscriber with the
     // current auth state.  If the hash was already processed (fast-init path),
     // INITIAL_SESSION fires with the session → we must handle it here.
@@ -246,7 +280,7 @@ export default function AuthCallbackPage() {
       }
     });
 
-    // ── 5. Hard timeout ───────────────────────────────────────────────────────
+    // ── 6. Hard timeout ───────────────────────────────────────────────────────
     const timeout = setTimeout(() => {
       console.error(`${CB_TAG} TIMEOUT — 15s elapsed without session`, {
         elapsed: ms(),
@@ -275,8 +309,8 @@ export default function AuthCallbackPage() {
   const successTitle = isSignup ? "Email verified!" : isRecovery ? "Reset link confirmed" : "Signed in";
   const successBody  = isSignup
     ? (confirmedAt
-        ? "Your email is confirmed. Taking you into Lulou…"
-        : "Account confirmed. Taking you into Lulou…")
+        ? "Your email is confirmed. Continue when you're ready."
+        : "Account confirmed. Continue when you're ready.")
     : "Taking you into Lulou…";
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -367,13 +401,20 @@ export default function AuthCallbackPage() {
               <h1 className="font-serif text-3xl font-bold tracking-tight leading-snug">
                 Your email has<br />been verified.
               </h1>
-              <p className="text-sm text-muted-foreground">
-                Preparing your profile…
-              </p>
+              <p className="text-sm text-muted-foreground">{successBody}</p>
             </div>
 
-            <div className="flex justify-center mt-2" style={{ animation: "lulouTextIn 0.5s 0.7s ease both" }}>
-              <Loader2 className="w-4 h-4 text-primary/30 animate-spin" />
+            <div className="pt-2" style={{ animation: "lulouTextIn 0.5s 0.7s ease both" }}>
+              <button
+                onClick={() => {
+                  console.log(`${CB_TAG} user clicked Continue to Lulou`, { elapsed: ms() });
+                  setLocation("/");
+                }}
+                className="min-h-11 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                data-testid="button-continue-to-lulou"
+              >
+                Continue to Lulou
+              </button>
             </div>
           </>
         )}

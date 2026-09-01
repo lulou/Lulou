@@ -15,9 +15,9 @@
 import { supabase } from "@/lib/supabase";
 
 // ── Approved callback URL ─────────────────────────────────────────────────────
-// Production: https://luloudating.com/auth/callback
+// Production: https://www.luloudating.com/auth/callback
 // Development: the local dev server origin  (never user-supplied)
-const PRODUCTION_CALLBACK = "https://luloudating.com/auth/callback";
+const PRODUCTION_CALLBACK = "https://www.luloudating.com/auth/callback";
 
 export function getApprovedCallbackUrl(): string {
   if (import.meta.env.PROD) return PRODUCTION_CALLBACK;

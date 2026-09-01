@@ -1,0 +1,154 @@
+Fix only the two issues shown in the attached screenshots.
+
+Do not redesign the email body.
+Photo 2 is approved and must remain exactly as it is.
+
+## ISSUE 1 — GMAIL SENDER AVATAR / BRANDING
+
+In Photo 1, Lulou appears in the Gmail inbox with a blank/default grey sender avatar.
+
+That looks unfinished.
+
+Instagram appears with a strong branded icon next to the sender name, and I want Lulou to look equally professional and branded in Gmail.
+
+Investigate the actual sender identity used for Supabase Auth verification emails and determine what Gmail can use for the sender avatar.
+
+Check:
+
+- exact From email address
+- sender name
+- whether the From address is on the verified `luloudating.com` domain
+- whether a Google profile / Brand Account / sender identity exists for that From address
+- BIMI readiness if relevant
+- SPF
+- DKIM
+- DMARC
+- Resend sender/domain configuration
+- whether the email is being sent from a generic address that cannot display the Lulou identity properly
+
+Use the existing approved Lulou app logo as the branded sender identity wherever supported.
+
+Do not change the email body design.
+
+If Gmail sender avatars cannot be controlled directly from HTML email, do not fake it inside the email. Fix the actual sender/domain identity path needed to achieve the strongest Gmail branding possible.
+
+The desired inbox result is:
+
+[Lulou branded icon]  Lulou
+Welcome to Lulou - Confirm your account
+
+instead of the current grey generic person icon.
+
+If BIMI or Google sender-profile setup is required and cannot be completed automatically, tell me the exact manual steps.
+
+## ISSUE 2 — CONFIRM ACCOUNT LINK IS BROKEN
+
+Photo 3 shows what happens after tapping:
+
+“CONFIRM MY ACCOUNT”
+
+The link opens:
+
+`www.luloudating.com`
+
+and then gets stuck on:
+
+“Taking a little longer than usual.
+Your account is safe. We're reconnecting you to Lulou.”
+
+This verification flow is broken.
+
+Trace the exact confirmation link generated in the approved email and fix the full Supabase auth callback flow.
+
+Inspect:
+
+- Supabase Site URL
+- Supabase Redirect URLs / allow list
+- `emailRedirectTo`
+- confirmation template link
+- `{{ .ConfirmationURL }}`
+- `{{ .RedirectTo }}`
+- current auth callback route
+- `/auth/callback`
+- PKCE/code exchange if used
+- token/hash handling
+- session restoration
+- PWA/browser handoff
+- www vs non-www domain handling
+- `luloudating.com` vs `www.luloudating.com`
+- Vercel routing/rewrites
+- any redirect that strips the auth code/token before the callback page receives it
+
+The confirmation button should NOT land on the root homepage and attempt to reconnect indefinitely.
+
+It should use one canonical callback URL, preferably the existing intended route:
+
+`https://www.luloudating.com/auth/callback`
+
+or the exact canonical production callback route already used by the app.
+
+Make all relevant Supabase configuration and frontend callback handling consistent with that one URL.
+
+## REQUIRED SUCCESS FLOW
+
+After the fix:
+
+1. User receives the approved Photo 2 email.
+2. User taps “CONFIRM MY ACCOUNT”.
+3. Supabase verifies the account.
+4. Browser opens the canonical Lulou auth callback.
+5. Callback exchanges/restores the session successfully.
+6. `email_confirmed_at` becomes non-null.
+7. User is routed to the correct next onboarding/sign-in state.
+8. No “Taking a little longer than usual” dead-end appears.
+9. User does not need to press Try Again.
+
+Handle the Gmail in-app browser correctly as well as Safari/PWA.
+
+If the confirmation happens in Gmail's in-app browser and the installed PWA cannot automatically inherit that browser session, show a clean successful confirmation state with a clear “Open Lulou” / “Continue to Lulou” action rather than an error/reconnection screen.
+
+## IMPORTANT
+
+Do not change:
+
+- the Photo 2 email visual design
+- email wording
+- Lulou logo inside the email
+- signup form design
+- onboarding questions
+- Discover
+- Intention Wheel
+- messaging
+- payments
+- profile logic
+
+Only fix:
+
+1. sender identity/avatar branding
+2. confirmation callback flow
+
+## VALIDATION
+
+Test with a real new verification email.
+
+Confirm:
+
+- email arrives
+- approved Photo 2 design remains unchanged
+- sender name is Lulou
+- sender avatar/branding is improved as far as Gmail technically supports
+- confirmation URL points to the correct canonical callback
+- tapping it confirms the exact Supabase user
+- no dead-end reconnect screen
+- user can continue into Lulou
+
+At the end report only:
+
+1. Root cause of the blank Gmail sender avatar
+2. What can and cannot be controlled in Gmail
+3. Exact sender/domain branding changes made
+4. Root cause of the broken confirmation callback
+5. Supabase URL/config changes
+6. Frontend callback changes
+7. What was tested
+8. Any manual Gmail/BIMI/Google-profile action I still need to perform
