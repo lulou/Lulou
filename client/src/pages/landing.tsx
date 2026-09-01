@@ -14,7 +14,7 @@ import { writeDebug, pushDebugError } from "@/lib/debug-store";
 import { useLanguageContext } from "@/contexts/language-context";
 
 type AuthMode = "signin" | "signup";
-type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "auth";
+type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "delivery" | "auth";
 
 interface AuthError {
   kind: AuthErrorKind;
@@ -680,6 +680,28 @@ export default function Landing() {
           const raw = makeRaw(error, "signup");
           recordError(raw, "signup");
           const classified = classifyAuthError(error, mode);
+          // A signup error can be a user-creation failure or a verification
+          // delivery failure. Keep those paths distinct so a provider/SMTP
+          // problem is never presented as a generic sign-up failure.
+          const deliveryKinds = new Set([
+            "rate_limited",
+            "smtp_failure",
+            "invalid_email",
+            "confirmation_send_failure",
+            "redirect_configuration",
+            "provider_error",
+            "unknown",
+          ]);
+          const displayError: AuthError =
+            classified.kind !== "already-exists" &&
+            classified.kind !== "credentials" &&
+            deliveryFailure.kind !== "auth_user_creation_failure" &&
+            deliveryKinds.has(deliveryFailure.kind)
+            ? {
+                kind: deliveryFailure.kind === "rate_limited" ? "rate-limit" : "delivery",
+                message: deliveryFailure.userMessage,
+              }
+            : classified;
           if (classified.kind === "already-exists") {
             setMode("signin");
             setPassword("");
@@ -696,7 +718,7 @@ export default function Landing() {
             setRateLimitCooldown(60);
             console.log("[VERIFY] COOLDOWN_STARTED", { seconds: 60, email: trimmedEmail.slice(0, 4) + "***" });
           }
-          setAuthError(classified);
+          setAuthError(displayError);
           writeDebug({ submitHandlerReturnedEarly: true });
           return;
         }
@@ -1340,7 +1362,7 @@ export default function Landing() {
               {authError && !resetSent && (
                 <div
                   className={`rounded-md border px-3 py-3 text-sm animate-in fade-in slide-in-from-top-1 duration-150 ${
-                    authError.kind === "network" || authError.kind === "rate-limit"
+                    authError.kind === "network" || authError.kind === "rate-limit" || authError.kind === "delivery"
                       ? "bg-amber-50 border-amber-200 text-amber-900"
                       : "bg-destructive/10 border-destructive/30 text-destructive"
                   }`}
@@ -1375,6 +1397,8 @@ export default function Landing() {
                               : rawAuthError?.name === "SyntaxError" || rawAuthError?.message?.toLowerCase().includes("unexpected token")
                               ? t("landing_unexpected_response")
                               : t("landing_conn_problem"))
+                           : authError.kind === "delivery"
+                           ? (mode === "signup" ? t("landing_sign_up_failed") : t("landing_sign_in_failed"))
                           : authError.kind === "auth"
                           ? t("landing_cannot_sign_in")
                           : mode === "signup"
