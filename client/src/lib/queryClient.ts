@@ -116,11 +116,19 @@ export function setCachedToken(token: string | null, expiresAt?: number) {
     : Math.floor(Date.now() / 1000) + 3600;
 }
 
+function buildAuthenticatedHeaders(accessToken: string): Record<string, string> {
+  const sessionId = getAppSessionId();
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    ...(sessionId ? { "X-Session-Id": sessionId } : {}),
+  };
+}
+
 export async function getAuthHeaders(): Promise<Record<string, string>> {
   // Fast path: if a token is cached AND still valid (>60 s remaining), return it
   // immediately without any async Supabase SDK call.
   if (_cachedToken && _tokenExpiresAt * 1000 - Date.now() > 60_000) {
-    return { Authorization: `Bearer ${_cachedToken}` };
+    return buildAuthenticatedHeaders(_cachedToken);
   }
 
   // Near-expiry / expired path: token exists but < 60 s left (or already expired).
@@ -142,7 +150,7 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
           ? newExpiresAt
           : Math.floor(Date.now() / 1000) + 3600;
         console.log("[AUTH_HEADERS] SILENT_REFRESH_SUCCESS", { newExpiresAt });
-        return { Authorization: `Bearer ${data.session.access_token}` };
+        return buildAuthenticatedHeaders(data.session.access_token);
       }
       console.warn("[AUTH_HEADERS] SILENT_REFRESH_RETURNED_NO_SESSION", { error: error?.message });
     } catch (refreshErr: any) {
@@ -170,7 +178,7 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
         ? expiresAt
         : Math.floor(Date.now() / 1000) + 3600;
       console.log("[AUTH_HEADERS] SLOW_PATH_SUCCESS", { expiresAt });
-      return { Authorization: `Bearer ${session.access_token}` };
+      return buildAuthenticatedHeaders(session.access_token);
     }
   } catch (err: any) {
     console.error("[AUTH_HEADERS] SLOW_PATH_FAILED", { error: err?.message });

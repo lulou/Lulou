@@ -1,0 +1,238 @@
+Fix the signup/onboarding flow issues shown in the attached iPhone screenshots.
+
+Do not redesign unrelated parts of Lulou.
+
+There are THREE concrete bugs:
+
+1. Gender dropdown opens upward over the field instead of downward.
+2. After completing signup, the user is sent to a 404 page.
+3. The account is created successfully, but the new user can bypass/skip the required “How to use Lulou” introduction and compatibility/DNA test and ends up inside the main app without completing them.
+
+Fix all three properly.
+
+## 1. GENDER DROPDOWN — OPEN DOWNWARD
+
+In the attached screenshot, tapping the Gender dropdown opens the options ABOVE the field and covers the content above it.
+
+That feels wrong on iPhone.
+
+Change the Gender dropdown so:
+
+- it opens downward beneath the field whenever there is sufficient space
+- it does not cover the selected field
+- it feels native/premium on iOS
+- it stays within the visible viewport
+- it scrolls internally if the list is too tall
+- it does not force the whole page to jump
+- the currently selected option remains clearly highlighted
+
+If there genuinely is not enough room below because the keyboard/viewport is small, use intelligent collision handling, but the default direction should be downward.
+
+Apply the same correct dropdown behavior to:
+- Gender
+- Interested in
+- Pronouns
+- any other onboarding selects using the same component
+
+Do not change the available options or profile schema.
+
+## 2. FIX THE POST-SIGNUP 404
+
+The attached screenshot shows that after the account was successfully created, Lulou navigated to a route that does not exist and displayed:
+
+“404 Page Not Found
+Did you forget to add the page to the router?”
+
+Trace the exact route used after:
+- email confirmation
+- first successful sign-in
+- onboarding account creation
+- auth callback
+
+Find the broken redirect.
+
+Check:
+- `/auth/callback`
+- onboarding completion redirect
+- email confirmation redirect
+- router definitions
+- route guards
+- www vs non-www domain handling
+- Gmail in-app browser callback
+- PWA routing
+- any route that is generated dynamically after confirmation
+
+Do not mask the 404 with a generic redirect.
+
+Fix the actual route so a newly confirmed user always enters the correct onboarding sequence.
+
+There must be no valid signup path that lands on an undefined route.
+
+## 3. NEW USERS MUST NOT SKIP REQUIRED ONBOARDING
+
+The account was created, but after I backed out and logged into the installed app, the user could enter Lulou without completing the required onboarding we previously built.
+
+That is a serious flow bug.
+
+A brand-new user must complete the required sequence BEFORE they can enter Discover / Likes / Connections / Intent / Profile.
+
+The required sequence is:
+
+1. Account created
+2. Email verified
+3. Complete profile/onboarding fields
+4. Complete the existing “How to use Lulou” introduction/explanation
+5. Complete the existing Connection DNA / compatibility test used by the matching algorithm
+6. Show the existing DNA completion/explanation state
+7. Only then mark onboarding as complete
+8. Only then allow access to the main Lulou app
+
+Do not allow:
+- direct URL navigation
+- logging out and back in
+- reopening the PWA
+- auth callback redirects
+- browser back/forward navigation
+- cached routes
+
+to bypass these gates.
+
+## 4. CONNECTION DNA GATE
+
+The compatibility test is mandatory.
+
+Use the existing Connection DNA implementation.
+
+Do NOT create a second quiz.
+
+Check the existing database fields, including the current completion marker such as:
+
+`connection_dna_profiles.completed_at`
+
+or the actual existing equivalent.
+
+If DNA is incomplete:
+- redirect the user to the existing Connection DNA flow
+
+If DNA is complete:
+- continue normally
+
+Do not rely only on a localStorage/onboarding boolean.
+
+The database must be the source of truth.
+
+## 5. “HOW TO USE LULOU” GATE
+
+The new user also missed the onboarding/explanation we created showing how Lulou works.
+
+Find the existing implementation.
+
+Do not recreate it unless it is genuinely missing.
+
+Add a persistent completion flag if one does not already exist.
+
+A new user must see it before entering the main app.
+
+Once completed, it should not repeatedly show every login.
+
+## 6. CENTRALISE THE ONBOARDING ROUTE GUARD
+
+Do not scatter one-off redirects around random pages.
+
+Create/fix one clear onboarding-state resolver that checks the authenticated user and determines their next required step.
+
+Conceptually:
+
+- not authenticated → login
+- email not verified → verification screen
+- profile incomplete → profile onboarding
+- how-to-use incomplete → Lulou introduction
+- DNA incomplete → Connection DNA
+- all complete → main app
+
+Use the existing fields/routes wherever possible.
+
+All protected main-app routes should respect this guard.
+
+## 7. HANDLE EMAIL CONFIRMATION CORRECTLY
+
+After the user taps the email confirmation link:
+
+- account becomes verified
+- callback completes successfully
+- session is established/restored where possible
+- onboarding resolver runs
+- user is sent to the NEXT REQUIRED onboarding step
+- not straight into Discover
+- not to a 404
+- not to a generic reconnect screen
+
+If Gmail’s in-app browser cannot transfer the exact PWA session automatically, show a clean confirmed-success screen and route them correctly when they continue/open Lulou.
+
+## 8. EXISTING USERS MUST NOT BE BROKEN
+
+Do not send established users back through onboarding.
+
+Users who already completed:
+- profile setup
+- how-to-use
+- Connection DNA
+
+must continue directly into Lulou.
+
+Backfill or safely infer completion for existing production users if necessary.
+
+Do not accidentally lock existing members out.
+
+## 9. TEST THE ENTIRE FRESH-ACCOUNT JOURNEY
+
+Use a brand-new test account and verify:
+
+1. Signup opens.
+2. Gender dropdown opens correctly downward.
+3. Account is created.
+4. Confirmation email arrives.
+5. Confirmation button works.
+6. No 404 occurs.
+7. User enters the correct next onboarding page.
+8. User sees the “How to use Lulou” onboarding.
+9. User cannot bypass it.
+10. User reaches Connection DNA.
+11. User cannot bypass DNA.
+12. DNA completion persists to the database.
+13. User then enters the main app.
+14. Log out.
+15. Log back in.
+16. Completed user goes directly into Lulou without repeating completed onboarding.
+
+Also test direct navigation to `/discover` before DNA completion and confirm the user is redirected back to the required onboarding step.
+
+## 10. DO NOT CHANGE
+
+Do not change:
+- DNA questions/scoring
+- matching algorithm
+- messaging stages
+- Intention Wheel logic
+- Discover UI
+- payments
+- existing email design
+- profile fields/options
+- branding
+
+This task is specifically:
+- dropdown presentation
+- broken post-signup routing
+- mandatory onboarding/How-to-use/DNA gating
+
+Implement the fixes directly.
+
+At the end report only:
+
+1. Root cause of the upward dropdown
+2. Root cause of the 404
+3. Why the new user bypassed How-to-use/DNA
+4. Files/database fields changed
+5. Exact onboarding route order now enforced
+6. What was tested
+7. Any migration/manual production step required

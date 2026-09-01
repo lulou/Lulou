@@ -3,8 +3,8 @@ name: Post-signup tutorial ordering
 description: Required relationship between profile onboarding, Connection DNA, and the one-time Lulou tour.
 ---
 
-The required account journey is: sign up → normal profile onboarding → Connection DNA questionnaire and completion explanation → one-time Lulou tutorial → normal app.
+The required account journey is: sign up → email verification → profile onboarding → required one-time Lulou tutorial → Connection DNA questionnaire and completion explanation → normal app.
 
-**Why:** The DNA questionnaire is a required matching foundation. The tour is product guidance only and must never replace, precede, or weaken that gate.
+**Why:** Both the introduction and DNA are mandatory account setup. Previously, the tutorial was mounted inside the already-unlocked app and DNA status failed open, so new users could bypass one or both through timing, deep links, or a cached session.
 
-**How to apply:** Keep Connection DNA as the app-level gate before the main layout. Any new tutorial or product-guide component must independently require server-confirmed DNA completion, and tutorial completion must never be treated as proof of DNA completion.
+**How to apply:** Resolve all stages centrally before the main layout using server-backed profile, tutorial, and DNA state. Never fail open or use browser-storage overrides. Mark the profile's overall onboarding flag only after DNA completion.

@@ -159,7 +159,10 @@ export default function ConnectionDna() {
       clearLocalProgress();
       // Tell App.tsx gate that DNA is now complete so it unlocks the main app.
       queryClient.setQueryData(["dna-status-check"], { completed: true, hasDna: true });
-      navigate("/discover");
+      queryClient.setQueryData(["profile-exists-check"], (current: any) => current
+        ? { ...current, exists: true }
+        : { exists: true, fetchFailed: false, confirmedMissing: false });
+      navigate("/");
     } catch {
       toast({ title: t("something_went_wrong"), description: t("dna_error_try_again"), variant: "destructive" });
     } finally {

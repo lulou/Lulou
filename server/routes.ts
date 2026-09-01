@@ -7437,6 +7437,13 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { pool } = await import("./db");
 
+      const [settings] = await db.select({
+        onboardingTutorialCompleted: userSettings.onboardingTutorialCompleted,
+      }).from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
+      if (!settings?.onboardingTutorialCompleted) {
+        return res.status(409).json({ message: "Complete the Lulou introduction before Connection DNA." });
+      }
+
       // Load all answers
       const r = await (pool as any).query(
         "SELECT question_id, answer_index FROM connection_dna_responses WHERE user_id = $1",
@@ -7446,7 +7453,11 @@ export async function registerRoutes(
       for (const row of r.rows) responses[row.question_id] = row.answer_index;
 
       // Compute dimensions
-      const { computeDnaProfile, serializeDna, ALGO_VERSION } = await import("./connectionDna");
+      const { computeDnaProfile, serializeDna, ALGO_VERSION, REQUIRED_DNA_QUESTION_IDS } = await import("./connectionDna");
+      const missingQuestionIds = REQUIRED_DNA_QUESTION_IDS.filter(questionId => responses[questionId] == null);
+      if (missingQuestionIds.length > 0) {
+        return res.status(400).json({ message: "Complete every Connection DNA question before continuing." });
+      }
       const dimensions = computeDnaProfile(responses);
       const dimensionsJson = serializeDna(dimensions);
 
@@ -7459,6 +7470,10 @@ export async function registerRoutes(
                        updated_at = NOW()`,
         [userId, dimensionsJson, ALGO_VERSION],
       );
+
+      // This is the final mandatory onboarding step. Keep the public profile
+      // ineligible until tutorial completion and DNA completion are persisted.
+      await getStorage(req).updateProfile(userId, { onboardingComplete: true });
 
       res.json({ ok: true, dimensions });
     } catch (err: any) {

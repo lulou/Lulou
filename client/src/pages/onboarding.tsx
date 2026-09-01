@@ -223,7 +223,9 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
         ...rest,
         conversationStarters: fullStarters,
         customQuestions: formData.customQuestions,
-        onboardingComplete: true,
+        // The profile fields are complete, but account onboarding is not.
+        // /api/dna/complete flips this only after the required tutorial + DNA flow.
+        onboardingComplete: false,
       };
       console.log("[PROFILE_SAVE] START", { label: "createProfile", fieldKeys: Object.keys(payload) });
       writeDebug({ profileInsertAttempted: true, profileInsertSucceeded: false, profileErrorMessage: null });
@@ -254,7 +256,9 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
       // New users have no DNA row yet — the gate will render ConnectionDnaPage next.
       queryClient.removeQueries({ queryKey: ["dna-status-check"] });
       console.log("[PROFILE_SAVE] GATE_UNBLOCKED", { profileExists: true });
-      navigate("/connection-dna");
+      // Return to the central resolver. It sends the user to the persisted
+      // How-to-use gate first, then Connection DNA.
+      navigate("/");
     },
     onError: (error: any) => {
       const msg = cleanErrorMessage(error);
@@ -402,7 +406,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   <Label>{t("label_gender")}</Label>
                   <Select value={formData.gender} onValueChange={v => update("gender", v)}>
                     <SelectTrigger data-testid="select-gender"><SelectValue placeholder={t("sel_gender")} /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-[min(13rem,calc(100dvh-2rem))]">
                       <SelectItem value="woman">{t("gender_woman")}</SelectItem>
                       <SelectItem value="man">{t("gender_man")}</SelectItem>
                       <SelectItem value="non-binary">{t("gender_nonbinary")}</SelectItem>
@@ -420,7 +424,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   <Label>{t("label_interested_in")}</Label>
                   <Select value={formData.datingPreference} onValueChange={v => update("datingPreference", v)}>
                     <SelectTrigger data-testid="select-dating-preference"><SelectValue placeholder={t("sel_dating_pref")} /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-[min(13rem,calc(100dvh-2rem))]">
                       <SelectItem value="women">{t("pref_women")}</SelectItem>
                       <SelectItem value="men">{t("pref_men")}</SelectItem>
                       <SelectItem value="non-binary people">{t("pref_nonbinary_ppl")}</SelectItem>
@@ -434,7 +438,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   <Label>{t("label_pronouns_opt")}</Label>
                   <Select value={formData.pronouns} onValueChange={v => update("pronouns", v)}>
                     <SelectTrigger data-testid="select-pronouns"><SelectValue placeholder={t("sel_pronouns")} /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-[min(13rem,calc(100dvh-2rem))]">
                       <SelectItem value="she/her">{t("pronoun_she_her")}</SelectItem>
                       <SelectItem value="he/him">{t("pronoun_he_him")}</SelectItem>
                       <SelectItem value="they/them">{t("pronoun_they_them")}</SelectItem>

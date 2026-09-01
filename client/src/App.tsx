@@ -8,6 +8,7 @@ import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import AppLayout from "@/components/app-layout";
+import { LulouOnboardingTour } from "@/components/lulou-onboarding-tour";
 
 // Main app pages — static imports so Vercel never needs to serve lazy chunks.
 // All pages land in the main bundle; no separate chunk files are requested at runtime.
@@ -63,7 +64,7 @@ import { stopAllNonVoiceCallAudio, stopAllCallSounds, registerCallAudioUnlock, u
 import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange, isPaidCallSession, isVideoCallSession, armSessionFromPush, isPushArmedSession, setLoginTime } from "@/lib/live-call-sessions";
 import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
-import type { Profile, Match } from "@shared/schema";
+import type { Profile, Match, UserSettings } from "@shared/schema";
 import { Loader2, Mail, CheckCircle, AlertCircle } from "lucide-react";
 import { supabase, supabaseConfigError } from "@/lib/supabase";
 import { sendVerificationResend } from "@/lib/auth-helpers";
@@ -2704,36 +2705,29 @@ function AppContent() {
   // This covers the case where the fetch hangs without timing out (e.g. a long
   // network stall that doesn't trigger a TCP reset within the retry window).
   const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
-  // forceProceed=true: user tapped "Continue to App" on a blocked screen.
-  // Backed by sessionStorage so it survives AppContent remounts (which reset
-  // plain useState to false) and auth-event cycles triggered by Supabase when
-  // the DB is down.  Cleared on logout so each new login starts clean.
-  const [forceProceed, setForceProceedState] = useState(
-    () => sessionStorage.getItem("lulou-bypass") === "1"
-  );
-  const setForceProceed = (v: boolean) => {
-    if (v) sessionStorage.setItem("lulou-bypass", "1");
-    else sessionStorage.removeItem("lulou-bypass");
-    setForceProceedState(v);
-  };
   const spinnerStartRef = useRef<number | null>(null);
 
-  // effectiveProfileExists: either confirmed by the server, or the user
-  // chose to bypass a failed/stuck profile fetch via "Continue to App".
-  // Declared after forceProceed useState to avoid TDZ reference error.
-  const effectiveProfileExists = profileExists || forceProceed;
+  // Profile existence must always come from the server. A sessionStorage
+  // override previously allowed fresh accounts to bypass mandatory setup.
+  const effectiveProfileExists = profileExists;
 
-  // ── Connection DNA gate ──────────────────────────────────────────────────────
-  // Checks whether the current user has completed the Connection DNA questionnaire.
-  // Enabled only after profile is confirmed (effectiveProfileExists).
-  // Fail-open: if the query errors, dnaComplete defaults to true so existing
-  // users are never blocked by a transient Railway failure.
+  // ── Persisted onboarding-state gates ─────────────────────────────────────────
+  const { data: onboardingSettings, isPending: settingsIsPending, isError: settingsIsError } = useQuery<UserSettings>({
+    queryKey: ["/api/settings", user?.id],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/settings");
+      return response.json() as Promise<UserSettings>;
+    },
+    enabled: !!user && profileReady && !clearingCache && effectiveProfileExists,
+    staleTime: 30_000,
+    retry: 2,
+  });
   const { data: dnaData, isPending: dnaIsPending, isError: dnaIsError } = useQuery<{ completed: boolean; hasDna: boolean }>({
     queryKey: ["dna-status-check"],
     queryFn: async () => {
       const headers = await getAuthHeaders();
       const res = await fetch(`${API_BASE}/api/dna/status`, { headers });
-      if (!res.ok) return { completed: true, hasDna: false }; // fail-open on server error
+      if (!res.ok) throw new Error(`DNA status check failed (${res.status})`);
       return res.json();
     },
      enabled: !!user && profileReady && !clearingCache && effectiveProfileExists,
@@ -2741,16 +2735,14 @@ function AppContent() {
     retry: 1,
     retryDelay: 1000,
   });
-  // fail-open: missing/errored data → assume complete so existing users aren't blocked
-  const dnaComplete: boolean = dnaData?.completed ?? true;
+  const dnaComplete: boolean = dnaData?.completed === true;
 
   // profilePending = query has no data yet (covers the gap between "enabled"
   // and "fetch started" that caused isLoading to briefly be false).
-  // forceProceed collapses the spinner immediately when the user bypasses.
   // !fetchFailed && !profileHasData: extra guard for the rare window where isPending
   // is briefly false but data hasn't arrived yet (e.g., after queryClient.clear()),
   // preventing a momentary flash of the onboarding screen for existing users.
-  const isSpinning = !forceProceed && !authLoading && !!user &&
+  const isSpinning = !authLoading && !!user &&
     (clearingCache || profilePending || !profileReady || (!fetchFailed && !profileHasData));
 
   useEffect(() => {
@@ -2847,15 +2839,13 @@ function AppContent() {
     ? "blocked_auth_loading"
     : !user
       ? "blocked_missing_session"
-      : forceProceed
-        ? "render_main_app (force_proceed)"
-        : isSpinning
-          ? (spinnerTimedOut ? "blocked_spinner_timeout" : "blocked_spinner_running")
-          : (fetchFailed && !effectiveProfileExists)
-            ? "blocked_profile_gate"
-            : !effectiveProfileExists
-              ? "blocked_onboarding_guard"
-              : "render_main_app";
+      : isSpinning
+        ? (spinnerTimedOut ? "blocked_spinner_timeout" : "blocked_spinner_running")
+        : (fetchFailed && !effectiveProfileExists)
+          ? "blocked_profile_gate"
+          : !effectiveProfileExists
+            ? "blocked_onboarding_guard"
+            : "resolve_persisted_onboarding";
 
   writeDebug({
     userId: user?.id ?? null,
@@ -2865,7 +2855,6 @@ function AppContent() {
     effectiveProfileExists,
     fetchFailed,
     spinnerTimedOut,
-    forceProceed,
     onboardingComplete: profileExists,
     route: location,
     finalGateDecision,
@@ -3204,7 +3193,7 @@ function AppContent() {
   if (fetchFailed && !effectiveProfileExists) {
     console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId: user.id });
     console.warn("[SETUP] FINAL_APP_GATE: blocked_by_profile_gate", {
-      userId: user.id, fetchFailed, profileExists, effectiveProfileExists, forceProceed,
+      userId: user.id, fetchFailed, profileExists, effectiveProfileExists,
     });
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -3293,13 +3282,9 @@ function AppContent() {
     );
   }
 
-  // ── Connection DNA gate ──────────────────────────────────────────────────────
-  // Profile exists but DNA quiz not yet completed → show the quiz.
-  // Show a brief spinner while the status is loading.
-  // Connection DNA remains a hard post-signup gate. The profile recovery
-  // bypass can only bypass an unavailable profile lookup; it must never bypass
-  // the questionnaire or its completion state.
-  if (dnaIsPending && !dnaIsError) {
+  // ── Central onboarding resolver ──────────────────────────────────────────────
+  // Required order: profile → How to use Lulou → Connection DNA → main app.
+  if (settingsIsPending || dnaIsPending) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -3308,6 +3293,34 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  if (settingsIsError || dnaIsError || !onboardingSettings || !dnaData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm">
+          <p className="text-2xl font-serif font-semibold">Taking a little longer than usual.</p>
+          <p className="text-sm text-muted-foreground">
+            We couldn&apos;t confirm your onboarding progress. Please try again.
+          </p>
+          <button
+            className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium"
+            onClick={() => {
+              queryClient.resetQueries({ queryKey: ["/api/settings", user.id] });
+              queryClient.resetQueries({ queryKey: ["dna-status-check"] });
+            }}
+            data-testid="button-retry-onboarding-state"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!onboardingSettings.onboardingTutorialCompleted) {
+    console.log("[AUTH_FLOW] tutorial incomplete — showing required How to use Lulou flow", { userId: user.id });
+    return <LulouOnboardingTour required />;
   }
 
   if (!dnaComplete) {

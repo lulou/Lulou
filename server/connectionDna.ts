@@ -152,6 +152,8 @@ const QUESTIONS: ServerQuestion[] = [
   ]},
 ];
 
+export const REQUIRED_DNA_QUESTION_IDS = QUESTIONS.map(question => question.id);
+
 /** Neutral / midpoint used when a dimension isn't covered by any answer. */
 const NEUTRAL = 50;
 
