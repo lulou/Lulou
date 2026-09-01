@@ -1,0 +1,184 @@
+Fix the production /auth/callback JSON parse failure exposed by the fresh-account verification test.
+
+Do not change the onboarding resolver, tutorial gate, DNA gate, dropdown behavior, or any other already-verified implementation.
+
+The current production release is:
+
+GitHub main:
+fbe9f683358cb9df1f7b6c839db7fa2b5db8d61c
+
+The fresh production test confirmed:
+
+- signup succeeds
+- user reaches email verification
+- verification email works
+- /auth/callback exists and no longer 404s
+- BUT after clicking the confirmation link, /auth/callback fails with a JSON parse error during implicit-session restoration
+- onboarding never gets a chance to run
+
+Fix that exact callback failure.
+
+## 1. REPRODUCE THE PRODUCTION CALLBACK ERROR
+
+Use a fresh isolated test user and the real production confirmation flow.
+
+Capture safely:
+
+- exact callback route reached
+- whether the confirmation arrives with:
+ - hash tokens
+ - PKCE code
+ - query params
+- whether access_token / refresh_token are present
+- whether the callback is attempting setSession()
+- which network request throws the JSON parse error
+- response status
+- response Content-Type
+- whether HTML is being parsed as JSON
+- whether the request is accidentally hitting Vercel instead of Supabase/Railway
+- whether a www/non-www redirect strips or alters the callback parameters
+
+Do not log tokens or confirmation URLs.
+
+## 2. FIND THE EXACT JSON PARSE SOURCE
+
+Search the callback code for all JSON parsing paths, including:
+
+- response.json()
+- apiRequest()
+- Supabase auth SDK calls
+- setSession()
+- exchangeCodeForSession()
+- profile/settings/DNA status requests triggered immediately after auth restoration
+
+Identify the exact call that receives non-JSON content.
+
+Do not broadly catch the error and continue.
+
+Fix the incorrect request/response path.
+
+## 3. HANDLE BOTH SUPABASE CONFIRMATION MODES SAFELY
+
+The callback must support the production confirmation flow whether Supabase returns:
+
+### Implicit/hash flow
+- access_token
+- refresh_token
+- expires_in
+- token_type
+
+or:
+
+### PKCE/code flow
+- code query parameter
+
+For implicit flow:
+- extract tokens safely from location.hash
+- call supabase.auth.setSession()
+- verify session exists
+- clear sensitive hash from the browser URL after successful restoration
+
+For PKCE:
+- call the proper code exchange
+- verify session exists
+
+Do not attempt to JSON-parse the URL/hash manually as if it were an API response.
+
+## 4. DO NOT LET APP API REQUESTS RUN BEFORE SESSION IS READY
+
+Check whether the centralized onboarding resolver begins fetching:
+
+- /api/settings
+- /api/dna/status
+- profile state
+
+before Supabase session restoration finishes.
+
+If so, gate the resolver until auth callback restoration is complete.
+
+Required order:
+
+1. process confirmation callback
+2. restore Supabase session
+3. confirm authenticated user
+4. then run onboarding resolver
+5. then route to the next required step
+
+No protected app request should fire against an incomplete callback session.
+
+## 5. CHECK WWW / NON-WWW
+
+Canonical production callback must remain:
+
+https://www.luloudating.com/auth/callback
+
+Verify there is no intermediate redirect from:
+
+luloudating.com
+→ www.luloudating.com
+
+that loses:
+- hash tokens
+- query code
+- state
+- type=signup
+
+If old non-www links still exist, preserve compatibility without losing the auth payload.
+
+## 6. ERROR HANDLING
+
+If session restoration genuinely fails:
+
+Show a clean confirmation failure screen with:
+- useful retry
+- return to sign in
+- no generic JSON error
+- no infinite reconnect loop
+
+Do not expose raw backend error text to users.
+
+But first fix the actual root cause.
+
+## 7. DO NOT TOUCH
+
+Do not change:
+
+- onboarding order
+- tutorial requirement
+- DNA requirement
+- profile fields
+- dropdown UI
+- email template design
+- Intention Wheel
+- Discover
+- messaging
+- payments
+
+This is callback/session restoration only.
+
+## 8. FULL PRODUCTION VALIDATION
+
+After the fix, run a completely fresh production account through:
+
+1. signup
+2. email verification
+3. tap confirm link
+4. /auth/callback restores session successfully
+5. no JSON parse error
+6. profile onboarding appears
+7. tutorial appears after profile
+8. DNA appears after tutorial
+9. main app unlocks only after DNA
+10. logout/login respects persisted completion
+
+Do not mark complete until this full production journey passes.
+
+At the end report only:
+
+1. Exact source of the JSON parse error
+2. Exact callback/session fix
+3. Files changed
+4. Whether implicit and PKCE paths both work
+5. Whether www/non-www payload preservation was verified
+6. Fresh production journey result
+7. Final GitHub/Vercel/Railway release identifiers
