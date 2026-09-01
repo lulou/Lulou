@@ -147,7 +147,7 @@ app.use((req, res, next) => {
     if (isCorsAllowed(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Voice-Mime");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Session-Id, X-Voice-Mime");
       res.setHeader("Access-Control-Expose-Headers", "X-Empty-Reason, X-Feed-Radius-Miles");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
 
