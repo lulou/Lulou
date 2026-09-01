@@ -846,19 +846,25 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
   return (
     <div
       style={{
-        width: "100%", padding: "4px 24px 10px",
+        width: "calc(100% - 32px)",
+        maxWidth: 390,
+        padding: "14px 16px 12px",
+        borderRadius: 24,
+        background: "rgba(255,244,239,0.045)",
+        border: "1px solid rgba(255,241,236,0.09)",
+        boxShadow: "0 14px 32px rgba(9,5,7,0.16)",
         animation: "previewFadeIn 0.7s 0.2s ease both",
       }}
     >
       <p style={{
-        fontSize: 12, fontWeight: 500, letterSpacing: 0,
+        fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
         textAlign: "start",
-        color: "rgba(255,239,235,0.64)",
-        marginBottom: 10, opacity: 0.82,
+        color: "rgba(255,239,235,0.72)",
+        marginBottom: 12,
       }}>
         {t("tonight_connections")}
       </p>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "flex-start", gap: cardGap, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: cardGap, overflow: "hidden" }}>
         {preview.map((profile, i) => (
           <div
             key={profile.userId}
@@ -870,7 +876,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
               width: cardWidth, height: cardHeight, borderRadius: 16, overflow: "hidden",
               position: "relative",
               boxShadow: "0 8px 20px rgba(12,7,9,0.22)",
-              border: "1px solid rgba(255,241,236,0.12)",
+              border: "1px solid rgba(255,241,236,0.18)",
               cursor: onTap ? "pointer" : "default",
               transition: "transform 0.12s ease",
             }}>
@@ -881,8 +887,8 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
         ))}
       </div>
       <p style={{
-        fontSize: 10, textAlign: "start", marginTop: 8,
-        color: "rgba(255,244,239,0.38)",
+        fontSize: 10, lineHeight: 1.35, textAlign: "start", marginTop: 10,
+        color: "rgba(255,244,239,0.42)",
       }}>
         {t("spin_random_desc")}
       </p>
@@ -1493,7 +1499,7 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 228 : viewportW < 430 ? 244 : 260;
+  const itemWidth  = viewportW < 380 ? 210 : viewportW < 430 ? 224 : 248;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
@@ -1508,6 +1514,9 @@ export default function IntentPage() {
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
   const wheelBufferY = isCompact ? 46 : viewportW < 380 ? 56 : 64;
+  // The idle hero has its identity in a dedicated in-card footer, so it does not
+  // need the external caption buffer reserved for the active spinning state.
+  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 20);
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -3277,7 +3286,14 @@ export default function IntentPage() {
         <div
           className="relative select-none touch-manipulation"
           style={{
-            width: "100%", height: itemHeight + wheelBufferY,
+            width: "calc(100% - 32px)",
+            maxWidth: 390,
+            height: wheelStageHeight,
+            flexShrink: 0,
+            borderRadius: 32,
+            background: "linear-gradient(180deg, rgba(255,244,239,0.05), rgba(255,244,239,0.018))",
+            border: "1px solid rgba(255,241,236,0.08)",
+            boxShadow: "0 20px 48px rgba(8,4,6,0.20)",
             perspective: isSpinning ? "1000px" : "none",
             transition: dispersed ? "opacity 0.55s ease" : undefined,
             opacity: dispersed ? 0 : 1,
@@ -3371,23 +3387,38 @@ export default function IntentPage() {
                     }}
                     data-testid={`intent-profile-${i}`}
                   >
-                    <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
+                    <div style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: isResting && restingVisible ? 86 : 0,
+                      overflow: "hidden",
+                      background: "rgba(255,244,239,0.06)",
+                    }}>
+                      <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
+                    </div>
                     <div style={{
                       position: "absolute", inset: 0, borderRadius: 28,
                       background: isResting && restingVisible
-                        ? "linear-gradient(180deg, transparent 48%, rgba(10,7,9,0.10) 65%, rgba(10,7,9,0.88) 100%)"
+                        ? "linear-gradient(180deg, transparent 62%, rgba(10,7,9,0.04) 75%, rgba(10,7,9,0.18) 100%)"
                         : "linear-gradient(175deg, rgba(8,3,12,0) 56%, rgba(8,3,12,0.06) 76%, rgba(8,3,12,0.30) 100%)",
                       pointerEvents: "none",
                     }} />
                     {isResting && restingVisible && (
                       <div style={{
-                        position: "absolute", left: 20, right: 20, bottom: 18,
+                        position: "absolute", left: 0, right: 0, bottom: 0,
+                        minHeight: 86,
+                        padding: "13px 18px 14px",
+                        display: "flex", flexDirection: "column", justifyContent: "center",
+                        background: "linear-gradient(135deg, rgba(45,32,36,0.98), rgba(28,23,25,0.98))",
+                        borderTop: "1px solid rgba(255,241,236,0.09)",
                         color: "#fff", pointerEvents: "none",
                       }}>
                         <p style={{
                           margin: 0, fontFamily: "'Playfair Display', Georgia, serif",
-                          fontSize: 24, lineHeight: 1.05, fontWeight: 500,
-                          letterSpacing: "-0.02em", textShadow: "0 2px 14px rgba(0,0,0,0.45)",
+                          fontSize: 22, lineHeight: 1.05, fontWeight: 500,
+                          letterSpacing: "-0.02em",
                         }}>
                           {profile.firstName}
                           {profile.age ? <span style={{ fontFamily: "inherit", fontWeight: 400 }}>, {profile.age}</span> : null}

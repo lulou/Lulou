@@ -1,0 +1,68 @@
+I’ll inspect the attached screenshots and fix only the two concrete UI defects they show, without changing unrelated product logic or styling elsewhere.
+
+ISSUE 1 — DISCOVER PROFILE PHOTO IS RENDERING INCORRECTLY
+
+In the Discover/profile view, the main user photo is not displaying properly.
+The screenshot shows the image half-mixed / half-cut, with part of the photo visible and the rest turning into a blank/grey area.
+
+Fix this so the profile image renders cleanly and consistently.
+
+Requirements:
+- The active profile photo must fully display inside its card/container.
+- No split-image rendering.
+- No half-loaded / half-grey / mixed states.
+- Preserve rounded corners and the current premium iOS look.
+- Ensure the image sizing/cropping behavior is correct on iPhone.
+- Check object-fit / aspect-ratio / lazy-loading / container-height logic / image-layer overlap.
+- Make sure the photo carousel/pagination still works properly.
+- Open ❤️ and Close 🌙 must remain positioned correctly and not interfere with the image area.
+- Do not change Discover logic, matching logic, or button behavior.
+
+ISSUE 2 — INTENTION WHEEL LAYOUT IS BROKEN
+
+The Intention Wheel screen is visually broken in the screenshot.
+
+Visible problems:
+- The main profile image is too large / misplaced.
+- Name text overlaps the photo area.
+- “Tonight’s possible connections” content is colliding with the main card.
+- The thumbnail row/logo card layout is broken.
+- Spacing and hierarchy are off.
+- The whole page looks misassembled instead of premium and intentional.
+
+Fix the layout so the page looks polished, structured, and top-tier on iPhone.
+
+Requirements:
+- Restore a clean premium layout for the whole Intention Wheel screen.
+- Main hero card must sit correctly within the layout.
+- Name, age, and location must be clearly readable and correctly positioned.
+- “Tonight’s possible connections” must sit in its own clean section without overlap.
+- Thumbnail/previews must align properly and not collide with other content.
+- CTA button (“Find tonight’s connection” / current wheel CTA) must remain clear and correctly spaced.
+- Progress/streak row must align neatly underneath.
+- Keep the overall feel luxury, refined, and iOS-native.
+- Remove any broken overlap, stacking, clipping, or z-index issues.
+- Check responsive behavior specifically at iPhone dimensions.
+- Preserve Intention Wheel logic, spin rules, eligibility, streak logic, randomness, and navigation.
+
+IMPLEMENTATION RULES
+- Fix the real active components only.
+- Do not patch with hardcoded screenshot-specific values unless necessary.
+- Trace the actual layout/image-rendering cause before editing.
+- Preserve all existing app logic outside these two UI defects.
+- Validate in an iPhone-sized viewport after changes.
+
+WHAT TO VERIFY
+1. Discover profile photo now renders fully and cleanly.
+2. No grey/blank lower half in the Discover card.
+3. Intention Wheel layout is visually corrected.
+4. No overlap between hero image, profile text, thumbnail strip, and section labels.
+5. The page looks premium and coherent on iPhone.
+6. Build passes and the app runs cleanly.
+
+Reply with:
+- exact files changed
+- root cause of each issue
+- what was fixed
+- what was tested
+- any remaining limitation

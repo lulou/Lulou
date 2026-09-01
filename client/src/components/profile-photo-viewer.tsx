@@ -451,6 +451,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           overflow: "hidden",
           borderRadius: CARD_RADIUS,
           zIndex: 1,
+          isolation: "isolate",
+          background: "hsl(var(--muted))",
         }}
       >
         {/* Peek card */}
@@ -470,12 +472,15 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             }}
           >
             <img
+              key={`peek-${peekPhoto}`}
               src={getImgSrc(peekPhoto)}
               alt=""
               draggable={false}
               onLoad={() => decodedPhotos.add(peekPhoto)}
               onError={() => handlePhotoError(peekPhoto, peekIdx)}
               style={{
+                position: "absolute",
+                inset: 0,
                 width: "100%",
                 height: "100%",
                 objectFit: "cover",
@@ -496,6 +501,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             borderRadius: CARD_RADIUS,
             overflow: "hidden",
             zIndex: 2,
+            background: "hsl(var(--muted))",
             transform: currentCardTransform,
             transition: cardTransition,
             willChange: "transform",
@@ -531,6 +537,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             </div>
           ) : (
             <img
+              key={`current-${currentPhoto}`}
               src={getImgSrc(currentPhoto)}
               alt={`Photo ${safeIdx + 1}`}
               loading="eager"
@@ -543,15 +550,13 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
                 height: "100%",
                 objectFit: "cover",
                 objectPosition: "center top",
-                opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
-                transition: "opacity 0.08s ease",
+                opacity: 1,
                 display: "block",
                 userSelect: "none",
                 pointerEvents: "none",
               }}
               onLoad={e => {
                 decodedPhotos.add(currentPhoto);
-                (e.currentTarget as HTMLImageElement).style.opacity = "1";
               }}
               onError={() => handlePhotoError(currentPhoto, safeIdx)}
               data-testid={`img-carousel-photo-${safeIdx}`}
@@ -641,6 +646,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
               zIndex: 5,
               borderRadius: CARD_RADIUS,
               overflow: "hidden",
+              background: "hsl(var(--muted))",
               animation: `${photoOverlay.direction === "fwd" ? "photoEnterRight" : "photoEnterLeft"} 0.42s cubic-bezier(0.16, 1, 0.3, 1) both`,
             }}
           >

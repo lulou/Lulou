@@ -1,0 +1,216 @@
+Update the required “How to use Lulou” onboarding tutorial so it is much easier to understand visually.
+
+Keep the tutorial gate, persistence, order, completion logic, routing, and DNA gating exactly as they are now.
+
+This is a visual/content improvement only.
+
+The current tutorial card is a good start, but it is too abstract. I want users to be able to SEE what each feature/page looks like while it is being explained.
+
+## MAIN CHANGE
+
+Each tutorial slide should include a clear mini visual of the actual Lulou page or feature being explained.
+
+Do not use vague icons or generic illustrations.
+
+Use premium iOS-style mini mockups / diagrams / page previews that resemble the real Lulou UI.
+
+The user should be able to understand each feature in a few seconds without reading lots of text.
+
+## SLIDE 1 — INTENTION WHEEL
+
+Explain the Intention Wheel.
+
+Show a mini preview of the actual Intention Wheel screen.
+
+The visual should help explain:
+
+- one considered connection at a time
+- curated introductions
+- the user uses the Intention Wheel to discover that connection
+
+Keep the wording concise.
+
+The visual should feel like a miniature premium version of the actual current Intention Wheel UI.
+
+## SLIDE 2 — DISCOVER
+
+Show a mini preview of the real Discover profile page.
+
+Include:
+
+- profile photo
+- basic profile information
+- Open ❤️
+- Close 🌙
+
+Make it obvious that Discover is where users browse profiles and decide whether they want to open or close that connection.
+
+Use the current Lulou Discover layout as the visual reference.
+
+## SLIDE 3 — LIKES + CONNECTIONS
+
+Show the journey from receiving interest to creating a connection.
+
+Use a simple visual sequence such as:
+
+Likes → Match → Connections
+
+Show miniature UI previews from the real Likes and Connections sections.
+
+Make it immediately obvious what happens after two users show interest.
+
+## SLIDE 4 — HOW LULOU CONVERSATIONS WORK
+
+This should be the clearest diagram in the tutorial.
+
+Show the staged Lulou connection journey visually.
+
+Use a premium horizontal or vertical progression diagram:
+
+Messages
+→
+Audio Call
+→
+More Messages
+→
+Video Call
+→
+Plan a Date
+
+Use the existing Lulou stages and logic.
+
+Do not change message quotas or call rules.
+
+The purpose is simply to visually explain that Lulou intentionally progresses conversations instead of allowing endless messaging.
+
+Make this diagram extremely clear and easy to understand.
+
+## SLIDE 5 — CONNECTION DNA
+
+Show a mini visual of the Connection DNA experience.
+
+Explain briefly that the quiz helps Lulou understand:
+
+- compatibility
+- relationship preferences
+- communication style
+- deeper connection signals
+
+Show a miniature version of the real DNA question UI and/or result chips.
+
+Do not alter the DNA questions or scoring.
+
+## FINAL SLIDE — THE LULOU JOURNEY
+
+Create a clean visual summary of the whole experience:
+
+Discover
+→
+Open
+→
+Connect
+→
+Talk
+→
+Meet
+
+Use elegant small Lulou-style page previews/icons.
+
+Make the final CTA feel clear and exciting.
+
+Examples:
+
+“Start Lulou”
+“Find your connection”
+“Begin”
+
+Use whichever wording best matches the existing onboarding flow.
+
+## DESIGN DIRECTION
+
+The tutorial should feel:
+
+- premium
+- elegant
+- luxury
+- iOS-native
+- easy to understand
+- visually rich but uncluttered
+- professional enough for a top-tier dating app
+
+Use:
+
+- larger useful visual area
+- rounded iOS-style preview cards
+- soft shadows
+- subtle borders
+- clean spacing
+- strong typography hierarchy
+- Lulou colours
+- restrained animation
+
+Avoid:
+
+- generic cartoon illustrations
+- Android/material-style graphics
+- tiny meaningless icons
+- excessive text
+- game-like graphics
+- neon effects
+- clutter
+
+## CARD LAYOUT
+
+Improve the existing tutorial card layout.
+
+Current problem:
+the top visual area is tiny and not useful.
+
+New direction:
+
+- larger visual preview area at the top
+- heading underneath
+- short explanation
+- page indicator
+- Next / Continue button
+
+The visual should take roughly the upper 40–50% of the tutorial card when appropriate.
+
+Make the cards slightly more spacious while still fitting comfortably on an iPhone screen.
+
+## TRANSITIONS
+
+Use subtle iOS-style transitions between tutorial pages.
+
+Examples:
+
+- gentle horizontal slide
+- slight fade
+- restrained spring
+
+Do not use flashy or game-like animation.
+
+## IMPORTANT
+
+Do not change:
+
+- onboarding routing
+- tutorial completion persistence
+- mandatory tutorial requirement
+- DNA gating
+- existing user completion flags
+- signup logic
+- Discover logic
+- Intention Wheel logic
+- messaging logic
+- matching logic
+
+Only improve the tutorial’s visuals and explanation.
+
+## FINAL STANDARD
+
+The user should be able to swipe/tap through the tutorial and visually understand how Lulou works without needing a long explanation.
+
+It should feel like a premium product walkthrough from a top-tier iPhone dating app.
+
+Implement the visual tutorial upgrade directly and validate it at iPhone dimensions.
