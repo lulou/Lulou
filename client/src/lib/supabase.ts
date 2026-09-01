@@ -151,20 +151,67 @@ async function safeFetch(
   lastAuthFetchDebug.authFetchStarted   = true;
   lastAuthFetchDebug.authFetchCallCount += 1;
 
-  const response = await fetch(input, init);
+  let response = await fetch(input, init);
 
-  const contentType = response.headers.get("content-type") ?? "";
-  const status      = response.status;
+  let contentType = response.headers.get("content-type") ?? "";
+  let status      = response.status;
 
   lastAuthFetchDebug.authResponseStatus      = status;
   lastAuthFetchDebug.authResponseContentType = contentType || "(none)";
 
-  // If the response is already JSON, let the SDK handle it normally.
-  // We return the original Response without touching the body.
+  // Validate auth JSON before the SDK parses it. A production /auth/v1/user
+  // response once arrived truncated while still advertising application/json,
+  // which made the SDK surface a raw JSON SyntaxError from setSession().
   if (contentType.includes("application/json")) {
-    lastAuthFetchDebug.authParseMode    = "json";
+    let bodyText = await response.text();
+    try {
+      JSON.parse(bodyText);
+    } catch {
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const isUserLookup = method === "GET" && new URL(url).pathname.endsWith("/auth/v1/user");
+
+      // User lookup is idempotent. Retry it once when the transport delivered
+      // malformed/truncated JSON; never retry token exchanges or other writes.
+      if (isUserLookup) {
+        console.warn("[AUTH] SAFE_FETCH: malformed JSON from user lookup — retrying once", {
+          status,
+          contentType,
+          bodyLength: bodyText.length,
+        });
+        response = await fetch(input, init);
+        contentType = response.headers.get("content-type") ?? "";
+        status = response.status;
+        bodyText = await response.text();
+        lastAuthFetchDebug.authResponseStatus = status;
+        lastAuthFetchDebug.authResponseContentType = contentType || "(none)";
+      }
+
+      try {
+        JSON.parse(bodyText);
+      } catch {
+        lastAuthFetchDebug.authParseMode = "text";
+        lastAuthFetchDebug.authReturnedHtml = bodyText.trimStart().toLowerCase().startsWith("<");
+        lastAuthFetchDebug.authUserFacingError =
+          "Lulou could not finish signing you in. Please try the confirmation link again.";
+        return new Response(JSON.stringify({
+          error_description: "invalid-auth-response",
+          code: "invalid_auth_response",
+          message: "invalid-auth-response",
+          msg: "invalid-auth-response",
+        }), {
+          status: status >= 400 ? status : 502,
+          headers: { "content-type": "application/json" },
+        });
+      }
+    }
+
+    lastAuthFetchDebug.authParseMode = "json";
     lastAuthFetchDebug.authReturnedHtml = false;
-    return response;
+    return new Response(bodyText, {
+      status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
   }
 
   // ── Non-JSON body: read as text, check for HTML ───────────────────────────
@@ -217,12 +264,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession:      true,
     autoRefreshToken:    true,
-    // MUST be true so the SDK reads the #access_token=...&type=signup (or
-    // type=recovery) hash fragment that Supabase appends to the emailRedirectTo
-    // URL after the user clicks a confirmation / password-reset email link.
-    // With false, the hash is silently ignored and no session is created —
-    // the user lands on the app but isn't logged in even after confirming.
-    detectSessionInUrl:  true,
+    // The dedicated callback restores hash tokens or exchanges PKCE codes
+    // explicitly. Disable the SDK's parallel auto-detection on that route so
+    // the same confirmation payload is never processed twice.
+    detectSessionInUrl:  (url) => url.pathname !== "/auth/callback",
     flowType:            "implicit",
     storageKey:          _storageKey,   // derived from VITE_SUPABASE_URL, not hardcoded
   },

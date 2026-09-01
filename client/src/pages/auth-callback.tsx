@@ -42,6 +42,17 @@ const VERIFY_TAG = "[VERIFY]";
 const t0 = Date.now();
 function ms() { return `+${Date.now() - t0}ms`; }
 
+const RESTORATION_ERROR_MESSAGE =
+  "We couldn't finish signing you in. Please try the confirmation link again.";
+
+function safeCallbackErrorMessage(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("expired") || normalized.includes("invalid") || normalized.includes("otp")) {
+    return "This confirmation link has expired or is invalid. Please request a new one.";
+  }
+  return RESTORATION_ERROR_MESSAGE;
+}
+
 export default function AuthCallbackPage() {
   const [, setLocation] = useLocation();
   const [status, setStatus]       = useState<Status>("loading");
@@ -136,7 +147,7 @@ export default function AuthCallbackPage() {
         console.error(`${VERIFY_TAG} VERIFICATION_FAILED`, { reason: reason ?? msg, elapsed: ms() });
       }
       setStatus("error");
-      setErrorMsg(msg);
+      setErrorMsg(safeCallbackErrorMessage(msg));
     }
 
     // ── 1. Supabase error params (?error=... appended for invalid links) ──────
@@ -459,10 +470,20 @@ export default function AuthCallbackPage() {
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => {
+                  console.log(`${CB_TAG} user clicked Retry confirmation`);
+                  window.location.reload();
+                }}
+                className="min-h-11 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                data-testid="button-retry-confirmation"
+              >
+                Try confirmation again
+              </button>
+              <button
+                onClick={() => {
                   console.log(`${CB_TAG} user clicked Return to sign in`);
                   setLocation("/");
                 }}
-                className="min-h-11 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                className="min-h-11 w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                 data-testid="button-return-to-signin"
               >
                 Return to sign in

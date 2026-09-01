@@ -3350,6 +3350,8 @@ const _appStartMs = performance.now();
 console.log("[PERF] APP_BUNDLE_EXECUTED", { ms: Math.round(_appStartMs) });
 
 function App() {
+  const [rootLocation] = useLocation();
+
   // Register Service Worker for push notifications (once, at root level).
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -3422,6 +3424,17 @@ function App() {
   if (supabaseConfigError) {
     console.error("[APP_CONFIG_ERROR]", supabaseConfigError);
     return <SupabaseConfigErrorScreen />;
+  }
+
+  // Keep callback restoration isolated from AuthProvider/AppContent. Mounting
+  // the full app here previously let protected prefetches start before the
+  // Supabase session and application session bootstrap were ready.
+  if (rootLocation === "/auth/callback") {
+    return (
+      <AppRootErrorBoundary>
+        <AuthCallbackPage />
+      </AppRootErrorBoundary>
+    );
   }
 
   return (
