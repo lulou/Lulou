@@ -1,0 +1,127 @@
+STOP changing the Intention Wheel CSS for now.
+
+The real iPhone screenshot still looks the same after multiple claimed source changes.
+
+That means one of two things is happening:
+
+1. the changed code is NOT actually the code being deployed/rendered on production
+OR
+2. a different active renderer/component is still controlling the live Intention Wheel
+
+Before making ANY more visual changes, prove which one it is.
+
+## FIRST: VERIFY THE LIVE PRODUCTION SOURCE
+
+Do not edit anything yet.
+
+Check the exact production page currently serving the iPhone app.
+
+Verify:
+
+- current GitHub main SHA
+- current Vercel production SHA
+- current live JS asset hash
+- whether the live bundle actually contains the latest Intention Wheel values:
+ - 162×216 center card
+ - 52px footer
+ - 46×56 previews
+ - 72×72 SPIN
+ - transparent/borderless wheel stage
+ - no selected inset stroke
+ - no thumbnail border
+
+If those values are NOT in the live bundle:
+fix the deployment problem first.
+
+Do not touch the UI again until production is serving the correct commit.
+
+## SECOND: TRACE THE ACTUAL ACTIVE RENDERER
+
+If the latest values ARE in the live production bundle, then the wrong renderer is being edited.
+
+Trace the live Intention Wheel from route entry to rendered DOM.
+
+Identify every active component/render branch responsible for:
+
+- resting center card
+- side cards
+- wheel stage
+- possible connections thumbnails
+- SPIN button
+- bottom-nav spacing
+
+Do not assume `client/src/pages/intent.tsx` is the only renderer.
+
+Search for:
+
+- duplicate Wheel components
+- old carousel components
+- conditional branches
+- mobile-only renderers
+- PWA-specific renderers
+- cached legacy component paths
+- CSS selectors overriding inline/current values
+
+For each live element, identify the exact source file and JSX/CSS responsible.
+
+## THIRD: INSPECT THE LIVE DOM
+
+On the actual production render, measure:
+
+- center card width/height
+- side card width/height
+- wheel stage height
+- preview size
+- SPIN size
+- SPIN bottom
+- nav top
+
+Then compare those REAL rendered values with the claimed source values.
+
+If the DOM still shows the old dimensions, find the override.
+
+Do not guess.
+
+## FOURTH: CHECK PWA CACHE / SERVICE WORKER
+
+Because this is an installed iPhone PWA, verify whether the app is serving a stale cached bundle.
+
+Check:
+
+- service worker version
+- app commit/version
+- cached JS asset
+- whether the installed PWA is still using an older asset after Vercel updated
+
+If stale:
+fix the service-worker/update path so the installed app loads the new production build.
+
+Do not tell me to manually clear cache unless absolutely necessary.
+
+The app should update correctly itself.
+
+## ONLY AFTER ROOT CAUSE IS PROVEN
+
+Once you know why the live iPhone still looks unchanged:
+
+- fix THAT cause
+- do not redesign the Wheel again
+- keep the existing requested luxury design
+- keep all spin logic untouched
+
+## FINAL REPORT
+
+Report only:
+
+1. exact GitHub production SHA
+2. exact Vercel production SHA
+3. live asset hash
+4. whether latest Wheel values were actually present in the live bundle
+5. exact active renderer controlling the live Wheel
+6. exact reason the iPhone was still showing the old layout
+7. exact fix made
+8. proof the installed PWA now renders the updated layout
+
+Do not claim success from local source or build output.
+
+The real production iPhone render is the source of truth.
