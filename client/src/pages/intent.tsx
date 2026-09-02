@@ -1577,7 +1577,9 @@ export default function IntentPage() {
   // Explicit resting slots prevent the 72° five-card ring from turning side
   // portraits into foreshortened strips on narrow phones. Side cards use
   // uniform scale plus a modest Y tilt, preserving their portrait ratio.
-  const restingSideOffset = Math.round(itemWidth * 0.50);
+  const restingSideWidth = Math.round(itemWidth * 0.64);
+  const restingSideHeight = Math.round(itemHeight * 0.74);
+  const restingSideOffset = Math.round(itemWidth / 2 + restingSideWidth / 2 + 10);
   const restingOuterOffset = Math.round(itemWidth * 0.75);
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
@@ -3405,6 +3407,8 @@ export default function IntentPage() {
                 const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
                 const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.75 : 0.60;
+                const restingCardWidth = restingDistance === 1 ? restingSideWidth : itemWidth;
+                const restingCardHeight = restingDistance === 1 ? restingSideHeight : itemHeight;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
@@ -3429,13 +3433,16 @@ export default function IntentPage() {
                   <div
                     key={profile.id}
                     style={{
-                      width: itemWidth, height: itemHeight,
+                      width: isResting ? restingCardWidth : itemWidth,
+                      height: isResting ? restingCardHeight : itemHeight,
                        borderRadius: 24, overflow: "hidden",
-                      position: "absolute", left: 0, top: 0,
+                      position: "absolute",
+                      left: isResting && restingDistance === 1 ? (itemWidth - restingCardWidth) / 2 : 0,
+                      top: isResting && restingDistance === 1 ? (itemHeight - restingCardHeight) / 2 : 0,
                        border: "none",
                        outline: "none",
                       transform: isResting
-                        ? `translateX(${restingX}px) translateZ(${restingZ}px) rotate(${restingTilt}deg) scale(${restingScale})`
+                        ? `translateX(${restingX}px) translateZ(${restingZ}px) rotate(${restingTilt}deg) scale(${restingDistance === 1 ? 1 : restingScale})`
                         : dispersed && !isSelected
                          ? `rotateY(${itemAngle}deg) translateZ(${carouselRadius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
                         : isSelected && !dispersed

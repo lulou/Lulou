@@ -206,7 +206,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Equal-width slots: each Link gets flex-1 so all five tabs share
             identical space regardless of label length.  The button fills its
             slot and centres the icon independently of the label text.       */}
-        <div className="flex items-stretch py-1.5">
+        <div className="flex items-stretch py-0">
           {navItems.map(item => {
             const isActive = location.startsWith(item.path);
             const isLikes = item.path === "/likes";
@@ -215,7 +215,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.path}
                 href={item.path}
-                className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 transition-colors ${
+                className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-0.5 transition-colors ${
                   isActive ? "text-primary" : "text-muted-foreground/70 hover:text-muted-foreground"
                 }`}
                 aria-current={isActive ? "page" : undefined}
