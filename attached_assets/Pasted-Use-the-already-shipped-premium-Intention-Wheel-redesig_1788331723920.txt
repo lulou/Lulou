@@ -1,0 +1,338 @@
+Use the already-shipped premium Intention Wheel redesign as the visual base, but revise it so it combines the STRUCTURE AND MOTION OF THE OLD WHEEL with the LUXURY COLOUR / IOS LOOK OF THE NEW VERSION.
+
+Change only the Intention Wheel presentation and animation.
+
+Do not change:
+
+- spin eligibility
+- randomness / winner selection logic
+- streak rules
+- purchases / unlock rules
+- navigation
+- Supabase / API behaviour
+- matching logic
+- Discover
+- messaging
+- DNA
+- profile logic
+
+## CURRENT FEEDBACK
+
+The new version looks much more premium, which is good.
+
+However:
+
+1. The wheel no longer visually spins properly.
+2. It currently flicks/crossfades through profile images instead of feeling like the old rotating wheel.
+3. The new resting layout lost the stronger wheel/carousel composition of the old version.
+4. I want the old circular SPIN button brought back.
+5. I want the OLD LAYOUT STRUCTURE combined with the NEW LUXURY VISUAL STYLE.
+
+This should not be another small styling adjustment.
+
+## 1. RESTORE THE OLD WHEEL COMPOSITION
+
+Bring back the stronger layout from the old Intention Wheel:
+
+- large central profile card
+- partially visible profile cards on the left and right
+- obvious horizontal wheel/carousel composition
+- center card clearly dominant
+- “Tonight’s possible connections” underneath
+- candidate preview row
+- circular SPIN button underneath
+- streak/progress section below
+
+The overall screen should visually resemble the old wheel layout again.
+
+BUT do not bring back the cheap/gamey Android styling.
+
+The final design should be:
+
+OLD WHEEL STRUCTURE
++
+NEW PREMIUM LULOU DESIGN
+
+## 2. KEEP THE NEW PREMIUM COLOUR / MATERIAL LANGUAGE
+
+Preserve the improvements from the new design:
+
+- warm plum
+- deep wine
+- charcoal / near-black
+- restrained rose accents
+- softer shadows
+- subtle depth
+- elegant typography
+- cleaner spacing
+- premium iOS feel
+- reduced neon
+- refined borders
+- better visual hierarchy
+
+Do not return to the bright purple/neon casino look.
+
+Think:
+
+luxury dating experience
+
+not:
+
+mobile game / slot machine
+
+## 3. RESTORE A REAL ROTATING WHEEL
+
+The biggest problem is the current spinning animation.
+
+The attached screenshot shows the cards simply flicking/crossfading through different profiles.
+
+That is NOT what I want.
+
+Restore the visual impression of the original rotating/orbiting wheel.
+
+During spin:
+
+- profile cards must visibly move horizontally around the wheel
+- side cards move toward the center
+- center card moves away naturally
+- cards should orbit/rotate through positions
+- the active center profile should change as part of that movement
+- motion should feel continuous
+- no instant image flicking
+- no simple crossfade-only transition
+
+The user should clearly see:
+
+PROFILE A → moves aside
+PROFILE B → moves into centre
+PROFILE C → follows behind
+
+as the wheel spins.
+
+## 4. KEEP THE SPIN MOTION PREMIUM
+
+Do not restore the exaggerated old arcade animation.
+
+Use:
+
+- smooth inertial movement
+- subtle perspective
+- restrained scale changes
+- small controlled rotation if needed
+- natural depth
+- premium easing
+- clean deceleration into the selected profile
+
+Avoid:
+
+- dramatic flipping
+- huge blur
+- neon pulses
+- extreme 3D rotation
+- chaotic movement
+- slot-machine flickering
+
+The wheel should physically feel like it is rotating while still looking like a top-tier iPhone dating app.
+
+## 5. CENTER CARD
+
+Resting state:
+
+- center card should be large and dominant
+- almost straight-on
+- sharp high-quality photo
+- premium rounded corners
+- subtle shadow / depth
+- minimal glow
+
+Side cards:
+
+- clearly visible enough to communicate that more profiles exist
+- partially hidden behind/outside center card
+- slightly smaller
+- restrained depth
+- very little rotation
+- never blank
+
+Do not render empty dark placeholder cards.
+
+If no valid profile exists for a side position, do not render that card.
+
+## 6. BRING BACK THE CIRCULAR SPIN BUTTON
+
+Restore the circular SPIN button from the old layout.
+
+I want it centered underneath the possible-connections section again.
+
+Keep the familiar:
+
+circular button
+rotation/spin symbol
+SPIN label
+
+But redesign it using the new premium styling.
+
+Use:
+
+- Lulou wine/rose colour
+- subtle depth
+- elegant shadow
+- restrained halo if any
+- clean typography
+- premium tactile iOS appearance
+
+Do not make it look cartoonish or overly glowing.
+
+It should feel satisfying to tap while remaining luxury.
+
+## 7. LOCKED STATE
+
+When a spin is locked, preserve all current eligibility and purchase behaviour.
+
+But make the locked state visually fit this same design system.
+
+The locked CTA can transition from the circular Spin control into the existing unlock state if needed, but keep the composition balanced and consistent.
+
+Do not change the actual unlock logic.
+
+## 8. “TONIGHT’S POSSIBLE CONNECTIONS”
+
+Bring this section visually closer to the older layout while keeping the new premium styling.
+
+Use a row of small profile previews underneath the main wheel.
+
+They can be:
+
+- premium circular portraits
+OR
+- softly rounded mini portrait cards
+
+But they must feel connected to the wheel again.
+
+Do not make them look like unrelated content cards.
+
+Keep:
+
+“Every spin is random — yours could be any of them”
+
+underneath in understated supporting typography.
+
+## 9. SPINNING SCREEN
+
+The active full-screen spin state should visually connect to the resting wheel.
+
+Do not switch to an unrelated crossfade screen.
+
+During spin:
+
+- retain the same profile-card visual language
+- cards rotate/orbit through the centre
+- keep the selected profile visually readable
+- background remains refined dark wine/charcoal
+- restrained progress/loading text is fine
+- motion should be the main feedback
+
+Avoid excessive empty space.
+
+## 10. WINNER / RESULT
+
+When the wheel slows:
+
+- selected profile should naturally settle into the center
+- movement should decelerate smoothly
+- no abrupt jump to another renderer
+- no stale transforms
+- no overlapping cards
+- no blank card remains
+
+Then transition into the existing result/connection state cleanly.
+
+Keep winner logic exactly the same.
+
+## 11. POST-SPIN RESET
+
+Preserve the previous post-spin cleanup fix.
+
+After result close:
+
+- clear all inline transforms
+- reset angle state
+- reset animation refs
+- reset scale / rotation / translate values
+- reset opacity / blur / z-index
+- return to the exact clean resting wheel layout
+
+No malformed card stack after completion.
+
+## 12. RESPONSIVE IPHONE LAYOUT
+
+Validate specifically around 390×844 and similar iPhones.
+
+Ensure:
+
+- title fits
+- wheel does not overlap profile text
+- cards do not collide with candidate section
+- SPIN button is visible
+- progress/streak section fits
+- CTA stays above bottom navigation
+- no horizontal overflow
+- no clipped photos
+
+## 13. IMAGE QUALITY
+
+Keep the improved image rendering work.
+
+Focused center photos must:
+
+- remain sharp
+- use correct crop
+- use high-quality source
+- never show half-grey / mixed image layers
+- never expose old/stale photos underneath
+
+Do not regress the Discover/photo-layer fixes.
+
+## 14. ACTIVE RENDERERS
+
+You previously identified separate active wheel renderers for:
+
+1. resting/page-level wheel
+2. active SpinRoom/spinning state
+
+Update BOTH.
+
+They need to feel like the same physical wheel before, during, and after spin.
+
+Do not redesign only the idle state.
+
+## FINAL STANDARD
+
+The final result should feel like:
+
+“The old Lulou Intention Wheel concept rebuilt by a top-tier iOS dating-app design team.”
+
+I want to retain the distinctive wheel idea.
+
+I do NOT want it reduced to a generic profile crossfade.
+
+Keep:
+
+- recognisable wheel
+- rotating profiles
+- central hero
+- circular SPIN button
+
+But execute all of it using the new luxury Lulou colour palette and premium iOS design.
+
+Implement this directly.
+
+At the end report only:
+
+1. files changed
+2. exact resting-layout changes
+3. exact spinning-animation changes
+4. circular SPIN button implementation
+5. post-spin reset behaviour
+6. what was tested at iPhone dimensions
+7. any remaining limitation

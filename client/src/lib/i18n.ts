@@ -1080,7 +1080,7 @@ export const TRANSLATIONS = {
     write_meaningful_placeholder: "Write something meaningful...",
     you_label:                    "You: ",
     could_not_connect_title:      "Could not connect",
-    spin_label:                   "Find tonight's connection",
+    spin_label:                   "SPIN",
     connecting_label:             "Connecting…",
     connect_label:                "Connect",
     coming_soon_title:            "Coming soon",
