@@ -1,0 +1,263 @@
+STOP making tiny CSS adjustments and then reporting that this is fixed.
+
+Compare the TWO attached REAL iPhone screenshots.
+
+The first screenshot is the current version.
+The second screenshot is the reference for how the page used to FIT correctly.
+
+The current version is still materially the same as before.
+
+The requested layout correction has NOT been achieved.
+
+I want you to treat the attached screenshots as the authoritative visual evidence, not previous source measurements or browser-runner estimates.
+
+## THE THREE FAILURES ARE STILL VISIBLE
+
+1. THE PROFILE CARDS ARE STILL TOO BUNCHED TOGETHER
+
+The current center/left/right cards occupy a large bulky block.
+
+The side cards are still pressed directly behind the center card and the whole composition feels oversized.
+
+The OLD screenshot shows the correct overall footprint:
+
+- compact three-card carousel
+- enough breathing room around it
+- substantially less vertical height
+- clear separation before the next section
+
+Rebuild the RESTING carousel geometry to match the compact footprint of the old screenshot while KEEPING the new premium visual treatment.
+
+Do not just change the side-card offset by a few pixels.
+
+Actually reduce the entire wheel stage.
+
+## 2. THE LIGHT FRAME / BORDER IS STILL VISIBLE
+
+The current screenshot still visibly has a grey/light rounded frame around the three-card carousel.
+
+I have asked for this to be removed several times.
+
+Find the ACTUAL rendered source of this frame.
+
+Inspect:
+
+- wheel-stage parent
+- card wrappers
+- pseudo-elements
+- borders
+- outlines
+- box shadows
+- inset shadows
+- backdrop layers
+- selected-card styling
+- container backgrounds
+
+Remove the large rounded outline/frame around the entire carousel.
+
+The three photos should sit naturally on the dark plum background.
+
+I do NOT want a giant rounded rectangle enclosing all three profile cards.
+
+Also remove any remaining pale/grey strokes around the individual profile photos and thumbnails.
+
+Use shadows/depth instead of light borders.
+
+## 3. THE SPIN BUTTON STILL DOES NOT FIT
+
+This is the clearest proof that the previous fix did not work.
+
+In the current screenshot the SPIN button is still cut in half by the fixed bottom navigation.
+
+In the OLD screenshot:
+
+- the ENTIRE SPIN button is visible
+- the progress row is visible
+- the streak explanation is visible
+- the bottom navigation is visible
+
+ALL ON ONE SCREEN.
+
+That is the required layout.
+
+The user must NEVER have to scroll down to reach SPIN.
+
+## USE THE OLD SCREENSHOT FOR GEOMETRY
+
+I am NOT asking you to restore the old visual design.
+
+Use:
+
+OLD screenshot:
+- vertical proportions
+- element heights
+- spacing
+- screen fit
+- carousel footprint
+
+NEW screenshot:
+- colours
+- luxury styling
+- typography
+- premium card treatment
+- wine/plum/rose materials
+
+The final result should be:
+
+OLD COMPACT GEOMETRY
++
+NEW PREMIUM DESIGN
+
+## REQUIRED STRUCTURAL CHANGE
+
+The current wheel stage is still too tall.
+
+Reduce it significantly.
+
+Do not preserve previous targets such as 174×232 or 184×245 just because they were previously documented.
+
+Those numbers are irrelevant if the real iPhone still does not fit.
+
+Work backwards from the available screen height.
+
+At 390×844:
+
+AVAILABLE CONTENT HEIGHT =
+visual viewport
+minus top app header
+minus fixed bottom navigation
+minus safe area
+
+Then fit the entire Intent page inside that actual available space.
+
+## TARGET PAGE HIERARCHY
+
+It should visually fit approximately like:
+
+Intention Wheel header
+
+[ compact 3-card carousel ]
+
+Tonight’s possible connections
+[ small candidate portraits ]
+
+Every spin is random — yours could be any of them
+
+[ FULL CIRCULAR SPIN ]
+
+progress
+0/10        Day 2        Day 3
+
+Like 10x daily for 3 days to earn a free spin
+
+BOTTOM NAV
+
+No scrolling.
+
+## MAIN CAROUSEL
+
+Make the main carousel noticeably smaller than the current production version.
+
+The CENTER card remains dominant.
+
+Side cards:
+- smaller
+- clearly separated
+- partially visible
+- tucked behind
+- no identity text
+- no giant outer frame
+
+The entire three-card assembly needs to consume substantially less vertical height.
+
+Do not let it dominate half the page.
+
+## POSSIBLE CONNECTIONS
+
+Make this section compact like the old screenshot.
+
+Use small previews.
+
+Do not render blank placeholder cards.
+
+Only valid candidates with valid photos should appear.
+
+Keep gaps tight and premium.
+
+## SPIN CONTROL
+
+Restore the full visible circular SPIN experience.
+
+It should be around 72–80px.
+
+Do NOT place any part underneath the fixed navigation.
+
+There should be visible space between:
+
+SPIN bottom
+and
+bottom-nav top.
+
+Progress must then fit between SPIN and the nav as well.
+
+## IMPORTANT: VERIFY THE ACTUAL LIVE RENDER
+
+Do NOT finish this task by quoting CSS dimensions.
+
+Do NOT reuse an old 390×844 test.
+
+Do NOT tell me the current code “already satisfies” the brief.
+
+After the source change:
+
+1. Render THIS exact version.
+2. Use the actual production-like iPhone layout.
+3. Wait for fonts and photos.
+4. Capture a screenshot.
+5. Compare it visually against the two screenshots I supplied.
+
+The screenshot itself must prove:
+
+- carousel is substantially more compact
+- outer light frame is gone
+- photos are not bunched
+- full SPIN button visible
+- progress visible
+- streak explanation visible
+- bottom nav visible
+- no scrolling needed
+
+If the automated authenticated test cannot reach `/intent`, do NOT use that as a reason to stop again.
+
+Fix the test fixture separately OR publish the visual correction and have me verify the real iPhone.
+
+But do not claim this visual issue is fixed without visual evidence.
+
+## DO NOT TOUCH
+
+Do not modify:
+
+- spin animation
+- winner selection
+- randomness
+- eligibility
+- streak calculation
+- purchases
+- candidate filtering
+- matching
+- APIs
+- navigation
+- result state
+
+This task is ONLY the resting Intention Wheel geometry and presentation.
+
+At the end report only:
+
+1. why the previous changes were not affecting the real rendered layout enough
+2. actual structural changes made
+3. final carousel footprint
+4. exact outer-frame styling removed
+5. SPIN bottom position versus nav top position
+6. whether progress + streak text fit
+7. whether scrolling is required
+8. screenshot validation result

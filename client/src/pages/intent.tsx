@@ -891,8 +891,8 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const cardWidth = vw < 380 ? 48 : 50;
-  const cardHeight = vw < 380 ? 58 : 60;
+  const cardWidth = vw < 380 ? 44 : 46;
+  const cardHeight = vw < 380 ? 54 : 56;
   const cardGap = 5;
   const maxCount = 5;
   const preview = useMemo(() => items.slice(0, Math.min(maxCount, items.length)), [items, maxCount]);
@@ -1540,7 +1540,7 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 166 : viewportW < 430 ? 174 : 216;
+  const itemWidth  = viewportW < 380 ? 154 : viewportW < 430 ? 162 : 216;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
@@ -1557,7 +1557,7 @@ export default function IntentPage() {
   const wheelBufferY = isCompact ? 46 : viewportW < 380 ? 56 : 64;
   // The idle hero has its identity in a dedicated in-card footer, so it does not
   // need the external caption buffer reserved for the active spinning state.
-  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 2);
+  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 0);
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -3245,20 +3245,20 @@ export default function IntentPage() {
       `}</style>
 
       {/* ── Header ── */}
-      <div className="px-6 pt-3 pb-1">
+      <div className="px-6 pt-2 pb-0">
         <div className="flex items-start justify-between gap-5">
           <div>
             <h1
-              className="font-serif text-[28px] font-medium tracking-[-0.025em] leading-none"
+              className="font-serif text-[26px] font-medium tracking-[-0.025em] leading-none"
               style={{ color: "rgba(255,248,244,0.96)" }}
               data-testid="text-intent-title"
             >
               {t("intention_wheel_title")}
             </h1>
             <p style={{
-                margin: "4px 0 0",
-              fontSize: 12,
-              lineHeight: 1.4,
+                margin: "3px 0 0",
+              fontSize: 11,
+              lineHeight: 1.35,
               color: "rgba(255,238,231,0.48)",
             }}>
               {t("spin_random_desc")}
@@ -3319,7 +3319,7 @@ export default function IntentPage() {
       {/* ── Wheel stage ── */}
       <div
         dir={isRTL ? "rtl" : "ltr"}
-        className={`flex-1 min-h-0 w-full flex flex-col items-center overflow-y-auto overflow-x-hidden ${isCompact ? "justify-start pt-1 gap-1.5" : "justify-start pt-1 gap-1.5"} transition-all duration-700`}
+        className={`flex-1 min-h-0 w-full flex flex-col items-center overflow-hidden ${isCompact ? "justify-start pt-0.5 gap-1" : "justify-start pt-0.5 gap-1"} transition-all duration-700`}
         style={{
           background: isSpinning
             ? "linear-gradient(180deg, #241b1e 0%, #151214 100%)"
@@ -3374,7 +3374,7 @@ export default function IntentPage() {
                 // the prominent idle presentation.
                 const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
-                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.72 : 0.64;
+                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.68 : 0.60;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
@@ -3441,7 +3441,7 @@ export default function IntentPage() {
                       top: 0,
                       left: 0,
                       right: 0,
-                        bottom: isResting && restingVisible && restingDistance === 0 ? 56 : 0,
+                        bottom: isResting && restingVisible && restingDistance === 0 ? 52 : 0,
                       overflow: "hidden",
                       background: "rgba(255,244,239,0.06)",
                     }}>
@@ -3457,8 +3457,10 @@ export default function IntentPage() {
                     {isResting && restingVisible && restingDistance === 0 && (
                       <div style={{
                         position: "absolute", left: 0, right: 0, bottom: 0,
-                        minHeight: 56,
-                        padding: "7px 13px 8px",
+                        height: 52,
+                        minHeight: 0,
+                        boxSizing: "border-box",
+                        padding: "6px 12px 7px",
                         display: "flex", flexDirection: "column", justifyContent: "center",
                         background: "linear-gradient(135deg, rgba(45,32,36,0.98), rgba(28,23,25,0.98))",
                         borderTop: "none",
@@ -3466,7 +3468,7 @@ export default function IntentPage() {
                       }}>
                         <p style={{
                           margin: 0, fontFamily: "'Playfair Display', Georgia, serif",
-                           fontSize: 18, lineHeight: 1.05, fontWeight: 500,
+                           fontSize: 17, lineHeight: 1.05, fontWeight: 500,
                           letterSpacing: "-0.02em",
                         }}>
                           {profile.firstName}
@@ -3474,8 +3476,8 @@ export default function IntentPage() {
                         </p>
                         {profile.location ? (
                           <p style={{
-                             margin: "3px 0 0", display: "flex", alignItems: "center", gap: 4,
-                            fontSize: 10, lineHeight: 1.15, color: "rgba(255,255,255,0.72)",
+                             margin: "2px 0 0", display: "flex", alignItems: "center", gap: 4,
+                            fontSize: 9.5, lineHeight: 1.1, color: "rgba(255,255,255,0.72)",
                           }}>
                             <MapPin style={{ width: 11, height: 11 }} />
                             {profile.location}
@@ -3543,7 +3545,7 @@ export default function IntentPage() {
                 onClick={spinWheel}
                 disabled={isSpinning || items.length === 0}
                 style={{
-                  width: 74, height: 74, borderRadius: "50%",
+                  width: 72, height: 72, borderRadius: "50%",
                   border: "1px solid rgba(255,231,223,0.28)",
                   background: isSpinning
                     ? "linear-gradient(145deg, #8d515b, #623440)"
@@ -3563,7 +3565,7 @@ export default function IntentPage() {
                 onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
                 data-testid="button-spin"
               >
-                <RotateCw style={{ width: 21, height: 21, opacity: 0.90, animation: isSpinning ? "spinBtn 0.7s linear infinite" : "none" }} />
+                <RotateCw style={{ width: 20, height: 20, opacity: 0.90, animation: isSpinning ? "spinBtn 0.7s linear infinite" : "none" }} />
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.94 }}>
                   {isSpinning ? "…" : t("spin_label")}
                 </span>
@@ -3573,7 +3575,7 @@ export default function IntentPage() {
                 onClick={() => setShowPurchase(true)}
                 aria-label={t("spin_label")}
                 style={{
-                  width: 74, height: 74, borderRadius: "50%",
+                  width: 72, height: 72, borderRadius: "50%",
                   border: "1px solid rgba(255,231,223,0.22)",
                   background: "radial-gradient(circle at 36% 28%, #a9636d 0%, #824552 42%, #60303b 100%)",
                   color: "rgba(255,244,240,0.90)", cursor: "pointer",
@@ -3588,8 +3590,8 @@ export default function IntentPage() {
                 onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
                 data-testid="button-spin-locked"
               >
-                <div style={{ position: "relative", width: 22, height: 22 }}>
-                  <RotateCw style={{ width: 21, height: 21, opacity: 0.82 }} />
+                <div style={{ position: "relative", width: 21, height: 21 }}>
+                  <RotateCw style={{ width: 20, height: 20, opacity: 0.82 }} />
                   <Lock style={{
                     position: "absolute", right: -3, bottom: -2,
                     width: 10, height: 10,
