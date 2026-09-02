@@ -836,10 +836,10 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const cardWidth = vw < 380 ? 58 : 64;
-  const cardHeight = vw < 380 ? 74 : 80;
-  const cardGap = 8;
-  const maxCount = 3;
+  const cardWidth = vw < 380 ? 54 : 58;
+  const cardHeight = vw < 380 ? 66 : 70;
+  const cardGap = 7;
+  const maxCount = 5;
   const preview = useMemo(() => items.slice(0, Math.min(maxCount, items.length)), [items, maxCount]);
   if (preview.length < 2) return null;
 
@@ -848,7 +848,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
       style={{
         width: "calc(100% - 32px)",
         maxWidth: 390,
-        padding: "4px 10px 2px",
+         padding: "0 10px 1px",
         borderRadius: 24,
         background: "transparent",
         border: "none",
@@ -860,7 +860,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
         fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
         textAlign: "center",
         color: "rgba(255,239,235,0.72)",
-        marginBottom: 10,
+         marginBottom: 6,
       }}>
         {t("tonight_connections")}
       </p>
@@ -873,7 +873,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
             data-testid={`button-preview-bubble-${i}`}
           >
             <div style={{
-              width: cardWidth, height: cardHeight, borderRadius: 18, overflow: "hidden",
+               width: cardWidth, height: cardHeight, borderRadius: 16, overflow: "hidden",
               position: "relative",
               boxShadow: "0 9px 22px rgba(8,4,6,0.30), 0 0 0 1px rgba(255,244,239,0.07)",
               border: "1px solid rgba(255,230,223,0.20)",
@@ -887,7 +887,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
         ))}
       </div>
       <p style={{
-        fontSize: 10, lineHeight: 1.35, textAlign: "center", marginTop: 9,
+         fontSize: 10, lineHeight: 1.3, textAlign: "center", marginTop: 6,
         color: "rgba(255,244,239,0.42)",
       }}>
         {t("spin_random_desc")}
@@ -1495,7 +1495,7 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 202 : viewportW < 430 ? 212 : 240;
+  const itemWidth  = viewportW < 380 ? 184 : viewportW < 430 ? 196 : 216;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
@@ -1505,14 +1505,14 @@ export default function IntentPage() {
   // Explicit resting slots prevent the 72° five-card ring from turning side
   // portraits into foreshortened strips on narrow phones. Side cards use
   // uniform scale plus a modest Y tilt, preserving their portrait ratio.
-  const restingSideOffset = Math.round(itemWidth * 0.59);
-  const restingOuterOffset = Math.round(itemWidth * 0.78);
+  const restingSideOffset = Math.round(itemWidth * 0.36);
+  const restingOuterOffset = Math.round(itemWidth * 0.58);
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
   const wheelBufferY = isCompact ? 46 : viewportW < 380 ? 56 : 64;
   // The idle hero has its identity in a dedicated in-card footer, so it does not
   // need the external caption buffer reserved for the active spinning state.
-  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 20);
+  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 12);
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -3200,7 +3200,7 @@ export default function IntentPage() {
       `}</style>
 
       {/* ── Header ── */}
-      <div className="px-6 pt-7 pb-4">
+      <div className="px-6 pt-5 pb-2">
         <div className="flex items-start justify-between gap-5">
           <div>
             <h1
@@ -3211,7 +3211,7 @@ export default function IntentPage() {
               {t("intention_wheel_title")}
             </h1>
             <p style={{
-              margin: "8px 0 0",
+               margin: "6px 0 0",
               fontSize: 12,
               lineHeight: 1.4,
               color: "rgba(255,238,231,0.48)",
@@ -3274,7 +3274,7 @@ export default function IntentPage() {
       {/* ── Wheel stage ── */}
       <div
         dir={isRTL ? "rtl" : "ltr"}
-        className={`flex-1 min-h-0 w-full flex flex-col items-center overflow-y-auto overflow-x-hidden ${isCompact ? "justify-start pt-4 gap-3" : "justify-start pt-4 gap-5"} transition-all duration-700`}
+        className={`flex-1 min-h-0 w-full flex flex-col items-center overflow-y-auto overflow-x-hidden ${isCompact ? "justify-start pt-2 gap-2" : "justify-start pt-2 gap-2"} transition-all duration-700`}
         style={{
           background: isSpinning
             ? "linear-gradient(180deg, #241b1e 0%, #151214 100%)"
@@ -3285,15 +3285,15 @@ export default function IntentPage() {
         <div
           className="relative select-none touch-manipulation"
           style={{
-            width: "calc(100% - 32px)",
+            width: "100%",
             maxWidth: 390,
             height: wheelStageHeight,
             flexShrink: 0,
-            borderRadius: 32,
-             overflow: "hidden",
-            background: "linear-gradient(180deg, rgba(255,244,239,0.05), rgba(255,244,239,0.018))",
-            border: "1px solid rgba(255,241,236,0.08)",
-            boxShadow: "0 20px 48px rgba(8,4,6,0.20)",
+            borderRadius: 0,
+            overflow: "hidden",
+            background: "transparent",
+            border: "none",
+            boxShadow: "none",
             perspective: isSpinning ? "1000px" : "none",
             transition: dispersed ? "opacity 0.55s ease" : undefined,
             opacity: dispersed ? 0 : 1,
@@ -3355,7 +3355,7 @@ export default function IntentPage() {
                     key={profile.id}
                     style={{
                       width: itemWidth, height: itemHeight,
-                      borderRadius: 28, overflow: "hidden",
+                      borderRadius: 26, overflow: "hidden",
                       position: "absolute", left: 0, top: 0,
                       border: isSelected && !dispersed
                         ? "1px solid rgba(255,248,250,0.28)"
@@ -3392,24 +3392,24 @@ export default function IntentPage() {
                       top: 0,
                       left: 0,
                       right: 0,
-                      bottom: isResting && restingVisible ? 86 : 0,
+                       bottom: isResting && restingVisible && restingDistance === 0 ? 72 : 0,
                       overflow: "hidden",
                       background: "rgba(255,244,239,0.06)",
                     }}>
                       <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
                     </div>
                     <div style={{
-                      position: "absolute", inset: 0, borderRadius: 28,
+                       position: "absolute", inset: 0, borderRadius: 26,
                       background: isResting && restingVisible
                         ? "linear-gradient(180deg, transparent 62%, rgba(10,7,9,0.04) 75%, rgba(10,7,9,0.18) 100%)"
                         : "linear-gradient(175deg, rgba(8,3,12,0) 56%, rgba(8,3,12,0.06) 76%, rgba(8,3,12,0.30) 100%)",
                       pointerEvents: "none",
                     }} />
-                    {isResting && restingVisible && (
+                    {isResting && restingVisible && restingDistance === 0 && (
                       <div style={{
                         position: "absolute", left: 0, right: 0, bottom: 0,
-                        minHeight: 86,
-                        padding: "13px 18px 14px",
+                        minHeight: 72,
+                        padding: "11px 16px 12px",
                         display: "flex", flexDirection: "column", justifyContent: "center",
                         background: "linear-gradient(135deg, rgba(45,32,36,0.98), rgba(28,23,25,0.98))",
                         borderTop: "1px solid rgba(255,241,236,0.09)",
@@ -3417,7 +3417,7 @@ export default function IntentPage() {
                       }}>
                         <p style={{
                           margin: 0, fontFamily: "'Playfair Display', Georgia, serif",
-                          fontSize: 22, lineHeight: 1.05, fontWeight: 500,
+                           fontSize: 21, lineHeight: 1.05, fontWeight: 500,
                           letterSpacing: "-0.02em",
                         }}>
                           {profile.firstName}
@@ -3425,7 +3425,7 @@ export default function IntentPage() {
                         </p>
                         {profile.location ? (
                           <p style={{
-                            margin: "7px 0 0", display: "flex", alignItems: "center", gap: 5,
+                             margin: "5px 0 0", display: "flex", alignItems: "center", gap: 5,
                             fontSize: 11, lineHeight: 1.2, color: "rgba(255,255,255,0.72)",
                           }}>
                             <MapPin style={{ width: 11, height: 11 }} />
@@ -3435,7 +3435,7 @@ export default function IntentPage() {
                       </div>
                     )}
                     {isSelected && !dispersed && (
-                      <div style={{ position: "absolute", inset: 0, borderRadius: 28, boxShadow: "inset 0 0 0 1px rgba(255,247,249,0.38), inset 0 1px 0 rgba(255,255,255,0.20)", pointerEvents: "none" }} />
+                       <div style={{ position: "absolute", inset: 0, borderRadius: 26, boxShadow: "inset 0 0 0 1px rgba(255,247,249,0.38), inset 0 1px 0 rgba(255,255,255,0.20)", pointerEvents: "none" }} />
                     )}
                   </div>
                 );
@@ -3488,9 +3488,9 @@ export default function IntentPage() {
 
         {/* ── Spin button & streak ── */}
         {!dispersed && !showPurchase && (
-          <div
+             <div
             className="flex flex-col items-center gap-4 px-6 w-full max-w-xs mx-auto"
-            style={{ paddingBottom: "max(env(safe-area-inset-bottom,0px), 20px)" }}
+             style={{ paddingBottom: "max(env(safe-area-inset-bottom,0px), 12px)" }}
           >
             {canSpin ? (
               <button

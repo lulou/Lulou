@@ -1,0 +1,274 @@
+Refine the CURRENT Intention Wheel layout shown in the attached iPhone screenshot.
+
+Do not redesign the concept again.
+
+The basic direction is finally correct:
+- premium dark wine/plum colour palette
+- central profile card
+- visible side cards
+- possible-connections row
+- circular SPIN control
+
+Keep that direction.
+
+The problem now is the actual proportions, spacing, hierarchy, and iPhone fit.
+
+## CURRENT ISSUES VISIBLE IN THE SCREENSHOT
+
+1. The Wheel section is too tall.
+2. The central card is oversized.
+3. The left side card is too exposed and its name/identity is visibly clipped.
+4. The large outer rounded frame around the three cards makes the layout feel bulky.
+5. “Tonight’s possible connections” sits too far below the main wheel.
+6. The thumbnail row takes too much vertical space.
+7. The circular SPIN button is partially hidden behind the bottom navigation.
+8. The user has to scroll just to reach the main action.
+9. The screen still feels too vertically stretched instead of compact and premium.
+
+Fix these exact visual issues.
+
+## 1. MAKE THE WHEEL MORE COMPACT
+
+The complete resting Intention Wheel experience should fit comfortably between:
+
+- the header
+and
+- the fixed bottom navigation
+
+on a normal iPhone viewport such as 390×844.
+
+The user should be able to see:
+
+- wheel/cards
+- possible connections
+- circular SPIN button
+- streak/progress
+
+without the SPIN button being covered by the bottom nav.
+
+Do not require unnecessary scrolling for the primary Wheel interaction.
+
+## 2. REDUCE THE MAIN CARD SIZE
+
+The center card is currently too tall.
+
+Reduce it to a more elegant portrait proportion.
+
+Target approximately:
+
+- 230–270px tall on a 390px-wide phone
+- appropriate proportional width
+- roughly 24–28px corner radius
+
+It should still be dominant, but not consume half the screen.
+
+Keep the image sharp and use object-fit: cover.
+
+## 3. SIDE CARDS
+
+The side cards should communicate the carousel without competing with the center card.
+
+Adjust them so:
+
+- only roughly 25–35% of each side card remains visible
+- they are slightly smaller than the center card
+- they sit behind the center card
+- minimal rotation
+- slightly dimmer/darker
+- no clipped identity text
+
+Important:
+
+Do NOT display the side profile’s name/location if that text is going to be partially hidden.
+
+Only the CENTER card should show the active identity information.
+
+This will immediately make the composition cleaner.
+
+## 4. REMOVE / REDUCE THE LARGE OUTER FRAME
+
+The huge rounded rectangular outline behind all three cards is visually heavy.
+
+Either:
+
+- remove it entirely
+OR
+- make it extremely subtle and tightly fitted to the wheel stage
+
+The profiles themselves should create the wheel composition.
+
+Do not make the wheel look like three cards sitting inside another giant card.
+
+## 5. CENTER PROFILE IDENTITY
+
+Keep the selected center profile’s:
+
+Name, age
+Location
+
+inside a clean dedicated footer attached to the center card.
+
+Do not let identity text float over side cards.
+
+Use:
+
+- strong serif name
+- small understated location row
+- premium spacing
+- clean dark wine footer
+
+The footer should feel integrated with the selected profile card.
+
+## 6. TIGHTEN “TONIGHT’S POSSIBLE CONNECTIONS”
+
+Move this section closer to the main wheel.
+
+The vertical gap is currently too large.
+
+Use:
+
+Tonight’s possible connections
+
+then immediately underneath:
+
+small preview portraits
+
+The section should feel connected to the wheel, not like a separate page section.
+
+## 7. MAKE THE PREVIEWS SMALLER
+
+The current preview cards are too large.
+
+Use either:
+
+- small premium circular portraits
+OR
+- compact rounded portrait thumbnails around 52–60px
+
+Use 3–5 previews if available.
+
+They should be understated.
+
+Do not repeat the same profile unnecessarily if avoidable.
+
+Keep:
+
+“Every spin is random — yours could be any of them”
+
+directly underneath in small supporting text.
+
+## 8. RESTORE FULL VISIBILITY OF SPIN BUTTON
+
+The circular SPIN button must be completely visible above the bottom navigation.
+
+This is non-negotiable.
+
+Reserve proper space for the fixed navigation using the existing safe-area / bottom-nav height.
+
+Do not simply increase page height.
+
+Instead tighten the components above it.
+
+The button should sit centered with comfortable breathing room.
+
+Keep:
+
+- circular shape
+- rotating arrow
+- SPIN label
+- premium wine/rose material
+- restrained shadow
+
+## 9. STREAK / PROGRESS
+
+Place the streak/progress row directly beneath the SPIN button.
+
+Make it compact.
+
+The whole control group should feel like:
+
+[ SPIN ]
+
+progress lines
+0/10      Day 2      Day 3
+
+small explanation
+
+Do not spread this area excessively vertically.
+
+## 10. HEADER
+
+The header is generally good.
+
+Keep:
+
+Intention Wheel
+Every spin is random — yours could be any of them
+sound control
+0/10 progress
+
+But slightly tighten the vertical padding underneath it so more room is available for the actual wheel.
+
+## 11. PREMIUM IOS STANDARD
+
+The final resting screen should feel calm and intentional.
+
+Think:
+
+Hinge-level spacing
+Apple-like proportions
+luxury editorial photography
+Lulou wine/plum palette
+
+Avoid:
+
+- oversized UI
+- unnecessary containers
+- clipped text
+- giant gaps
+- excessive borders
+- bulky stacked sections
+- Android/material-card feel
+
+## 12. DO NOT CHANGE THE SPIN LOGIC
+
+Do not touch:
+
+- winner selection
+- randomness
+- eligibility
+- streak rules
+- purchase logic
+- orbit animation
+- slowdown
+- result screen
+- navigation
+
+This is specifically a RESTING-LAYOUT refinement.
+
+Only change the active spin renderer if necessary to keep card dimensions visually consistent.
+
+## 13. IPHONE ACCEPTANCE TEST
+
+At 390×844 verify:
+
+1. Header fully visible
+2. Center card fully visible
+3. Side cards partially visible and symmetric
+4. No clipped side-profile names
+5. No overlap
+6. Possible-connections row clearly visible
+7. Circular SPIN button fully visible
+8. Progress row visible
+9. Nothing is hidden behind bottom navigation
+10. No horizontal overflow
+11. No unnecessary scrolling required to reach SPIN
+
+At the end report only:
+
+1. exact files changed
+2. new card dimensions
+3. side-card visibility changes
+4. spacing changes
+5. bottom-nav/safe-area fix
+6. iPhone 390×844 validation result
