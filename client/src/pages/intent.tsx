@@ -1550,8 +1550,8 @@ export default function IntentPage() {
   // Explicit resting slots prevent the 72° five-card ring from turning side
   // portraits into foreshortened strips on narrow phones. Side cards use
   // uniform scale plus a modest Y tilt, preserving their portrait ratio.
-  const restingSideOffset = Math.round(itemWidth * 0.49);
-  const restingOuterOffset = Math.round(itemWidth * 0.58);
+  const restingSideOffset = Math.round(itemWidth * 0.62);
+  const restingOuterOffset = Math.round(itemWidth * 0.75);
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
   const wheelBufferY = isCompact ? 46 : viewportW < 380 ? 56 : 64;
@@ -3374,7 +3374,7 @@ export default function IntentPage() {
                 // the prominent idle presentation.
                 const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
-                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.68 : 0.60;
+                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.74 : 0.60;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
@@ -3424,8 +3424,8 @@ export default function IntentPage() {
                         : Math.round(depthFactor * 100),
                       clipPath: isResting && restingDistance === 1
                         ? restingSlot < 0
-                          ? "inset(0 70% 0 0 round 24px)"
-                          : "inset(0 0 0 70% round 24px)"
+                          ? "inset(0 50% 0 0 round 24px)"
+                          : "inset(0 0 0 50% round 24px)"
                         : undefined,
                       boxShadow,
                       pointerEvents: isResting && !restingVisible ? "none" : "auto",
@@ -3527,19 +3527,34 @@ export default function IntentPage() {
 
         </div>
 
-        {/* ── Candidates preview strip ── */}
-        {/* Always shown (regardless of canSpin) so users can see who is on the
-            wheel and feel engaged even while waiting for their next free spin. */}
-        {!isSpinning && !dispersed && !showPurchase && !showProfile && (
-          <CandidatesPreview items={items} onTap={setPreviewProfile} />
-        )}
+        {/* The resting lower group expands into the available space instead of
+            leaving a dead block below the streak copy. Its bottom padding keeps
+            the controls clear of the fixed navigation without moving the hero. */}
+        <div
+          style={{
+            width: "100%",
+            marginTop: "auto",
+            paddingBottom: "max(env(safe-area-inset-bottom, 48px), 48px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 4,
+            flexShrink: 0,
+          }}
+        >
+          {/* ── Candidates preview strip ── */}
+          {/* Always shown (regardless of canSpin) so users can see who is on the
+              wheel and feel engaged even while waiting for their next free spin. */}
+          {!isSpinning && !dispersed && !showPurchase && !showProfile && (
+            <CandidatesPreview items={items} onTap={setPreviewProfile} />
+          )}
 
-        {/* ── Spin button & streak ── */}
-        {!dispersed && !showPurchase && (
-             <div
+          {/* ── Spin button & streak ── */}
+          {!dispersed && !showPurchase && (
+            <div
               className="flex flex-col items-center gap-1 px-6 w-full max-w-xs mx-auto"
-              style={{ paddingBottom: "max(env(safe-area-inset-bottom,0px), 8px)" }}
-          >
+              style={{ paddingBottom: 0 }}
+            >
             {canSpin ? (
               <button
                 onClick={spinWheel}
@@ -3656,8 +3671,9 @@ export default function IntentPage() {
                 </p>
               </div>
             )}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
 
       </div>
 
