@@ -1589,6 +1589,7 @@ export default function IntentPage() {
   // need the external caption buffer reserved for the active spinning state.
   const restingStageExtra = viewportH < 760 ? 28 : 52;
   const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : restingStageExtra);
+  const isRestingComposition = !isSpinning && !dispersed && !showPurchase && !showProfile;
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -3352,6 +3353,7 @@ export default function IntentPage() {
           background: isSpinning
             ? "linear-gradient(180deg, #241b1e 0%, #151214 100%)"
             : "linear-gradient(180deg, #302427 0%, #171416 100%)",
+          justifyContent: isRestingComposition ? "center" : "flex-start",
           transition: "background 0.5s ease",
         }}
       >
@@ -3560,8 +3562,8 @@ export default function IntentPage() {
         <div
           style={{
             width: "100%",
-            flex: 1,
-            minHeight: 0,
+            flex: isRestingComposition ? "0 0 auto" : 1,
+            minHeight: isRestingComposition ? undefined : 0,
             paddingTop: 12,
             paddingBottom: 18,
             display: "flex",
