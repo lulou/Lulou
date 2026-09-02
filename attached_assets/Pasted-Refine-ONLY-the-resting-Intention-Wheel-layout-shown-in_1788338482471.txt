@@ -1,0 +1,247 @@
+Refine ONLY the resting Intention Wheel layout shown in the attached REAL iPhone screenshot.
+
+Do not redesign it again.
+
+The current version is finally close, so keep the exact current premium look:
+- dark wine/plum background
+- serif typography
+- centre profile card
+- small side cards
+- possible-connections row
+- circular SPIN button
+- compact progress row
+- current colours/materials
+
+The remaining issues are now very specific:
+
+1. There is far too much dead empty space underneath the SPIN/progress area before the bottom navigation.
+2. The profile-photo spacing is poor and looks awkward/bunched rather than intentionally composed.
+
+Fix those two things only.
+
+## 1. REMOVE THE HUGE EMPTY SPACE BELOW SPIN
+
+The screenshot shows a massive unused dark area between:
+
+“Like 10x daily for 3 days to earn a free spin”
+
+and
+
+the fixed bottom navigation.
+
+That empty space makes the whole page look unfinished.
+
+Do NOT move the entire Wheel upward again.
+
+Instead rebalance the vertical layout so the content fills the usable screen more intentionally.
+
+The resting experience should occupy the available area between:
+- top app header
+and
+- bottom navigation
+
+with balanced top and bottom breathing room.
+
+The current content is compressed into the top ~70% of the available area and leaves a huge dead block below.
+
+Fix that.
+
+## 2. MOVE THE LOWER CONTROL GROUP DOWN SLIGHTLY
+
+Keep the main card where it broadly is.
+
+Move the lower interaction group down into the unused space:
+
+- Tonight’s possible connections
+- thumbnails
+- supporting text
+- SPIN
+- progress
+- streak explanation
+
+Do this proportionally.
+
+Do NOT push anything behind the bottom navigation.
+
+The streak explanation should finish roughly 40–70px above the fixed nav, not hundreds of pixels above it.
+
+The page should feel vertically centred and deliberate.
+
+## 3. KEEP THE FULL SPIN BUTTON VISIBLE
+
+The current full SPIN button is finally visible.
+
+Do NOT break that.
+
+Keep the full circle visible with safe clearance above the nav.
+
+The goal is not to move SPIN to the bottom edge.
+
+The goal is to use the wasted space underneath the whole control group more intelligently.
+
+## 4. FIX THE MAIN 3-PHOTO SPACING
+
+The current side-card composition looks bad.
+
+The side photos are:
+- too narrow
+- too far behind the centre card
+- visually disconnected
+- inconsistent in visible width
+
+The left card currently looks like a thin vertical sliver.
+The right card looks like another narrow strip.
+
+That does not feel like a deliberate premium carousel.
+
+Make the three-card composition more balanced.
+
+Target:
+
+- centre card remains dominant
+- left and right cards expose roughly the SAME visible width
+- both side cards look like recognisable profile cards, not narrow strips
+- maintain clear depth behind the centre card
+- keep enough spacing so cards do not look bunched
+- do not make side cards compete with centre card
+
+Aim for approximately 55–75px visible width of each side card at 390px viewport width, depending on the final geometry.
+
+They should be symmetric.
+
+## 5. SIDE CARD GEOMETRY
+
+Adjust the side-card positioning rather than only scaling them smaller.
+
+Use:
+- slightly wider side cards
+- stronger horizontal offset
+- modest scale reduction
+- no extreme clipping
+
+The visible portions should clearly communicate:
+
+“There is another profile to the left and right.”
+
+Not:
+
+“there are two random image slivers behind this card.”
+
+## 6. CENTRE CARD WIDTH
+
+The centre card can remain around its current size if it still fits.
+
+If necessary, reduce its width very slightly to create better side-card exposure.
+
+Do NOT make it substantially taller again.
+
+Keep:
+- strong centre image
+- compact identity footer
+- current premium typography
+
+## 7. MAIN CAROUSEL WIDTH
+
+Use more of the available screen width intelligently.
+
+The carousel should feel approximately:
+
+[ visible left profile ]   [ dominant centre profile ]   [ visible right profile ]
+
+with symmetric margins on both sides.
+
+Do not put the whole carousel inside another visible frame.
+
+## 8. POSSIBLE-CONNECTIONS THUMBNAILS
+
+The preview row is much better now.
+
+Keep the size approximately as-is.
+
+But improve spacing:
+
+- equal gap between each thumbnail
+- visually centred group
+- no excessive gap between title and thumbnails
+- no excessive gap below thumbnails
+
+Do not stretch them across the whole width if only a few candidates exist.
+
+## 9. DO NOT CHANGE THE PREMIUM LOOK
+
+Keep everything visually from the current screenshot:
+
+- colours
+- card material
+- dark edges
+- rose SPIN button
+- typography
+- progress styling
+- bottom navigation
+
+This is now a spacing/composition correction only.
+
+## 10. DO NOT CHANGE ANY LOGIC
+
+Do not touch:
+
+- spin animation
+- spin physics
+- winner selection
+- randomness
+- eligibility
+- streak calculations
+- purchases
+- candidate sourcing
+- matching
+- APIs
+- navigation
+- result screen
+
+## 11. REAL IPHONE TARGET
+
+At 390×844, I want the resting layout to feel intentionally balanced vertically.
+
+Visually the usable content should roughly occupy the full area between:
+- dark Wheel header
+and
+- bottom nav
+
+There should NOT be a giant blank dark rectangle at the bottom.
+
+But also:
+- nothing may overlap the nav
+- SPIN remains fully visible
+- progress remains fully visible
+- streak copy remains fully visible
+
+## 12. ACCEPTANCE CRITERIA
+
+At 390×844 confirm:
+
+1. Centre card remains dominant.
+2. Left and right cards expose a similar amount.
+3. Side cards look like recognisable profile cards, not thin slivers.
+4. Cards are not bunched.
+5. Main carousel remains fully inside viewport.
+6. Possible-connections row remains centred.
+7. Full SPIN button visible.
+8. Progress visible.
+9. Streak explanation visible.
+10. No overlap with bottom nav.
+11. The huge empty area below the controls is substantially reduced.
+12. No scrolling required.
+13. No horizontal overflow.
+14. No Wheel logic changed.
+
+At the end report only:
+
+1. exact file(s) changed
+2. final centre-card width/height
+3. final side-card width/height
+4. final side-card horizontal offsets
+5. visible side-card width on left/right
+6. final streak-copy bottom coordinate
+7. final bottom-nav top coordinate
+8. amount of remaining bottom clearance
+9. confirmation that the resting page fits without scrolling
