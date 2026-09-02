@@ -1,0 +1,222 @@
+Refine ONLY the resting Intention Wheel layout from the attached REAL iPhone screenshot.
+
+The page is now much closer.
+
+Do NOT redesign it again.
+
+Keep:
+- current premium dark wine/plum styling
+- current serif typography
+- current centre card treatment
+- current SPIN button style
+- current progress styling
+- current bottom navigation style
+- current spin logic and animation behaviour
+
+The remaining issues are very specific:
+
+1. The bottom white navigation bar is slightly too tall.
+2. Because of that, the final consecutive-days/streak text is not fully visible.
+3. The main profile cards still overlap too much.
+4. I now want a VISIBLE GAP between the centre card and the left/right side cards.
+
+Change only the resting-layout presentation in `client/src/pages/intent.tsx` and the bottom-nav height in the existing navigation component if necessary.
+
+Do NOT change:
+- winner selection
+- randomness
+- eligibility
+- streak rules
+- purchases
+- matching
+- candidate sourcing
+- APIs
+- navigation behaviour
+- result logic
+- active spin animation logic
+
+## 1. MAKE THE WHITE BOTTOM NAV SLIGHTLY SMALLER
+
+The bottom white navigation bar is just a little too tall on iPhone.
+
+Reduce its visual height enough to free approximately 15–25px of extra vertical space.
+
+Do NOT make it cramped.
+
+Keep:
+- all five icons
+- all labels
+- safe-area handling
+- comfortable tap targets
+- current iOS-style appearance
+
+Only tighten:
+- top padding
+- bottom padding where safe-area permits
+- icon-to-label spacing
+- unnecessary internal height
+
+Do NOT break the iPhone home-indicator safe area.
+
+The goal is to free enough space so the entire streak/consecutive-days section above it is visible.
+
+## 2. MAKE THE FINAL STREAK TEXT FULLY VISIBLE
+
+The complete lower hierarchy must show:
+
+SPIN
+
+Tap to buy · or earn free with a streak
+
+0/10      Day 2      Day 3
+
+Like 10× daily for 3 days to earn a free spin
+
+ALL above the white bottom navigation.
+
+No scrolling.
+
+Do not hide or truncate the final streak explanation.
+
+## 3. MAIN PROFILE CARDS — STOP OVERLAPPING THEM
+
+The current side cards still overlap behind the centre card.
+
+I no longer want that.
+
+I want a clean visible GAP between the three cards.
+
+The composition should read:
+
+[ LEFT CARD ]   GAP   [ CENTRE CARD ]   GAP   [ RIGHT CARD ]
+
+The centre remains dominant.
+
+The side cards remain smaller.
+
+But they should be physically separated.
+
+No side card should sit underneath the centre card.
+
+## 4. TARGET CARD GEOMETRY
+
+At around 390px viewport width, use approximately:
+
+Centre card:
+- 172–180px wide
+- keep current premium portrait height
+
+Side cards:
+- around 105–120px wide
+- around 70–78% of centre height
+
+Visible horizontal gap:
+- approximately 8–14px between left card and centre card
+- approximately 8–14px between centre card and right card
+
+Make left/right spacing perfectly symmetric.
+
+If needed, slightly reduce the centre card width to achieve this.
+
+Do NOT push any card outside the viewport.
+
+## 5. SIDE CARDS MUST BE REAL, FULL CARD SHAPES
+
+Do not clip them into strips.
+
+Do not tuck them behind the centre.
+
+Do not show only half a card.
+
+Both side cards should have:
+- full rounded card outline
+- recognisable photo
+- no identity footer
+- slight darkening for depth
+- no white/light border
+
+They should clearly look like adjacent candidate cards.
+
+## 6. REMOVE OVERLAP-BASED DEPTH
+
+Since the cards will now have gaps, create depth using:
+
+- subtle scale difference
+- slightly reduced opacity/darkening
+- restrained shadow
+- maybe a tiny vertical offset
+
+Do NOT use physical overlap.
+
+The centre card should feel selected because it is larger and brighter, not because it sits on top of the others.
+
+## 7. POSSIBLE CONNECTIONS ROW
+
+Keep this section broadly as it is.
+
+The five thumbnails look much better.
+
+Only ensure:
+- equal spacing
+- centred group
+- no blank placeholders
+- no white borders
+
+Do not make this section larger.
+
+## 8. PRESERVE CURRENT VERTICAL RHYTHM
+
+Do not reintroduce the huge empty gaps from earlier versions.
+
+The page is now close.
+
+Only:
+- make bottom nav slightly shorter
+- gain enough vertical space for the full streak explanation
+- change main card arrangement from overlapping to separated
+
+Do not randomly move everything else.
+
+## 9. ACCEPTANCE TARGET AT 390×844
+
+Confirm all of this simultaneously:
+
+- heading visible
+- three main cards visible
+- visible gap between left and centre
+- visible gap between centre and right
+- no card overlap
+- centre card remains dominant
+- possible-connections row visible
+- full SPIN visible
+- purchase caption visible
+- 0/10 / Day 2 / Day 3 visible
+- full “Like 10× daily for 3 days to earn a free spin” visible
+- bottom navigation visible
+- no scrolling required
+- no horizontal overflow
+
+## 10. DEPLOYMENT
+
+After making the source change:
+
+- commit it
+- push GitHub main
+- wait for Vercel
+- verify the live service worker reports the new commit
+- verify the new live bundle is serving
+
+Do not stop at a local build.
+
+At the end report only:
+
+1. exact files changed
+2. old/new bottom-nav height
+3. final centre-card dimensions
+4. final side-card dimensions
+5. exact left/right gaps between cards
+6. final streak-copy visibility
+7. final bottom-nav top coordinate at 390×844
+8. confirmation no scrolling is required
+9. production commit deployed
+10. live-bundle verification
