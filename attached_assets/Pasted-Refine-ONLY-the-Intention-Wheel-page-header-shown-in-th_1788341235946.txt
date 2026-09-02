@@ -1,0 +1,195 @@
+Refine ONLY the Intention Wheel page header shown in the attached REAL iPhone screenshot.
+
+I want to remove the large white Lulou app header from the top of the Intention Wheel page.
+
+Right now the screen has:
+
+[ white area ]
+Lulou logo + “Lulou” + logout icon
+
+then
+
+[ dark area ]
+Intention Wheel
+
+I do not want that white Lulou header on this page anymore.
+
+## NEW INTENTION WHEEL HEADER
+
+The Intention Wheel page should begin directly with the premium dark Wheel surface.
+
+Keep:
+
+- “Intention Wheel”
+- sound control
+- 0/10 progress indicator
+
+Remove from this page:
+
+- Lulou logo
+- “Lulou” wordmark
+- white top app-header block
+- logout icon from this top position
+
+This will give the Wheel more vertical room and make the page feel more immersive/premium.
+
+## WHERE THE LULOU HEADER SHOULD STILL EXIST
+
+Do NOT globally remove the Lulou branding/header.
+
+Keep the Lulou logo / branding where it makes sense in account/settings areas.
+
+In particular, it can remain in:
+
+- Profile
+- Settings
+- account-management screens
+- other appropriate account/system sections
+
+But the main feature pages should not waste vertical space with the large white Lulou header.
+
+For this task, change ONLY the Intention Wheel page unless the header is a shared component and needs a clean per-page hide option.
+
+Do not accidentally remove the header from Settings/Profile.
+
+## INTENTION WHEEL TOP SAFE AREA
+
+After removing the white header:
+
+The dark Wheel page should extend upward beneath the iPhone status-bar safe area.
+
+Use proper safe-area padding so:
+
+- the “Intention Wheel” heading does not collide with the status bar
+- sound control remains aligned
+- 0/10 remains aligned
+- the top feels native and intentional
+
+Do not simply position the heading at y=0.
+
+## USE THE FREED SPACE
+
+Removing the white app header should give us significant vertical room.
+
+Use that space to improve the existing layout without enlarging everything excessively.
+
+The page should now have more comfortable spacing while still showing:
+
+- Intention Wheel title
+- three separated profile cards
+- Tonight’s possible connections
+- thumbnails
+- supporting text
+- SPIN
+- purchase caption
+- progress
+- streak explanation
+- compact bottom navigation
+
+all on one screen.
+
+Do not reintroduce large dead gaps.
+
+## KEEP CURRENT CARD GEOMETRY
+
+Do not undo the latest separated-card work.
+
+Keep approximately:
+
+- centre card: 170×227px
+- side cards: 86×168px
+- 9px visible gaps
+- 15px outer margins at 390px
+
+All three cards must remain inside the viewport.
+
+No overlap.
+No off-screen clipping.
+
+## KEEP CURRENT LOWER SECTION
+
+Do not redesign the lower section again.
+
+Keep:
+
+Tonight’s possible connections
+thumbnails
+Every spin is random — yours could be any of them
+SPIN
+Tap to buy · or earn free with a streak
+0/10 / Day 2 / Day 3
+Like 10× daily for 3 days to earn a free spin
+
+The earlier instruction to remove “Every spin is random…” refers only to the duplicate sentence directly underneath the Intention Wheel heading.
+
+Keep the lower version near the thumbnails.
+
+## BOTTOM NAV
+
+Keep the latest compact navigation and its lowered icon/label positioning.
+
+Do not restore the tall nav.
+
+Preserve:
+
+- safe-area inset
+- 44px tap targets
+- vertically centred icons/labels
+
+## DO NOT CHANGE
+
+Do not touch:
+
+- active SpinRoom animation
+- winner selection
+- randomness
+- eligibility
+- streak calculations
+- purchases
+- candidate sourcing
+- matching
+- APIs
+- navigation behaviour
+- result screen
+
+This is primarily a top-header removal/layout-space improvement.
+
+## ACCEPTANCE AT 390×844
+
+Verify:
+
+1. White Lulou header is gone from Intention Wheel.
+2. No Lulou logo/wordmark above the Wheel.
+3. Wheel dark background begins at the top safe area.
+4. Intention Wheel title clears the iPhone status bar.
+5. Sound + 0/10 remain aligned.
+6. Three cards remain fully inside viewport.
+7. Card gaps remain visible.
+8. Full SPIN visible.
+9. Full progress visible.
+10. Full streak explanation visible.
+11. Compact bottom nav remains correct.
+12. No scrolling required.
+13. No horizontal overflow.
+
+## DEPLOYMENT
+
+After the change:
+
+- commit
+- push GitHub main
+- wait for Vercel
+- confirm the live service worker is on the new commit
+- verify the new live bundle
+
+At the end report only:
+
+1. exact files changed
+2. how the Intention Wheel header was removed
+3. confirmation Settings/Profile branding remains
+4. new top safe-area/header measurements
+5. confirmation existing card geometry was preserved
+6. confirmation full lower controls remain visible
+7. confirmation no scrolling is required
+8. production commit
+9. live-bundle verification
