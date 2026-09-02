@@ -30,6 +30,19 @@ the data flow but makes the experience read as a generic profile slideshow.
 and enough horizontal radius for side cards to remain legible. Never add React-owned
 transform, opacity, filter, or z-index styles to the active orbit cards.
 
+## Stable photo surfaces
+
+**Rule:** Resolve and decode every active orbit photo before SpinRoom becomes visible,
+then keep each card node and image source unchanged until the orbit stops.
+
+**Why:** Updating candidate-photo state while RAF is moving the same card nodes causes
+unnecessary React renders and can make iPhone Safari re-rasterize or briefly blank an
+image. The former back-position swap calculated the same candidate IDs anyway.
+
+**How to apply:** Let RAF own only transform, opacity, and depth during motion. Do not
+swap user IDs or image sources mid-orbit, and make the front point's computed transform
+identical to the winner-lock transform so the final frame cannot jump.
+
 ## Hero handoff
 
 **Rule:** The locked orbit winner is the sole visible photo while it grows from

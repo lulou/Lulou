@@ -1,0 +1,395 @@
+Fix the Intention Wheel page shown in the attached REAL iPhone screenshots.
+
+This is not a small tweak anymore.
+
+The current layout is visually unbalanced throughout, the side-card treatment looks wrong, and the active spinning state is not smooth enough.
+
+Change only the Intention Wheel presentation/animation in `client/src/pages/intent.tsx` unless a tiny shared style helper is absolutely required.
+
+Do NOT change:
+- winner selection
+- randomness
+- eligibility
+- streak rules
+- purchases
+- matching
+- candidate sourcing
+- APIs
+- navigation
+- result logic
+
+## 1. REBALANCE THE ENTIRE RESTING PAGE
+
+The current vertical spacing is poor.
+
+There is:
+- too much empty space in some areas
+- sections sitting too close together in others
+- no clear premium rhythm from top to bottom
+
+Rebuild the resting page spacing as one deliberate composition.
+
+The visual flow should be:
+
+HEADER
+
+compact breathing room
+
+MAIN 3-CARD WHEEL
+
+balanced gap
+
+Tonight’s possible connections
+
+compact thumbnail row
+
+supporting sentence
+
+balanced gap
+
+SPIN
+
+compact progress row
+
+streak explanation
+
+balanced clearance
+
+BOTTOM NAV
+
+Do not solve this with random margins.
+
+Create a consistent spacing system across the whole page.
+
+Target a polished iOS dating-app rhythm.
+
+## 2. FIX THE MAIN THREE-CARD COMPOSITION
+
+The side cards currently look ridiculous.
+
+They appear as narrow vertical strips disconnected from the center card.
+
+That is not acceptable.
+
+I want the side cards to look like REAL profile cards.
+
+Use the available width properly.
+
+Target at 390px viewport:
+
+CENTER CARD
+- dominant
+- approximately 170–180px wide
+- premium portrait proportion
+- full image clearly visible
+- compact identity footer
+
+SIDE CARDS
+- approximately 125–140px wide before clipping
+- roughly 70–80% of center height
+- expose around 55–70px of each card
+- both sides visually symmetric
+- clearly recognisable photos
+- no identity footer on side cards
+- slight darkening for depth
+- very restrained rotation or none
+
+Do NOT show thin slivers.
+
+Do NOT hide almost the entire side image.
+
+Do NOT let the side cards look like decorative bars.
+
+The user should immediately understand:
+“there is another person to the left and another person to the right.”
+
+## 3. USE INWARD-FACING CROPS
+
+When side cards are clipped:
+
+LEFT card should expose the RIGHT/inner portion of that profile.
+
+RIGHT card should expose the LEFT/inner portion.
+
+Do not expose arbitrary outer edges of the photos.
+
+This will make the three-card composition visually coherent.
+
+## 4. REMOVE ANY REMAINING OUTER CAROUSEL BOX
+
+Do not put the three cards inside a giant rounded container.
+
+The cards should float naturally on the dark wine/plum surface.
+
+No:
+- visible enclosing border
+- giant rounded frame
+- pale outline
+- light inset stroke
+
+Use only restrained shadows/depth around individual cards.
+
+## 5. BALANCE THE MAIN CARD AREA
+
+The current hero area has too much unused vertical space below the active card.
+
+The card and the next section should feel intentionally connected.
+
+Reduce the gap between:
+- center-card footer
+and
+- “Tonight’s possible connections”
+
+But keep enough breathing room that they do not feel stuck together.
+
+Think editorial spacing, not arbitrary large empty blocks.
+
+## 6. POSSIBLE CONNECTIONS ROW
+
+Make this section neat and consistent.
+
+Title:
+Tonight’s possible connections
+
+Then immediately beneath:
+- evenly spaced thumbnails
+- centered as a group
+- only valid profiles
+- no blank placeholders
+- no odd gaps
+
+Target thumbnail size around:
+- 46–52px wide
+- 56–64px tall
+
+Use equal gaps.
+
+Do not stretch them across the full screen if fewer candidates exist.
+
+Keep:
+“Every spin is random — yours could be any of them”
+
+directly beneath with a compact gap.
+
+## 7. SPIN / PROGRESS SPACING
+
+Keep the circular SPIN button.
+
+Do not change its functionality.
+
+Position it with deliberate spacing after the supporting sentence.
+
+Then keep the progress row close underneath.
+
+The whole lower section should feel like one control group:
+
+[ SPIN ]
+
+0/10      Day 2      Day 3
+
+Like 10x daily for 3 days to earn a free spin
+
+There should not be random large vertical gaps between these elements.
+
+## 8. ACTIVE SPIN SCREEN — FIX THE PHOTO COMPOSITION
+
+The second screenshot shows the active Wheel.
+
+The center card is okay conceptually, but the side cards during spinning are too large, partially hidden, and visually messy.
+
+During the spin:
+
+- keep one dominant center card
+- visible left and right cards should remain recognisable
+- they should travel naturally behind/around the center
+- do not allow giant cropped fragments to fill the sides
+- maintain consistent card dimensions through the animation
+
+The movement should visually resemble cards physically circulating through left → center → right positions.
+
+## 9. FIX THE FLICKER / IMAGE POPPING
+
+The spinning photos currently flicker/pop instead of moving smoothly.
+
+Investigate the actual cause.
+
+Check for:
+
+- React rerenders replacing card nodes during RAF
+- changing `key` values
+- image `src` being swapped during motion
+- image decode/loading during animation
+- opacity being reset
+- display/visibility toggles
+- conditional mount/unmount of cards
+- state updates competing with RAF inline transforms
+- browser repaint/compositing problems
+- transition styles fighting RAF transforms
+
+The cards used during the spin should be STABLE DOM NODES.
+
+Do NOT constantly replace `<img>` elements while spinning.
+
+Before spin begins:
+
+1. Resolve the candidate images.
+2. Preload/decode them.
+3. Keep those image/card nodes mounted.
+4. Animate only transforms/opacity/z-index using RAF.
+
+Do not change `src` every frame.
+
+Do not remount cards as they pass through positions.
+
+## 10. GPU-COMPOSITE THE MOVING CARDS
+
+For the active spinning cards:
+
+Use transform-based animation only.
+
+Prefer:
+- translate3d(...)
+- scale(...)
+- small rotate(...)
+- opacity
+
+Add appropriate:
+- will-change: transform, opacity
+- backface-visibility: hidden
+
+Avoid animation via:
+- left
+- top
+- width
+- height
+- layout-affecting properties
+
+The browser should be able to keep the cards on compositor layers.
+
+## 11. DO NOT MIX CSS TRANSITIONS WITH RAF
+
+If RAF owns the spin transforms, remove CSS transitions from those exact transform/opacity properties while actively spinning.
+
+CSS transition interpolation fighting RAF updates can create visible judder/flicker.
+
+Use one animation owner.
+
+RAF should own:
+- x/y
+- scale
+- rotation
+- opacity
+- z/depth
+
+for the moving phase.
+
+Then use a controlled transition only for the final winner settle if required.
+
+## 12. PRELOAD ALL SPIN PHOTOS
+
+Before starting visible motion:
+
+- make sure all candidate profile images needed for the spin are loaded/decode-complete
+- only begin the visible orbit once assets are ready
+
+Do not let a card arrive in the center while its image is still decoding.
+
+Use existing cached/profile URLs.
+
+Do not change selection logic.
+
+## 13. WINNER SETTLE
+
+The final winner should decelerate smoothly into the center.
+
+It should not:
+- snap
+- flash
+- briefly show another image
+- resize unexpectedly
+- jump position
+
+The same physical card/node that wins should settle into the center before the result transition.
+
+## 14. ACTIVE SCREEN SPACING
+
+The active “Tonight’s connection” screen also has too much unused space.
+
+Rebalance vertically:
+
+- title at top
+- wheel/card animation centered in the meaningful part of the viewport
+- status message directly beneath
+- progress cue nearby
+
+Do not leave giant empty areas above and below the card.
+
+Keep the luxury cinematic feel, but use the screen deliberately.
+
+## 15. MAINTAIN CURRENT PREMIUM LOOK
+
+Keep:
+- current plum/wine/charcoal palette
+- serif typography
+- subtle rose accents
+- current SPIN styling
+- dark photo treatment
+- elegant iOS feel
+
+Do not reintroduce:
+- neon arcade effects
+- particles
+- game-like graphics
+- giant halos
+- Android material-card styling
+
+## 16. REAL IPHONE ACCEPTANCE TEST
+
+At 390×844 RESTING STATE verify:
+
+1. Side cards are recognisable profile images, not slivers.
+2. Left/right exposure is symmetric.
+3. Center card remains dominant.
+4. Carousel has no giant enclosing frame.
+5. Gap below main card is balanced.
+6. Possible-connections row is evenly spaced.
+7. Supporting copy is close to previews.
+8. SPIN/progress group has consistent spacing.
+9. Bottom clearance feels intentional.
+10. No scrolling required.
+11. No horizontal overflow.
+
+During a REAL SPIN verify:
+
+1. Cards physically travel through left/center/right positions.
+2. No image flicker.
+3. No image popping.
+4. No blank frames.
+5. No node/image swapping visible.
+6. Motion stays smooth during acceleration.
+7. Motion stays smooth during fast orbit.
+8. Motion stays smooth during slowdown.
+9. Winner settles naturally in center.
+10. Result handoff has no flash/jump.
+
+Record several screenshots/frames during the same spin to prove cards moved rather than merely swapping images.
+
+## 17. IMPORTANT
+
+Do not make another tiny numerical patch and call this finished.
+
+Inspect the full resting composition and the full SpinRoom animation together.
+
+They should share the same card proportions and visual language.
+
+At the end report only:
+
+1. exact files changed
+2. final resting card dimensions/offsets
+3. spacing changes throughout the resting page
+4. active SpinRoom card geometry
+5. exact flicker root cause found
+6. exact animation fix
+7. image preload/stable-node strategy
+8. iPhone resting-state validation result
+9. iPhone live-spin smoothness validation result

@@ -177,9 +177,34 @@ class IntentResultBoundary extends Component<
 // 5 cards on an elliptical orbit.  Front position = angle π/2 (sin = 1, depth = 1).
 // Cards rotate in the positive-angle direction (counter-clockwise in math coords,
 // visually left-to-right across the front).
-const ORBIT_N     = 5;
-const ORBIT_RX    = 132;   // px — side cards remain visible while travelling around the centre
-const ORBIT_RY    = 14;    // px — restrained ellipse, enough to read as an orbit without an arcade arc
+const ORBIT_N           = 5;
+const ORBIT_RX          = 108;
+const ORBIT_RY          = 12;
+const ORBIT_CARD_WIDTH  = 168;
+const ORBIT_CARD_HEIGHT = 224;
+const ORBIT_STAGE_HEIGHT = 286;
+
+async function decodeOrbitPhoto(url: string): Promise<string | null> {
+  if (!url) return null;
+  const image = new Image();
+  image.src = url;
+  try {
+    await Promise.race([
+      typeof image.decode === "function"
+        ? image.decode()
+        : new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error("image load failed"));
+          }),
+      new Promise<never>((_, reject) =>
+        window.setTimeout(() => reject(new Error("image decode timeout")), 4_000),
+      ),
+    ]);
+    return url;
+  } catch {
+    return null;
+  }
+}
 
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -1447,7 +1472,9 @@ export default function IntentPage() {
   // orbitFrontCandRef tracks which slot (= candidate index) is currently at the front.
   // It is read by the pullforward timeout to choose the winner.
   const orbitCardRefs = useRef<(HTMLDivElement | null)[]>(Array(ORBIT_N).fill(null));
-  const [orbitCardIds, setOrbitCardIds] = useState<string[]>(Array(ORBIT_N).fill(''));
+  const [orbitPhotoUrls, setOrbitPhotoUrls] = useState<(string | null)[]>(Array(ORBIT_N).fill(null));
+  const spinPreparingRef = useRef(false);
+  const [isPreparingSpin, setIsPreparingSpin] = useState(false);
   // Slot index (0–4) of the candidate currently closest to the front (depth peak).
   const orbitFrontCandRef = useRef(0);
 
@@ -1540,7 +1567,7 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 154 : viewportW < 430 ? 162 : 216;
+  const itemWidth  = viewportW < 380 ? 160 : viewportW < 430 ? 174 : 216;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
@@ -1701,11 +1728,35 @@ export default function IntentPage() {
     },
   });
 
-  const spinWheel = () => {
-    if (isSpinning || count === 0 || !canSpin) return;
+  const spinWheel = async () => {
+    if (isSpinning || spinPreparingRef.current || count === 0 || !canSpin) return;
     presentationLockedRef.current = true;
+    spinPreparingRef.current = true;
+    setIsPreparingSpin(true);
     cancelWheelAsync();
     spinGenerationRef.current += 1;
+
+    const initialOrbitIds = Array.from(
+      { length: ORBIT_N },
+      (_, i) => items[i % Math.min(items.length, ORBIT_N)].userId,
+    );
+    const preparedPhotoUrls = await Promise.all(
+      initialOrbitIds.map(async (userId) => {
+        try {
+          const data = await queryClient.fetchQuery<{ photos: string[] }>({
+            queryKey: ["/api/profiles", userId, "photos"],
+            staleTime: 5 * 60 * 1000,
+          });
+          return await decodeOrbitPhoto(data.photos?.[0]?.trim() ?? "");
+        } catch {
+          return null;
+        }
+      }),
+    );
+    setOrbitPhotoUrls(preparedPhotoUrls);
+    spinPreparingRef.current = false;
+    setIsPreparingSpin(false);
+
     setHeroHandoffComplete(false);
     ensureCtx();
     try { (navigator as any).vibrate?.([30]); } catch {}
@@ -1905,8 +1956,8 @@ export default function IntentPage() {
 
   // ── Orbit RAF — drives all 5 card positions + glow ──────────────────────────
   // One rAF loop handles everything: angle advance, per-card depth math, DOM mutation.
-  // Zero React setState per frame — only setOrbitCardIds fires, and only when a card
-  // passes through its back position (depth < 0.12) and needs a new userId loaded.
+  // Zero React setState during motion. The RAF exclusively owns transform,
+  // opacity, and depth on stable, decode-complete card nodes.
   useEffect(() => {
     if (!showSpinRoom) {
       cancelAnimationFrame(orbitRafRef2.current);
@@ -1925,11 +1976,6 @@ export default function IntentPage() {
     }
     const N = Math.min(items.length, ORBIT_N);
     if (N === 0) return;
-    const spinItems = items.slice(0, N);
-
-    // Initialise card userIds — slot i shows candidate i initially
-    setOrbitCardIds(Array.from({ length: ORBIT_N }, (_, i) => spinItems[i % N].userId));
-
     // Card 0 starts at the front (sin(angle + 0) = 1 → angle = π/2).
     orbitAngleRef2.current   = Math.PI / 2;
     prevOrbitAngleRef.current = Math.PI / 2; // tick detector baseline
@@ -1950,30 +1996,29 @@ export default function IntentPage() {
       el.style.position = 'absolute';
       el.style.left = '50%';
       el.style.top = '50%';
-      el.style.width = '220px';
-      el.style.height = '320px';
+      el.style.width = `${ORBIT_CARD_WIDTH}px`;
+      el.style.height = `${ORBIT_CARD_HEIGHT}px`;
       el.style.visibility = 'visible';
       el.style.borderRadius = '28px';
       el.style.boxShadow = '';
-      el.style.willChange = 'transform, opacity, filter, box-shadow, left, top, width, height';
+      el.style.willChange = 'transform, opacity';
+      el.style.backfaceVisibility = 'hidden';
+      el.style.webkitBackfaceVisibility = 'hidden';
       const theta  = orbitAngleRef2.current + (2 * Math.PI / N) * i;
       const sinT   = Math.sin(theta);
       const cosT   = Math.cos(theta);
       const depth  = (sinT + 1) / 2;
       const scale  = (0.80 + depth * 0.20).toFixed(3);
       const x      = (cosT * ORBIT_RX).toFixed(1);
-      const y      = (sinT * ORBIT_RY).toFixed(1);
+      const y      = ((1 - depth) * ORBIT_RY).toFixed(1);
       const rotate = (-cosT * 2.2).toFixed(2);
       el.style.transition = 'none';
-      el.style.transform  = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${rotate}deg) scale(${scale})`;
+      el.style.transform  = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), 0) rotate(${rotate}deg) scale(${scale})`;
       el.style.opacity    = (0.08 + Math.pow(depth, 2.2) * 0.92).toFixed(3);
-      el.style.filter     = '';
       el.style.zIndex     = String(Math.round(depth * 100));
     }
     orbitFrontCandRef.current = 0; // card 0 is at front initially
 
-    // Track which candidates have been recently back-loaded so we don't double-set
-    const backLoaded = new Set<number>();
     const orbitStartMs = performance.now();
     let   logLastSec   = -1;
 
@@ -2071,11 +2116,10 @@ export default function IntentPage() {
           const depth2 = (sinT2 + 1) / 2;
           const scale2 = (0.80 + depth2 * 0.20).toFixed(3);
           const x2     = (cosT2 * ORBIT_RX).toFixed(1);
-          const y2     = (sinT2 * ORBIT_RY).toFixed(1);
+          const y2     = ((1 - depth2) * ORBIT_RY).toFixed(1);
           const rotate2 = (-cosT2 * 2.2).toFixed(2);
-          el.style.transform = `translate(calc(-50% + ${x2}px), calc(-50% + ${y2}px)) rotate(${rotate2}deg) scale(${scale2})`;
+          el.style.transform = `translate3d(calc(-50% + ${x2}px), calc(-50% + ${y2}px), 0) rotate(${rotate2}deg) scale(${scale2})`;
           el.style.opacity   = (0.08 + Math.pow(depth2, 2.2) * 0.92).toFixed(3);
-          el.style.filter    = '';
           el.style.zIndex    = String(Math.round(depth2 * 100));
           if (depth2 > frontDepth2) { frontDepth2 = depth2; frontI2 = i; }
         }
@@ -2096,9 +2140,8 @@ export default function IntentPage() {
           const wIdxFinal = pendingWinnerRef.current?.index ?? frontI2;
           const elFinal   = orbitCardRefs.current[wIdxFinal];
           if (elFinal) {
-            elFinal.style.transform = 'translate(-50%, -50%) scale(1.0)';
+            elFinal.style.transform = 'translate3d(-50%, -50%, 0) rotate(0deg) scale(1)';
             elFinal.style.opacity   = '1';
-            elFinal.style.filter    = '';
           }
           logWheelState({
             event: 'approach_complete',
@@ -2178,27 +2221,13 @@ export default function IntentPage() {
         const depth = (sinT + 1) / 2;
         const scale = (0.80 + depth * 0.20).toFixed(3);
         const x     = (cosT * ORBIT_RX).toFixed(1);
-        const y     = (sinT * ORBIT_RY).toFixed(1);
+        const y     = ((1 - depth) * ORBIT_RY).toFixed(1);
         const rotate = (-cosT * 2.2).toFixed(2);
-        el.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${rotate}deg) scale(${scale})`;
+        el.style.transform = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), 0) rotate(${rotate}deg) scale(${scale})`;
         el.style.opacity   = (0.08 + Math.pow(depth, 2.2) * 0.92).toFixed(3);
-        el.style.filter    = '';
         el.style.zIndex    = String(Math.round(depth * 100));
         if (depth > frontDepth) { frontDepth = depth; frontI = i; }
 
-        // When a card reaches deep back (depth < 0.12) we can silently swap its userId.
-        // backLoaded guards against thrashing while it stays at the back.
-        if (depth < 0.12 && !backLoaded.has(i)) {
-          backLoaded.add(i);
-          const nextCand = (i + N) % N; // keeps within the candidate pool
-          setOrbitCardIds(prev => {
-            const n = [...prev];
-            n[i] = spinItems[nextCand].userId;
-            return n;
-          });
-        } else if (depth >= 0.12) {
-          backLoaded.delete(i);
-        }
       }
       orbitFrontCandRef.current = frontI;
 
@@ -3374,7 +3403,7 @@ export default function IntentPage() {
                 // the prominent idle presentation.
                 const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
-                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.74 : 0.60;
+                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.76 : 0.60;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
@@ -3527,19 +3556,20 @@ export default function IntentPage() {
 
         </div>
 
-        {/* The resting lower group expands into the available space instead of
-            leaving a dead block below the streak copy. Its bottom padding keeps
-            the controls clear of the fixed navigation without moving the hero. */}
+        {/* One spacing system distributes the preview and controls through the
+            remaining viewport while preserving the navigation safe area. */}
         <div
           style={{
             width: "100%",
-            marginTop: "auto",
-            paddingBottom: "max(env(safe-area-inset-bottom, 48px), 48px)",
+            flex: 1,
+            minHeight: 0,
+            paddingTop: 8,
+            paddingBottom: "max(env(safe-area-inset-bottom, 40px), 40px)",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            gap: 4,
-            flexShrink: 0,
+            justifyContent: "space-evenly",
+            gap: 10,
           }}
         >
           {/* ── Candidates preview strip ── */}
@@ -3558,23 +3588,23 @@ export default function IntentPage() {
             {canSpin ? (
               <button
                 onClick={spinWheel}
-                disabled={isSpinning || items.length === 0}
+                disabled={isSpinning || isPreparingSpin || items.length === 0}
                 style={{
                   width: 72, height: 72, borderRadius: "50%",
                   border: "1px solid rgba(255,231,223,0.28)",
-                  background: isSpinning
+                  background: isSpinning || isPreparingSpin
                     ? "linear-gradient(145deg, #8d515b, #623440)"
                     : "radial-gradient(circle at 36% 28%, #c6777f 0%, #a15360 38%, #773846 100%)",
-                  boxShadow: isSpinning
+                  boxShadow: isSpinning || isPreparingSpin
                     ? "0 8px 22px rgba(18,8,13,0.24), inset 0 1px 0 rgba(255,255,255,0.10)"
                     : "0 12px 28px rgba(54,20,29,0.42), inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -10px 22px rgba(52,19,29,0.16)",
-                  color: "#fff", cursor: isSpinning ? "default" : "pointer",
+                  color: "#fff", cursor: isSpinning || isPreparingSpin ? "default" : "pointer",
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
                   animation: "none",
                   transition: "background 0.3s ease, transform 0.12s ease, box-shadow 0.12s ease",
                   outline: "none", WebkitTapHighlightColor: "transparent", flexShrink: 0,
                 }}
-                onMouseEnter={e => { if (!isSpinning) (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
+                onMouseEnter={e => { if (!isSpinning && !isPreparingSpin) (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
                 onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(1px) scale(0.965)"; }}
                 onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
@@ -4183,12 +4213,12 @@ export default function IntentPage() {
             }}>
               {/* ── 5-card orbital stage — cards rotate on a flat ellipse ── */}
               {/* All 5 divs stay mounted for the entire spin.  Their transform,       */}
-              {/* opacity, filter, and zIndex are owned EXCLUSIVELY by the orbit RAF   */}
+              {/* opacity and zIndex are owned EXCLUSIVELY by the orbit RAF            */}
               {/* (direct el.style mutations).  Those properties are NOT in the JSX    */}
               {/* style object — React must never overwrite the RAF's values.           */}
               {/* No CSS perspective: cards face the viewer straight-on at all times.  */}
               <div style={{
-                position: "relative", width: "100%", height: 336, flexShrink: 0,
+                position: "relative", width: "100%", height: ORBIT_STAGE_HEIGHT, flexShrink: 0,
               }}>
               {/* Restrained tonal stage; the RAF still owns its measured ref. */}
                 <div ref={orbitGlowRef} style={{
@@ -4215,32 +4245,37 @@ export default function IntentPage() {
                         el.style.position = 'absolute';
                         el.style.left = '50%';
                         el.style.top = '50%';
-                        el.style.width = '220px';
-                        el.style.height = '320px';
+                        el.style.width = `${ORBIT_CARD_WIDTH}px`;
+                        el.style.height = `${ORBIT_CARD_HEIGHT}px`;
                         el.style.borderRadius = '28px';
                         el.style.visibility = 'visible';
                       }
                     }}
                     style={{
                       overflow: "hidden",
-                      willChange: "transform, opacity, filter",
-                      boxShadow: "0 18px 42px rgba(16,8,12,0.34), 0 1px 0 rgba(255,255,255,0.08)",
+                      willChange: "transform, opacity",
+                      backfaceVisibility: "hidden",
+                      WebkitBackfaceVisibility: "hidden",
+                      transformStyle: "preserve-3d",
+                      boxShadow: "0 18px 42px rgba(16,8,12,0.34)",
                     }}
                   >
-                    <ProfilePhoto
-                      userId={orbitCardIds[i] || items[i % Math.max(1, items.length)]?.userId || ''}
-                      className="w-full h-full pointer-events-none"
-                    />
+                    {orbitPhotoUrls[i] ? (
+                      <img
+                        src={orbitPhotoUrls[i]!}
+                        alt=""
+                        draggable={false}
+                        decoding="sync"
+                        className="w-full h-full object-cover pointer-events-none"
+                        style={{ backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
+                      />
+                    ) : (
+                      <ProfileAvatarFallback className="w-full h-full pointer-events-none" />
+                    )}
                     {/* Bottom readability gradient */}
                     <div style={{
                       position: "absolute", inset: 0,
                       background: "linear-gradient(to bottom, transparent 62%, rgba(0,0,0,0.34) 100%)",
-                      pointerEvents: "none",
-                    }} />
-                    {/* Subtle rose border */}
-                    <div style={{
-                      position: "absolute", inset: 0, borderRadius: "inherit",
-                      border: "1px solid rgba(255,255,255,0.15)",
                       pointerEvents: "none",
                     }} />
                   </div>
