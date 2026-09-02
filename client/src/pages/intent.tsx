@@ -3278,7 +3278,10 @@ export default function IntentPage() {
       `}</style>
 
       {/* ── Header ── */}
-      <div className="px-6 pt-2 pb-0">
+      <div
+        className="px-6 pt-2 pb-0"
+        style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
+      >
         <div className="flex items-start justify-between gap-5">
           <div>
             <h1

@@ -106,6 +106,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // renders Discover at "/" during an installed PWA's first load.
   const { isChatRoom, usesHeaderScrollOwner: isScrollWithHeaderPage } =
     getAppLayoutScrollPolicy(location);
+  const isImmersiveWheelPage = location === "/intent";
 
   // Chat rooms manage their own keyboard-avoidance via keyboardHeight tracked
   // inside messaging.tsx. AppLayout simply pins the container to full screen.
@@ -181,7 +182,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col w-full bg-background" data-app-layout style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0 } : { height: "100dvh" }}>
       {/* App-level header — hidden completely for chat rooms to avoid any backdrop-filter
           containment that would re-anchor fixed children from messaging.tsx */}
-      {!isChatRoom && !isScrollWithHeaderPage && appHeader}
+      {!isChatRoom && !isScrollWithHeaderPage && !isImmersiveWheelPage && appHeader}
 
       <main data-scroll-owner="app-layout-main" className={
         isChatRoom
@@ -190,7 +191,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             ? "flex-1 min-h-0 overflow-y-auto flex flex-col"
             : "flex-1 overflow-hidden flex flex-col"
       }>
-        {!isChatRoom && isScrollWithHeaderPage && appHeader}
+        {!isChatRoom && isScrollWithHeaderPage && !isImmersiveWheelPage && appHeader}
         {children}
       </main>
 
