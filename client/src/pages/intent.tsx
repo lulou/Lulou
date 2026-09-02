@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, Component, type ReactNode, type ErrorInfo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Loader2, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck, Heart, RotateCw } from "lucide-react";
+import { Loader2, X, MapPin, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck, Heart, RotateCw } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
 import { useAuth } from "@/hooks/use-auth";
@@ -918,7 +918,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
   }, []);
   const cardWidth = vw < 380 ? 44 : 46;
   const cardHeight = vw < 380 ? 54 : 56;
-  const cardGap = 5;
+  const cardGap = 8;
   const maxCount = 5;
   const preview = useMemo(() => items.slice(0, Math.min(maxCount, items.length)), [items, maxCount]);
   if (preview.length < 2) return null;
@@ -940,7 +940,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
         fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
         textAlign: "center",
         color: "rgba(255,239,235,0.72)",
-        marginBottom: 4,
+        marginBottom: 10,
       }}>
         {t("tonight_connections")}
       </p>
@@ -957,7 +957,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
         ))}
       </div>
       <p style={{
-        fontSize: 10, lineHeight: 1.2, textAlign: "center", marginTop: 4,
+        fontSize: 10, lineHeight: 1.2, textAlign: "center", marginTop: 10,
         color: "rgba(255,244,239,0.42)",
       }}>
         {t("spin_random_desc")}
@@ -1567,7 +1567,7 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 160 : viewportW < 430 ? 174 : 216;
+  const itemWidth  = viewportW < 380 ? 168 : viewportW < 430 ? 180 : 216;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
@@ -1577,14 +1577,15 @@ export default function IntentPage() {
   // Explicit resting slots prevent the 72° five-card ring from turning side
   // portraits into foreshortened strips on narrow phones. Side cards use
   // uniform scale plus a modest Y tilt, preserving their portrait ratio.
-  const restingSideOffset = Math.round(itemWidth * 0.62);
+  const restingSideOffset = Math.round(itemWidth * 0.50);
   const restingOuterOffset = Math.round(itemWidth * 0.75);
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
   const wheelBufferY = isCompact ? 46 : viewportW < 380 ? 56 : 64;
   // The idle hero has its identity in a dedicated in-card footer, so it does not
   // need the external caption buffer reserved for the active spinning state.
-  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 0);
+  const restingStageExtra = viewportH < 760 ? 28 : 52;
+  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : restingStageExtra);
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -3403,7 +3404,7 @@ export default function IntentPage() {
                 // the prominent idle presentation.
                 const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
-                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.76 : 0.60;
+                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.75 : 0.60;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
@@ -3451,17 +3452,12 @@ export default function IntentPage() {
                       zIndex: isResting
                         ? (restingDistance === 0 ? 100 : restingDistance === 1 ? 80 : 60)
                         : Math.round(depthFactor * 100),
-                      clipPath: isResting && restingDistance === 1
-                        ? restingSlot < 0
-                          ? "inset(0 50% 0 0 round 24px)"
-                          : "inset(0 0 0 50% round 24px)"
-                        : undefined,
                       boxShadow,
                       pointerEvents: isResting && !restingVisible ? "none" : "auto",
                       animation: undefined,
                       transition: dispersed
                         ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)"
-                         : isResting ? "transform 0.46s cubic-bezier(0.22,1,0.36,1), opacity 0.35s ease, filter 0.35s ease, box-shadow 0.3s ease, clip-path 0.35s ease" : "box-shadow 0.3s ease",
+                          : isResting ? "transform 0.46s cubic-bezier(0.22,1,0.36,1), opacity 0.35s ease, filter 0.35s ease, box-shadow 0.3s ease" : "box-shadow 0.3s ease",
                     }}
                     data-testid={`intent-profile-${i}`}
                   >
@@ -3556,20 +3552,19 @@ export default function IntentPage() {
 
         </div>
 
-        {/* One spacing system distributes the preview and controls through the
-            remaining viewport while preserving the navigation safe area. */}
+        {/* Explicit spacing keeps the preview close to the carousel and gives
+            each control tier its own readable interval. */}
         <div
           style={{
             width: "100%",
             flex: 1,
             minHeight: 0,
-            paddingTop: 8,
-            paddingBottom: "max(env(safe-area-inset-bottom, 40px), 40px)",
+            paddingTop: 12,
+            paddingBottom: 18,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "space-evenly",
-            gap: 10,
+            justifyContent: "flex-start",
           }}
         >
           {/* ── Candidates preview strip ── */}
@@ -3582,8 +3577,8 @@ export default function IntentPage() {
           {/* ── Spin button & streak ── */}
           {!dispersed && !showPurchase && (
             <div
-              className="flex flex-col items-center gap-1 px-6 w-full max-w-xs mx-auto"
-              style={{ paddingBottom: 0 }}
+              className="flex flex-col items-center px-6 w-full max-w-xs mx-auto"
+              style={{ paddingBottom: 0, marginTop: 24 }}
             >
             {canSpin ? (
               <button
@@ -3635,14 +3630,7 @@ export default function IntentPage() {
                 onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
                 data-testid="button-spin-locked"
               >
-                <div style={{ position: "relative", width: 21, height: 21 }}>
-                  <RotateCw style={{ width: 20, height: 20, opacity: 0.82 }} />
-                  <Lock style={{
-                    position: "absolute", right: -3, bottom: -2,
-                    width: 10, height: 10,
-                    fill: "#824552", color: "rgba(255,244,240,0.92)",
-                  }} />
-                </div>
+                <RotateCw style={{ width: 20, height: 20, opacity: 0.82 }} />
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}>
                   {t("spin_label")}
                 </span>
@@ -3656,7 +3644,7 @@ export default function IntentPage() {
                   background: "rgba(255,226,217,0.08)",
                   border: "1px solid rgba(255,226,217,0.16)",
                 borderRadius: 20, padding: "5px 12px",
-                marginTop: -4,
+                marginTop: 14,
               }}>
                 <span style={{ fontSize: 12, color: "rgba(212,92,116,0.95)", fontWeight: 700 }}>
                   {spinStatus!.purchasedSpins} Halo{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
@@ -3669,7 +3657,7 @@ export default function IntentPage() {
               <p style={{
                 fontSize: 11, textAlign: "center",
                 color: "rgba(255,255,255,0.48)",
-                lineHeight: 1.4, marginTop: -6,
+                lineHeight: 1.4, margin: "14px 0 0",
               }}>
                 {streakComplete
                   ? t("spin_earned_label")
@@ -3678,7 +3666,7 @@ export default function IntentPage() {
             )}
 
             {!streakComplete && (
-              <div className="w-full space-y-1">
+              <div className="w-full" style={{ marginTop: 14 }}>
                 <div className="flex items-center gap-1.5">
                   {Array.from({ length: STREAK_GOAL }).map((_, i) => {
                     const isCurrentDay = i === consecutiveDays;
@@ -3696,7 +3684,7 @@ export default function IntentPage() {
                     );
                   })}
                 </div>
-                <p className="text-[10px] text-center" style={{ color: "rgba(255,255,255,0.48)" }}>
+                <p className="text-[10px] text-center" style={{ color: "rgba(255,255,255,0.48)", margin: "10px 0 0" }}>
                   {t("like_daily_earn_spin_desc").replace("{n}", String(DAILY_LIKE_GOAL)).replace("{days}", String(STREAK_GOAL))}
                 </p>
               </div>
