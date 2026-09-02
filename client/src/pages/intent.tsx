@@ -1567,7 +1567,7 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 168 : viewportW < 430 ? 180 : 216;
+  const itemWidth  = viewportW < 380 ? 160 : viewportW < 430 ? 170 : 216;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
@@ -1577,9 +1577,10 @@ export default function IntentPage() {
   // Explicit resting slots prevent the 72° five-card ring from turning side
   // portraits into foreshortened strips on narrow phones. Side cards use
   // uniform scale plus a modest Y tilt, preserving their portrait ratio.
-  const restingSideWidth = Math.round(itemWidth * 0.64);
+  const restingGap = viewportW < 380 ? 8 : 9;
+  const restingSideWidth = Math.round(itemWidth * 0.506);
   const restingSideHeight = Math.round(itemHeight * 0.74);
-  const restingSideOffset = Math.round(itemWidth / 2 + restingSideWidth / 2 + 10);
+  const restingSideOffset = Math.round(itemWidth / 2 + restingSideWidth / 2 + restingGap);
   const restingOuterOffset = Math.round(itemWidth * 0.75);
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).

@@ -198,7 +198,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         data-bottom-navigation
         className="border-t bg-background/95 backdrop-blur-md z-30"
         style={{
-          paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))",
+          paddingTop: "0.25rem",
+          paddingBottom: "max(0.25rem, env(safe-area-inset-bottom, 0px))",
           paddingInlineStart: "env(safe-area-inset-left, 0px)",
           paddingInlineEnd: "env(safe-area-inset-right, 0px)",
         }}
