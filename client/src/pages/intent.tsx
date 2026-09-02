@@ -875,8 +875,8 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
             <div style={{
                width: cardWidth, height: cardHeight, borderRadius: 16, overflow: "hidden",
               position: "relative",
-              boxShadow: "0 9px 22px rgba(8,4,6,0.30), 0 0 0 1px rgba(255,244,239,0.07)",
-              border: "1px solid rgba(255,230,223,0.20)",
+               boxShadow: "0 9px 22px rgba(8,4,6,0.30)",
+               border: "1px solid rgba(69,34,45,0.42)",
               cursor: onTap ? "pointer" : "default",
               transition: "transform 0.12s ease",
             }}>
@@ -3342,10 +3342,10 @@ export default function IntentPage() {
                 const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 900 : 0;
                 const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
 
-                const boxShadow = isResting
-                  ? "0 24px 58px rgba(7,4,6,0.38), 0 1px 0 rgba(255,255,255,0.08)"
+                 const boxShadow = isResting
+                   ? "0 24px 58px rgba(7,4,6,0.38)"
                   : isSelected && !dispersed
-                  ? "0 22px 46px rgba(0,0,0,0.44), 0 2px 8px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,248,250,0.34)"
+                   ? "0 22px 46px rgba(0,0,0,0.44), 0 2px 8px rgba(0,0,0,0.22), 0 0 0 1px rgba(86,39,53,0.48)"
                   : depthFactor > 0.75 && !dispersed
                   ? `0 ${Math.round(10 + glowAlpha * 8)}px ${Math.round(24 + glowAlpha * 10)}px rgba(0,0,0,0.34), 0 0 ${Math.round(glowAlpha * 18)}px rgba(188,78,96,${(glowAlpha * 0.18).toFixed(2)})`
                   : "0 12px 30px rgba(0,0,0,0.30)";
@@ -3357,9 +3357,9 @@ export default function IntentPage() {
                       width: itemWidth, height: itemHeight,
                       borderRadius: 26, overflow: "hidden",
                       position: "absolute", left: 0, top: 0,
-                      border: isSelected && !dispersed
-                        ? "1px solid rgba(255,248,250,0.28)"
-                        : "1px solid rgba(255,255,255,0.12)",
+                       border: isSelected && !dispersed
+                         ? "1px solid rgba(95,45,59,0.52)"
+                         : "1px solid rgba(52,30,38,0.58)",
                       transform: isResting
                         ? `translateX(${restingX}px) translateZ(${restingZ}px) rotate(${restingTilt}deg) scale(${restingScale})`
                         : dispersed && !isSelected
@@ -3435,7 +3435,7 @@ export default function IntentPage() {
                       </div>
                     )}
                     {isSelected && !dispersed && (
-                       <div style={{ position: "absolute", inset: 0, borderRadius: 26, boxShadow: "inset 0 0 0 1px rgba(255,247,249,0.38), inset 0 1px 0 rgba(255,255,255,0.20)", pointerEvents: "none" }} />
+                       <div style={{ position: "absolute", inset: 0, borderRadius: 26, boxShadow: "inset 0 0 0 1px rgba(91,43,57,0.58)", pointerEvents: "none" }} />
                     )}
                   </div>
                 );
@@ -3489,7 +3489,7 @@ export default function IntentPage() {
         {/* ── Spin button & streak ── */}
         {!dispersed && !showPurchase && (
              <div
-            className="flex flex-col items-center gap-4 px-6 w-full max-w-xs mx-auto"
+             className="flex flex-col items-center gap-2 px-6 w-full max-w-xs mx-auto"
              style={{ paddingBottom: "max(env(safe-area-inset-bottom,0px), 12px)" }}
           >
             {canSpin ? (

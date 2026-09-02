@@ -1,0 +1,186 @@
+Fix only the Intention Wheel layout in `client/src/pages/intent.tsx`.
+
+Do not change:
+- spin logic
+- winner selection
+- timing
+- eligibility
+- streaks
+- purchases
+- candidate sourcing
+- matching behaviour
+- navigation
+- APIs
+
+This is a visual/layout correction only.
+
+The current live iPhone screenshot still has two obvious problems:
+
+1. I do not like the visible light/white/grey border/frame around the profile photos.
+2. The circular SPIN button sits too low, is partially hidden by the bottom navigation, and I have to scroll to see it properly.
+
+## 1. REMOVE THE LIGHT BORDER / FRAME AROUND THE PHOTOS
+
+Remove the visible white/grey/light outline around:
+
+- centre profile card
+- side profile cards
+- “Tonight’s possible connections” thumbnails
+
+The photography should feel clean and edge-to-edge against the premium dark Lulou background.
+
+Keep:
+- rounded corners
+- subtle premium depth
+- restrained shadow if needed
+
+But do NOT use a bright border that makes the photos look like separate Android-style cards.
+
+If a border is needed at all, make it extremely subtle and dark/wine-toned so it visually disappears into the surrounding design.
+
+The result should feel more luxury, polished and iOS-native.
+
+## 2. SPIN BUTTON MUST BE FULLY VISIBLE WITHOUT SCROLLING
+
+This is non-negotiable.
+
+On a 390×844 iPhone viewport, the circular SPIN button must be fully visible when the Intention Wheel page first opens.
+
+Right now the button is partially cut off by the fixed bottom navigation.
+
+Fix the actual vertical layout.
+
+Do NOT:
+- simply increase page height
+- require the user to scroll
+- hide part of the button behind the navigation
+- shrink the button until it becomes insignificant
+
+Keep the circular premium SPIN control, but position the whole wheel experience higher and tighten the content above it.
+
+## 3. FIT THE FULL PRIMARY WHEEL EXPERIENCE ABOVE THE BOTTOM NAV
+
+At 390×844, the user should be able to see without scrolling:
+
+- Intention Wheel header
+- 3-card wheel
+- active profile name/location
+- Tonight’s possible connections
+- candidate thumbnails
+- supporting “Every spin is random…” text
+- full circular SPIN button
+- compact streak/progress row
+
+All primary interaction content must fit above the fixed bottom navigation.
+
+## 4. TIGHTEN VERTICAL SPACING
+
+Reduce unnecessary vertical gaps between:
+
+- header and wheel
+- wheel and “Tonight’s possible connections”
+- title and thumbnails
+- thumbnails and supporting text
+- supporting text and SPIN button
+- SPIN button and progress
+
+The page currently wastes too much vertical space.
+
+Keep enough breathing room to feel premium, but make it efficient.
+
+Think polished iOS dating app spacing, not oversized stacked sections.
+
+## 5. KEEP THE CURRENT 3-CARD WHEEL STRUCTURE
+
+Do not redesign the Wheel again.
+
+Keep:
+
+- dominant centre card
+- partially visible left card
+- partially visible right card
+- side cards tucked behind the centre
+- active centre profile identity
+- premium dark wine/plum design
+
+Only adjust dimensions/spacing as needed to fit everything cleanly.
+
+## 6. PROFILE CARD TREATMENT
+
+Centre card should remain the strongest visual element.
+
+Side cards:
+- remain partially visible
+- remain slightly darker
+- stay behind centre card
+- no clipped identity text
+- no light border
+
+The card stack should feel like one coherent carousel, not three outlined rectangles.
+
+## 7. POSSIBLE-CONNECTION THUMBNAILS
+
+Keep the preview row compact.
+
+Use smaller premium portraits with:
+- no obvious light border
+- clean rounded edges
+- consistent crop
+- tighter spacing
+
+They should visually support the Wheel rather than dominate the page.
+
+## 8. CIRCULAR SPIN BUTTON
+
+Keep:
+- circular shape
+- rotating-arrow icon
+- SPIN label
+- Lulou wine/rose material
+- premium shadow
+- subtle tactile depth
+
+Move the button high enough that the entire circle is visible above the bottom navigation.
+
+The user must not need to scroll to access it.
+
+## 9. BOTTOM NAV SAFE AREA
+
+Explicitly account for:
+- fixed bottom nav height
+- iPhone safe-area inset
+
+The Wheel content area should reserve enough room so no interactive element sits underneath the navigation.
+
+Do not rely on accidental margins.
+
+## 10. IPHONE VALIDATION
+
+Validate at 390×844.
+
+Confirm:
+
+1. No visible white/light border around Wheel photos.
+2. No visible white/light border around candidate thumbnails.
+3. Centre card fully visible.
+4. Side cards remain balanced.
+5. Tonight’s possible connections fits cleanly.
+6. Supporting text fits.
+7. Entire circular SPIN button is visible.
+8. Progress row is visible.
+9. No scrolling is required to reach SPIN.
+10. Bottom navigation overlaps nothing.
+11. No horizontal overflow.
+12. No clipping.
+
+Do not change any Wheel behaviour while fixing this.
+
+At the end report only:
+
+1. exact files changed
+2. border/frame changes
+3. spacing/layout changes
+4. SPIN button position at 390×844
+5. bottom-nav safe-area handling
+6. confirmation that Wheel logic was untouched
+7. validation result
