@@ -828,6 +828,61 @@ function MatchRevealOverlay({
 // The displayed order has NO effect on the winner — the winner is always chosen
 // with Math.random() at spin time from the full shuffled pool.
 // Tap any bubble to open a photo-only preview of that profile.
+function CandidateThumbnail({
+  profile,
+  index,
+  width,
+  height,
+  onTap,
+}: {
+  profile: Profile;
+  index: number;
+  width: number;
+  height: number;
+  onTap?: (profile: Profile) => void;
+}) {
+  const { data, isLoading } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", profile.userId, "photos"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const [photoFailed, setPhotoFailed] = useState(false);
+  useEffect(() => setPhotoFailed(false), [profile.userId]);
+
+  const photo = data?.photos?.[0]?.trim();
+  if (isLoading || !photo || photoFailed) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onTap?.(profile)}
+      data-testid={`button-preview-bubble-${index}`}
+      style={{
+        flexShrink: 0,
+        width,
+        height,
+        padding: 0,
+        border: "none",
+        outline: "none",
+        borderRadius: 15,
+        overflow: "hidden",
+        background: "transparent",
+        boxShadow: "0 7px 18px rgba(8,4,6,0.30)",
+        cursor: onTap ? "pointer" : "default",
+        animation: `previewBubbleIn 0.45s ${0.08 + index * 0.06}s ease both`,
+        WebkitTapHighlightColor: "transparent",
+      }}
+    >
+      <img
+        src={photo}
+        alt=""
+        draggable={false}
+        onError={() => setPhotoFailed(true)}
+        style={{ display: "block", width: "100%", height: "100%", objectFit: "cover" }}
+      />
+    </button>
+  );
+}
+
 function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profile: Profile) => void }) {
   const { t } = useLanguageContext();
   const [vw, setVw] = useState(() => typeof window !== "undefined" ? window.innerWidth : 390);
@@ -836,8 +891,8 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const cardWidth = vw < 380 ? 52 : 54;
-  const cardHeight = vw < 380 ? 62 : 64;
+  const cardWidth = vw < 380 ? 48 : 50;
+  const cardHeight = vw < 380 ? 58 : 60;
   const cardGap = 5;
   const maxCount = 5;
   const preview = useMemo(() => items.slice(0, Math.min(maxCount, items.length)), [items, maxCount]);
@@ -866,24 +921,14 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
       </p>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: cardGap, overflow: "hidden" }}>
         {preview.map((profile, i) => (
-          <div
+          <CandidateThumbnail
             key={profile.userId}
-            style={{ flexShrink: 0, width: cardWidth, animation: `previewBubbleIn 0.45s ${0.08 + i * 0.06}s ease both` }}
-            onClick={() => onTap?.(profile)}
-            data-testid={`button-preview-bubble-${i}`}
-          >
-            <div style={{
-               width: cardWidth, height: cardHeight, borderRadius: 16, overflow: "hidden",
-              position: "relative",
-                boxShadow: "0 7px 18px rgba(8,4,6,0.30)",
-               border: "1px solid rgba(69,34,45,0.42)",
-              cursor: onTap ? "pointer" : "default",
-              transition: "transform 0.12s ease",
-            }}>
-              {/* Primary photo or Lulou avatar fallback — no blur, no dim */}
-              <ProfilePhoto userId={profile.userId} className="w-full h-full" />
-            </div>
-          </div>
+            profile={profile}
+            index={i}
+            width={cardWidth}
+            height={cardHeight}
+            onTap={onTap}
+          />
         ))}
       </div>
       <p style={{
@@ -1495,7 +1540,7 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 176 : viewportW < 430 ? 184 : 216;
+  const itemWidth  = viewportW < 380 ? 166 : viewportW < 430 ? 174 : 216;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
@@ -1505,14 +1550,14 @@ export default function IntentPage() {
   // Explicit resting slots prevent the 72° five-card ring from turning side
   // portraits into foreshortened strips on narrow phones. Side cards use
   // uniform scale plus a modest Y tilt, preserving their portrait ratio.
-  const restingSideOffset = Math.round(itemWidth * 0.36);
+  const restingSideOffset = Math.round(itemWidth * 0.49);
   const restingOuterOffset = Math.round(itemWidth * 0.58);
   // wheelBufferY = space below the card centre — must fit the name/age caption.
   // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
   const wheelBufferY = isCompact ? 46 : viewportW < 380 ? 56 : 64;
   // The idle hero has its identity in a dedicated in-card footer, so it does not
   // need the external caption buffer reserved for the active spinning state.
-  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 4);
+  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 2);
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -3329,11 +3374,11 @@ export default function IntentPage() {
                 // the prominent idle presentation.
                 const restingDistance = getWheelRestingDistance(i);
                 const restingSlot = i === 0 ? 0 : i % 2 === 1 ? -((i + 1) / 2) : i / 2;
-                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.80 : 0.68;
+                const restingScale = restingDistance === 0 ? 1 : restingDistance === 1 ? 0.72 : 0.64;
                 const restingX = restingSlot === 0
                   ? 0
                   : restingSlot * (restingDistance === 1 ? restingSideOffset : restingOuterOffset);
-                const restingTilt = restingSlot === 0 ? 0 : Math.sign(restingSlot) * -2.2;
+                const restingTilt = 0;
                 const restingZ = restingDistance === 0 ? 16 : restingDistance === 1 ? 4 : 0;
                 // The resting composition exposes one real card on each side of
                 // the dominant profile. Missing candidates simply do not render.
@@ -3355,11 +3400,10 @@ export default function IntentPage() {
                     key={profile.id}
                     style={{
                       width: itemWidth, height: itemHeight,
-                      borderRadius: 26, overflow: "hidden",
+                       borderRadius: 24, overflow: "hidden",
                       position: "absolute", left: 0, top: 0,
-                       border: isSelected && !dispersed
-                         ? "1px solid rgba(95,45,59,0.52)"
-                         : "1px solid rgba(52,30,38,0.58)",
+                       border: "none",
+                       outline: "none",
                       transform: isResting
                         ? `translateX(${restingX}px) translateZ(${restingZ}px) rotate(${restingTilt}deg) scale(${restingScale})`
                         : dispersed && !isSelected
@@ -3378,12 +3422,17 @@ export default function IntentPage() {
                       zIndex: isResting
                         ? (restingDistance === 0 ? 100 : restingDistance === 1 ? 80 : 60)
                         : Math.round(depthFactor * 100),
+                      clipPath: isResting && restingDistance === 1
+                        ? restingSlot < 0
+                          ? "inset(0 70% 0 0 round 24px)"
+                          : "inset(0 0 0 70% round 24px)"
+                        : undefined,
                       boxShadow,
                       pointerEvents: isResting && !restingVisible ? "none" : "auto",
                       animation: undefined,
                       transition: dispersed
                         ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)"
-                        : isResting ? "transform 0.46s cubic-bezier(0.22,1,0.36,1), opacity 0.35s ease, filter 0.35s ease, box-shadow 0.3s ease" : "box-shadow 0.3s ease",
+                         : isResting ? "transform 0.46s cubic-bezier(0.22,1,0.36,1), opacity 0.35s ease, filter 0.35s ease, box-shadow 0.3s ease, clip-path 0.35s ease" : "box-shadow 0.3s ease",
                     }}
                     data-testid={`intent-profile-${i}`}
                   >
@@ -3392,14 +3441,14 @@ export default function IntentPage() {
                       top: 0,
                       left: 0,
                       right: 0,
-                       bottom: isResting && restingVisible && restingDistance === 0 ? 72 : 0,
+                        bottom: isResting && restingVisible && restingDistance === 0 ? 56 : 0,
                       overflow: "hidden",
                       background: "rgba(255,244,239,0.06)",
                     }}>
                       <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
                     </div>
                     <div style={{
-                       position: "absolute", inset: 0, borderRadius: 26,
+                        position: "absolute", inset: 0, borderRadius: 24,
                       background: isResting && restingVisible
                         ? "linear-gradient(180deg, transparent 62%, rgba(10,7,9,0.04) 75%, rgba(10,7,9,0.18) 100%)"
                         : "linear-gradient(175deg, rgba(8,3,12,0) 56%, rgba(8,3,12,0.06) 76%, rgba(8,3,12,0.30) 100%)",
@@ -3408,16 +3457,16 @@ export default function IntentPage() {
                     {isResting && restingVisible && restingDistance === 0 && (
                       <div style={{
                         position: "absolute", left: 0, right: 0, bottom: 0,
-                        minHeight: 72,
-                        padding: "11px 16px 12px",
+                        minHeight: 56,
+                        padding: "7px 13px 8px",
                         display: "flex", flexDirection: "column", justifyContent: "center",
                         background: "linear-gradient(135deg, rgba(45,32,36,0.98), rgba(28,23,25,0.98))",
-                        borderTop: "1px solid rgba(255,241,236,0.09)",
+                        borderTop: "none",
                         color: "#fff", pointerEvents: "none",
                       }}>
                         <p style={{
                           margin: 0, fontFamily: "'Playfair Display', Georgia, serif",
-                           fontSize: 21, lineHeight: 1.05, fontWeight: 500,
+                           fontSize: 18, lineHeight: 1.05, fontWeight: 500,
                           letterSpacing: "-0.02em",
                         }}>
                           {profile.firstName}
@@ -3425,17 +3474,14 @@ export default function IntentPage() {
                         </p>
                         {profile.location ? (
                           <p style={{
-                             margin: "5px 0 0", display: "flex", alignItems: "center", gap: 5,
-                            fontSize: 11, lineHeight: 1.2, color: "rgba(255,255,255,0.72)",
+                             margin: "3px 0 0", display: "flex", alignItems: "center", gap: 4,
+                            fontSize: 10, lineHeight: 1.15, color: "rgba(255,255,255,0.72)",
                           }}>
                             <MapPin style={{ width: 11, height: 11 }} />
                             {profile.location}
                           </p>
                         ) : null}
                       </div>
-                    )}
-                    {isSelected && !dispersed && (
-                       <div style={{ position: "absolute", inset: 0, borderRadius: 26, boxShadow: "inset 0 0 0 1px rgba(91,43,57,0.58)", pointerEvents: "none" }} />
                     )}
                   </div>
                 );
@@ -3497,7 +3543,7 @@ export default function IntentPage() {
                 onClick={spinWheel}
                 disabled={isSpinning || items.length === 0}
                 style={{
-                  width: 80, height: 80, borderRadius: "50%",
+                  width: 74, height: 74, borderRadius: "50%",
                   border: "1px solid rgba(255,231,223,0.28)",
                   background: isSpinning
                     ? "linear-gradient(145deg, #8d515b, #623440)"
@@ -3517,7 +3563,7 @@ export default function IntentPage() {
                 onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
                 data-testid="button-spin"
               >
-                <RotateCw style={{ width: 23, height: 23, opacity: 0.90, animation: isSpinning ? "spinBtn 0.7s linear infinite" : "none" }} />
+                <RotateCw style={{ width: 21, height: 21, opacity: 0.90, animation: isSpinning ? "spinBtn 0.7s linear infinite" : "none" }} />
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.94 }}>
                   {isSpinning ? "…" : t("spin_label")}
                 </span>
@@ -3527,7 +3573,7 @@ export default function IntentPage() {
                 onClick={() => setShowPurchase(true)}
                 aria-label={t("spin_label")}
                 style={{
-                  width: 80, height: 80, borderRadius: "50%",
+                  width: 74, height: 74, borderRadius: "50%",
                   border: "1px solid rgba(255,231,223,0.22)",
                   background: "radial-gradient(circle at 36% 28%, #a9636d 0%, #824552 42%, #60303b 100%)",
                   color: "rgba(255,244,240,0.90)", cursor: "pointer",
@@ -3542,8 +3588,8 @@ export default function IntentPage() {
                 onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
                 data-testid="button-spin-locked"
               >
-                <div style={{ position: "relative", width: 24, height: 24 }}>
-                  <RotateCw style={{ width: 23, height: 23, opacity: 0.82 }} />
+                <div style={{ position: "relative", width: 22, height: 22 }}>
+                  <RotateCw style={{ width: 21, height: 21, opacity: 0.82 }} />
                   <Lock style={{
                     position: "absolute", right: -3, bottom: -2,
                     width: 10, height: 10,

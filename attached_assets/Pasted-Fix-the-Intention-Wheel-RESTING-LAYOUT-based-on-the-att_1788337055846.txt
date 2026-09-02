@@ -1,0 +1,329 @@
+Fix the Intention Wheel RESTING LAYOUT based on the attached REAL iPhone screenshot.
+
+This is now the same issue being reported repeatedly, so do not treat this as already solved and do not close the task using old measurements.
+
+The live screenshot proves three problems still remain:
+
+1. The main profile cards are too bunched together.
+2. There is still a visible light/white outline around the large profile cards and the small preview thumbnails.
+3. The circular SPIN button is still cut off by the bottom navigation and is not fully visible without scrolling.
+
+Make an actual source change now.
+
+Change only the Intention Wheel presentation/layout in `client/src/pages/intent.tsx`.
+
+Do NOT change:
+- spin physics
+- winner selection
+- randomness
+- eligibility
+- streak logic
+- purchases
+- candidate sourcing
+- matching
+- APIs
+- navigation
+- result logic
+
+## 1. SPACE THE MAIN PHOTOS OUT PROPERLY
+
+The current 3-card wheel is too compressed.
+
+The center card is almost sitting on top of the side cards.
+
+Increase the horizontal separation so the composition breathes.
+
+Target:
+- center card visually dominant
+- left and right side cards clearly visible as separate cards
+- side cards tucked behind the center, but NOT touching it
+- approximately 20–30px of visible breathing room between the center-card edge and the most visible part of each side card
+- roughly 25–30% of side cards visible
+- side cards symmetric
+
+Do not make the overall wheel wider than the viewport.
+
+If needed:
+- reduce center-card width slightly
+- reduce side-card width slightly
+- move side-card offsets further outward
+
+The result should feel like a premium carousel, not three photos jammed together.
+
+## 2. REMOVE THE WHITE/LIGHT BORDER COMPLETELY
+
+The attached screenshot still clearly shows a light grey/white line around:
+
+- the center profile card
+- side profile cards
+- the small “Tonight’s possible connections” thumbnails
+
+Remove that styling entirely.
+
+Inspect ALL possible sources of the line:
+- border
+- outline
+- ring
+- box-shadow
+- inset box-shadow
+- pseudo-elements
+- selected-card state
+- parent container border
+- image wrapper border
+- thumbnail wrapper border
+
+Do not just recolour one border class.
+
+There must be NO visible white, cream, grey, silver or pale outline around the photos.
+
+If depth is needed, use:
+- dark wine shadow
+- charcoal shadow
+- subtle rose shadow
+- background contrast
+
+But no visible light stroke.
+
+The photos should feel edge-to-edge and integrated into the dark plum background.
+
+## 3. REMOVE THE EMPTY DARK THUMBNAIL
+
+The current possible-connections row visibly includes a blank dark card.
+
+Do NOT render empty placeholder thumbnail cards.
+
+Only render thumbnails for valid profiles with valid images.
+
+If there are:
+- 2 valid profiles → show 2
+- 3 valid profiles → show 3
+- 5 valid profiles → show 5
+
+Do not render blank filler cards to maintain a fixed count.
+
+## 4. MAKE THE WHOLE RESTING SCREEN SHORTER
+
+The SPIN button is STILL being cut off.
+
+This means the actual resting-content height is still too large.
+
+The user must not have to scroll.
+
+On a 390×844 iPhone viewport, all of this must fit at once:
+
+- header
+- Intention Wheel title/supporting copy
+- three-card wheel
+- selected profile identity
+- Tonight’s possible connections
+- thumbnail row
+- supporting sentence
+- FULL circular SPIN button
+- progress row
+- streak explanation
+- fixed bottom nav
+
+The attached screenshot proves the current version still fails this.
+
+Reduce the REAL rendered height.
+
+## 5. REDUCE THE WHEEL STAGE HEIGHT AGAIN
+
+Do not treat the previous 184×245 card target as fixed.
+
+If necessary, make the resting center card smaller.
+
+Aim for approximately:
+- center card width: 168–178px
+- center card total height: 220–232px including identity footer
+
+Adjust proportionally based on the actual viewport.
+
+Side cards should scale down with it.
+
+The user photo must still feel important, but the wheel cannot consume most of the screen.
+
+## 6. COMPACT THE IDENTITY FOOTER
+
+The name/location footer is still taking significant height.
+
+Make it more compact:
+- name/age on one line
+- location underneath
+- reduce top/bottom padding
+- preserve premium serif name styling
+- do not crop text
+
+Target footer height around 52–60px.
+
+## 7. MOVE “TONIGHT’S POSSIBLE CONNECTIONS” UP
+
+There is still too much height between the wheel and this section.
+
+Reduce the gap.
+
+The section should start soon after the wheel stage.
+
+Use a compact hierarchy:
+
+Tonight’s possible connections
+[ thumbnails ]
+Every spin is random — yours could be any of them
+
+No excessive vertical gaps.
+
+## 8. SMALLER THUMBNAILS
+
+Make the possible-connections thumbnails more compact.
+
+Target around:
+- 48–54px wide
+- 58–64px tall
+
+Keep:
+- rounded corners
+- correct crop
+- no light border
+- modest gaps between thumbnails
+
+This should save vertical space and look more refined.
+
+## 9. FULL SPIN BUTTON MUST BE ABOVE THE NAV
+
+This is the most important acceptance condition.
+
+The entire circular SPIN button must be visible above the fixed bottom navigation on initial load.
+
+No portion of the circle can disappear behind the nav.
+
+No scrolling.
+
+Keep the circular SPIN button approximately 72–80px if possible.
+
+If the page still does not fit after compacting everything above it, reduce it slightly to around 72px rather than allowing it to be clipped.
+
+The button must include:
+- spin icon
+- SPIN label
+- premium wine/rose appearance
+
+## 10. PROGRESS MUST FIT TOO
+
+The progress section cannot simply be pushed below the fold.
+
+After the SPIN button, keep:
+
+0/10      Day 2      Day 3
+
+and:
+
+Like 10x daily for 3 days to earn a free spin
+
+visible above the fixed bottom nav.
+
+Make the gaps compact.
+
+## 11. FIXED NAV MUST BE TREATED AS RESERVED SPACE
+
+Calculate the usable vertical space as:
+
+visual viewport height
+MINUS
+fixed bottom-nav height
+MINUS
+safe-area inset
+
+Do not allow Wheel content to flow underneath the nav.
+
+The main content container should explicitly reserve this space.
+
+## 12. REMOVE ANY OUTER LIGHT FRAME
+
+The large 3-card stage still appears to have a subtle pale outline around the entire wheel area.
+
+Remove that too if it is contributing to the visible border.
+
+The wheel should sit directly within the dark luxury surface without looking boxed inside a light outlined container.
+
+## 13. FRESH VALIDATION — NO OLD RESULTS
+
+Do not use previous measurements.
+
+Do not say the geometry “already passed.”
+
+After making THIS source change, perform a fresh 390×844 render.
+
+Wait for:
+- fonts loaded
+- images loaded
+- layout settled
+
+Then measure:
+
+- center-card bounding box
+- left-card bounding box
+- right-card bounding box
+- possible-connections section
+- SPIN top and bottom
+- progress bottom
+- streak-copy bottom
+- bottom-nav top
+
+Acceptance condition:
+
+`streakCopyBottom < bottomNavTop`
+
+with positive spacing.
+
+Also verify:
+
+`spinBottom < bottomNavTop`
+
+with comfortable clearance.
+
+## FINAL VISUAL STANDARD
+
+Keep the current luxury visual direction.
+
+Do NOT go back to the old purple/neon design.
+
+The final screen should feel:
+
+premium
+clean
+editorial
+iOS-native
+luxury dating app
+
+But it must fit efficiently like the older compact Wheel layout.
+
+## ACCEPTANCE CRITERIA
+
+At 390×844:
+
+1. No white/light border around center profile.
+2. No white/light border around side profiles.
+3. No white/light border around thumbnails.
+4. No blank thumbnail placeholders.
+5. Side cards are visibly separated from center card.
+6. Cards do not look bunched together.
+7. Center identity is fully readable.
+8. Tonight’s possible connections fits cleanly.
+9. Entire SPIN button is visible.
+10. Progress row is visible.
+11. Streak explanation is visible.
+12. Bottom nav overlaps nothing.
+13. No scrolling required.
+14. No horizontal overflow.
+15. Spin/winner/eligibility logic untouched.
+
+At the end report only:
+
+1. exact source changes made
+2. final center/side-card dimensions and offsets
+3. exact light-border sources removed
+4. blank-thumbnail handling
+5. final SPIN top/bottom coordinates
+6. final streak-copy bottom coordinate
+7. final bottom-nav top coordinate
+8. whether the complete resting page fits without scrolling
