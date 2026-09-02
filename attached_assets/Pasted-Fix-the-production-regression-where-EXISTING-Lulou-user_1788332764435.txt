@@ -1,0 +1,208 @@
+Fix the production regression where EXISTING Lulou users are now being forced into the Connection DNA onboarding screen.
+
+The attached iPhone screenshot proves this is happening to already-established accounts that existed before the new centralized onboarding/DNA gate was deployed.
+
+Do not weaken the new-user onboarding flow.
+
+New users must still complete:
+
+1. Email verification
+2. Profile onboarding
+3. How to use Lulou tutorial
+4. Connection DNA
+5. DNA completion/explanation
+6. Main app
+
+The bug is specifically that LEGACY / EXISTING USERS are being incorrectly classified as incomplete.
+
+## ROOT PROBLEM TO INVESTIGATE
+
+The centralized onboarding resolver currently treats missing or legacy values such as:
+
+- `connection_dna_profiles.completed_at`
+- `user_settings.onboarding_tutorial_completed`
+- `profiles.onboarding_complete`
+
+as proof that an established user must redo onboarding.
+
+That is wrong for users created before these fields/gates existed.
+
+Do not simply set the resolver to fail open globally.
+
+Instead, implement a SAFE LEGACY BACKFILL / COMPATIBILITY RULE.
+
+## REQUIRED BEHAVIOUR
+
+### NEW ACCOUNTS
+
+Accounts created after the new onboarding system was introduced must still be strictly gated.
+
+If they have not completed tutorial or DNA, they must complete them.
+
+No bypass.
+
+### EXISTING / LEGACY ACCOUNTS
+
+Existing accounts that were already active Lulou users before the mandatory tutorial/DNA gate was introduced must NOT suddenly be forced through onboarding.
+
+Identify them safely using durable production data.
+
+Possible evidence includes:
+
+- account created before the rollout date/commit
+- existing completed profile
+- existing matches
+- existing interactions
+- existing messages
+- existing Discover activity
+- established account/session history
+- previous `onboarding_complete=true`
+- other existing production markers
+
+Use the safest existing database evidence.
+
+Do NOT rely on localStorage.
+
+## BACKFILL
+
+For legitimate established users, safely backfill the required completion states so future logins remain stable.
+
+For example, where appropriate:
+
+- `user_settings.onboarding_tutorial_completed = true`
+- create/update the existing DNA completion compatibility state
+- preserve `profiles.onboarding_complete = true`
+
+BUT:
+
+Do not fabricate DNA answers or fake compatibility scores.
+
+If the matching system requires actual DNA answers, distinguish between:
+
+- “legacy user allowed into app”
+and
+- “user has real DNA data”
+
+Do not create false quiz answers just to satisfy the router.
+
+If necessary introduce/use a separate legacy grandfathered completion flag rather than pretending they completed the quiz.
+
+## IMPORTANT MATCHING RULE
+
+Legacy users without DNA answers must still be allowed into Lulou.
+
+However, the matching algorithm must handle their missing DNA gracefully.
+
+Do not:
+- crash
+- assign fake answers
+- assign fake compatibility
+- exclude them unexpectedly
+
+Use the existing fallback behaviour for users without DNA where appropriate.
+
+They can optionally be invited to complete DNA later, but it must NOT block their existing account.
+
+## CENTRAL RESOLVER
+
+Update the centralized onboarding resolver so it distinguishes:
+
+A. genuinely new/incomplete account
+B. established legacy account
+C. fully completed modern account
+
+Conceptually:
+
+- unauthenticated → login
+- unverified → verify email
+- new user + profile incomplete → profile onboarding
+- new user + tutorial incomplete → tutorial
+- new user + DNA incomplete → DNA
+- legacy established user → main app
+- modern completed user → main app
+
+Do not scatter special-case redirects through individual pages.
+
+## DO NOT BREAK THE FRESH-ACCOUNT FIX
+
+The fresh-account journey that was just validated must remain exactly intact.
+
+Re-test a NEW account and prove it still cannot bypass:
+
+- tutorial
+- DNA
+- direct `/discover`
+- direct `/likes`
+- logout/login
+
+## PRODUCTION EXISTING-USER TEST
+
+Test at least one established pre-existing account.
+
+Verify:
+
+1. Login
+2. No Connection DNA takeover
+3. Goes directly to the expected main Lulou page
+4. Existing profile remains intact
+5. Existing matches/messages/interactions remain intact
+6. Logout/re-login stays correct
+
+Also inspect how many current production users would be affected BEFORE applying any bulk backfill.
+
+Do not blindly update all users.
+
+## DATABASE SAFETY
+
+Before any production update:
+
+- identify the exact affected rows
+- report/count legacy candidates
+- distinguish genuine incomplete new users from historical users
+- make the operation idempotent
+- do not delete data
+- do not overwrite real DNA responses
+- do not overwrite newer completion states
+
+If a migration/backfill is required, make it safely rerunnable.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- DNA questions
+- DNA scoring
+- matching algorithm semantics
+- signup UI
+- tutorial visuals
+- Discover
+- Intention Wheel
+- messaging
+- calls
+- payments
+- email flow
+
+This task is ONLY about restoring compatibility for existing accounts without weakening the new-user gate.
+
+## VALIDATION
+
+After the fix verify both paths:
+
+### EXISTING USER
+Login → main app directly
+
+### NEW USER
+Signup → verify email → profile → tutorial → DNA → explanation → main app
+
+Both must work simultaneously.
+
+At the end report only:
+
+1. Exact root cause
+2. How legacy users are identified safely
+3. Number of production users affected
+4. Database/backfill changes made
+5. Resolver changes made
+6. Proof an existing user now enters normally
+7. Proof a fresh user still must complete tutorial + DNA
+8. Any manual production step required

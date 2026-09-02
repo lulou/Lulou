@@ -1,0 +1,324 @@
+Fix the two production issues shown in the attached iPhone screenshots.
+
+This is NOT just another styling pass.
+
+There are two separate problems:
+
+1. Discover says “NO ONE NEARBY JUST YET” while the Intention Wheel is simultaneously showing real people.
+2. The Intention Wheel still does NOT look like the old-wheel-structure + new-luxury-style version we explicitly asked for.
+
+Fix both properly.
+
+# ISSUE 1 — DISCOVER AND INTENTION WHEEL DATA ARE CONTRADICTING EACH OTHER
+
+In the screenshot:
+
+Discover says:
+
+“NO ONE NEARBY JUST YET”
+“You’ve seen everyone currently within 25 mi.”
+
+But the Intention Wheel is clearly showing real candidate profiles at the same time.
+
+That makes the app look broken.
+
+Trace the ACTUAL production candidate queries for:
+
+- Discover
+- Intention Wheel
+- Likes if relevant
+- location/radius filtering
+- gender / interested-in filtering
+- age filtering
+- block/remove filtering
+- already-opened/already-closed filtering
+- profile completeness
+- selfie/verification requirements
+- candidate exhaustion rules
+
+Find exactly why the Wheel can see users that Discover says do not exist.
+
+Do NOT solve this by hiding Wheel candidates.
+
+Do NOT fake the Discover empty state.
+
+The feeds can have different business rules if intentional, but they must not contradict one another in a way that makes the app look broken.
+
+## Required behaviour
+
+If profiles are genuinely eligible for Discover within the user’s current radius/preferences, Discover must show them.
+
+If Wheel uses a broader or different candidate pool, make that rule explicit in the code and ensure the Discover empty-state wording remains truthful.
+
+For example, if Wheel can intentionally use people outside the current Discover radius, the UI must not imply those people are also within Discover’s 25 mi pool.
+
+But first inspect whether this is actually a bug in filter logic rather than intended behaviour.
+
+## Specifically inspect
+
+Compare the exact candidate IDs returned by:
+
+- Discover feed endpoint/query
+- Intention Wheel candidate endpoint/query
+
+for the same signed-in user at the same moment.
+
+For every Wheel candidate excluded from Discover, identify the exact exclusion reason:
+
+- distance
+- gender
+- interested-in
+- age
+- already interacted
+- removed
+- blocked
+- profile incomplete
+- no location
+- exhausted
+- other
+
+Do not guess.
+
+Fix any inconsistency in the real filter logic.
+
+# ISSUE 2 — INTENTION WHEEL STILL DOES NOT MATCH THE REQUEST
+
+The current live Wheel still looks like the newer hero-layout version.
+
+That is NOT what I asked for.
+
+I explicitly asked for:
+
+OLD WHEEL STRUCTURE
++
+NEW LUXURY COLOUR / IOS MATERIAL STYLE
+
+The current screenshot still has:
+
+- one huge hero photo
+- name/age overlapping the image
+- “Tonight’s possible connections” overlapping the hero
+- only a couple of small cards underneath
+- large rectangular “Find tonight’s connection” CTA
+- no recognisable three-card Wheel composition
+- no circular SPIN button
+
+This needs correcting.
+
+# RESTING WHEEL MUST LOOK LIKE THE OLD STRUCTURE AGAIN
+
+Bring back the old composition:
+
+- central featured card
+- partially visible left card
+- partially visible right card
+- clear three-card carousel / wheel structure
+- center card dominant
+- side cards smaller and behind it
+
+Then underneath:
+
+- “Tonight’s possible connections”
+- compact candidate row
+- circular SPIN button
+- streak/progress below
+
+Use the OLD screenshot as the structural reference.
+
+Use the NEW premium version only for:
+
+- colours
+- typography
+- borders
+- shadows
+- spacing
+- depth
+- materials
+
+# REMOVE THE CURRENT BROKEN HERO LAYOUT
+
+Do not keep the current large single hero layout.
+
+Specifically remove the current structure where:
+
+- one profile photo dominates most of the screen vertically
+- identity text overlaps the bottom of the photo
+- candidate section overlaps the hero area
+- previews look disconnected from the main wheel
+
+The identity area must not overlap the candidate section.
+
+# CENTER CARD
+
+The center profile should:
+
+- be portrait-oriented
+- have premium rounded corners
+- be fully sharp
+- remain visually centered
+- have a subtle wine/rose edge or shadow
+- show name, age and location cleanly
+
+Identity can be:
+
+- neatly overlaid at the lower portion of the card with a controlled gradient
+OR
+- placed in a small dedicated footer immediately below the photo
+
+But it must not collide with the next section.
+
+# SIDE CARDS
+
+Show one valid profile on each side where available.
+
+They should:
+
+- sit partially behind the center card
+- be smaller
+- remain mostly straight
+- use restrained scale/perspective
+- never render as blank black placeholders
+- never overlap text
+
+If there are only 2 valid candidates, render only 2 cards cleanly.
+
+Do not fabricate a third.
+
+# BRING BACK THE CIRCULAR SPIN BUTTON
+
+Remove the large rectangular:
+
+“Find tonight’s connection”
+
+button from the resting Wheel.
+
+Restore the circular SPIN button.
+
+It should have:
+
+- rotating-arrow icon
+- “SPIN” label
+- centered position
+- premium wine/rose material
+- subtle inset highlight
+- restrained shadow
+- tactile iOS press state
+
+It should feel luxurious, not game-like.
+
+# ACTIVE SPIN MUST PHYSICALLY ROTATE
+
+Do not use the current flick/crossfade behaviour.
+
+The cards must visibly orbit through:
+
+left → center → right
+
+during the spin.
+
+The user should be able to watch profiles physically move around the wheel.
+
+Use:
+
+- smooth horizontal orbit
+- shallow elliptical path
+- subtle scale/depth change
+- tiny controlled rotation
+- natural acceleration
+- smooth slowdown
+
+Avoid:
+
+- simple image swapping
+- crossfade-only transitions
+- slot-machine flicker
+- huge blur
+- neon glow
+- aggressive 3D flips
+
+# WINNER
+
+The winner should naturally decelerate into the center position.
+
+No abrupt swap.
+
+No jump into an unrelated renderer.
+
+Then transition to the existing result screen.
+
+# POST-SPIN
+
+After result dismissal:
+
+- restore exact three-card resting layout
+- clear inline transforms
+- clear RAF state
+- clear opacity / scale / z-index changes
+- no malformed stack
+- no stale photo
+- no overlap
+
+# PREMIUM DESIGN STANDARD
+
+The final screen should feel like:
+
+“If Hinge or another top-tier iPhone dating app invented an Intention Wheel.”
+
+Keep:
+
+- dark warm plum / charcoal background
+- Lulou wine/rose accents
+- ivory/off-white typography
+- subtle shadows
+- restrained glow
+- premium spacing
+- elegant typography
+
+Avoid:
+
+- Android/material feel
+- arcade/game aesthetics
+- neon
+- excessive animation
+- clutter
+
+# IPHONE VALIDATION
+
+Test at 390×844 and a comparable physical iPhone layout.
+
+Verify:
+
+1. Discover and Wheel candidate logic no longer contradict each other.
+2. Every Wheel candidate excluded from Discover has a known legitimate reason.
+3. Discover empty state is truthful.
+4. Resting Wheel uses three-card old-style structure.
+5. Center/side cards do not overlap text.
+6. “Tonight’s possible connections” has its own clean section.
+7. Circular SPIN button is back.
+8. Cards visibly rotate/orbit while spinning.
+9. Winner settles naturally.
+10. Post-spin reset returns cleanly.
+11. No horizontal overflow.
+12. Bottom navigation is not covered.
+
+Do not change:
+
+- winner-selection logic
+- randomness
+- eligibility
+- streak logic
+- purchases
+- matching semantics
+- messaging
+- DNA
+- profile logic
+
+At the end report only:
+
+1. Why Discover showed nobody while Wheel had candidates
+2. Exact filter/query fix
+3. Exact resting Wheel layout changes
+4. Exact spin-motion changes
+5. Circular SPIN button implementation
+6. What was tested on iPhone dimensions
+7. Any remaining limitation
