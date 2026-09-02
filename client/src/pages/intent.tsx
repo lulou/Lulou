@@ -3288,14 +3288,6 @@ export default function IntentPage() {
             >
               {t("intention_wheel_title")}
             </h1>
-            <p style={{
-                margin: "3px 0 0",
-              fontSize: 11,
-              lineHeight: 1.35,
-              color: "rgba(255,238,231,0.48)",
-            }}>
-              {t("spin_random_desc")}
-            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
