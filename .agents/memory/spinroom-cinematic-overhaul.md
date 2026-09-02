@@ -30,10 +30,10 @@ the data flow but makes the experience read as a generic profile slideshow.
 and enough horizontal radius for side cards to remain legible. Never add React-owned
 transform, opacity, filter, or z-index styles to the active orbit cards.
 
-For the resting three-card composition, overlap full side cards behind the higher
-z-index centre card; do not use a 50% clip-path to manufacture exposure. Use explicit
-vertical intervals rather than `space-evenly`, which transfers spare height into an
-uncontrolled carousel-to-preview gap.
+For the resting three-card composition, keep both side cards fully inside the viewport
+with equal visible gaps from the centre card; do not overlap or clip them. Work backward
+from the available viewport width, and use explicit vertical intervals rather than
+`space-evenly`, which creates an uncontrolled carousel-to-preview gap.
 
 ## Stable photo surfaces
 

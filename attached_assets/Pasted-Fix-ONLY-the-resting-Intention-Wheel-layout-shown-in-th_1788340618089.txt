@@ -1,0 +1,274 @@
+Fix ONLY the resting Intention Wheel layout shown in the attached REAL iPhone screenshot.
+
+The current screenshot makes the remaining problems obvious.
+
+Do not redesign the page again.
+Do not change any Wheel logic.
+Do not touch the active SpinRoom animation unless absolutely necessary for shared dimensions.
+
+Change only:
+- resting Intention Wheel card geometry
+- lower control group positioning
+- bottom navigation icon/label positioning
+
+## 1. BOTTOM NAV: MOVE THE ICONS/LABELS DOWN WITH THE WHITE BAR
+
+The white bottom navigation container was shortened/moved, but the navigation icons and labels were NOT repositioned with it.
+
+That is wrong.
+
+The entire navigation content must move down inside the white bar so it is vertically centred within the new shorter navigation.
+
+Current problem:
+- white bar begins lower
+- icons/labels are still sitting too high
+- this creates a large empty white area underneath the icons
+
+Fix the whole nav as one component.
+
+Move:
+- Discover icon + label
+- Intent icon + label
+- Likes icon + label
+- Connections icon + label
+- Profile icon + label
+
+DOWN so the group is vertically centred inside the white bar while still respecting the iPhone safe-area inset.
+
+Do not reduce tap targets below 44px.
+
+The nav should look intentionally centred, not like the background moved without the controls.
+
+## 2. KEEP THE NAV SHORTER
+
+Do NOT restore the old tall nav.
+
+Keep the reduced height because it helped expose the streak text.
+
+Just correctly position the icons and labels inside it.
+
+Target:
+- compact iOS-style nav
+- labels and icons visually centred
+- safe area preserved
+- no large unused white strip below the labels
+
+## 3. MAIN CARDS ARE NOW TOO WIDE FOR THE SCREEN
+
+The new separated-card direction is better, but the left and right cards now extend off the sides of the screen.
+
+That is not acceptable.
+
+All three cards must fit completely within the 390px viewport.
+
+Nothing should be cut off by the left or right edge.
+
+Keep the visible GAP between the cards.
+
+Do NOT go back to overlapping cards.
+
+## 4. FIT THREE SEPARATED CARDS INSIDE 390PX
+
+Work backwards from the available width.
+
+Use approximately:
+
+Viewport width: 390px
+
+Outer horizontal page padding:
+- around 14–18px on each side
+
+Available carousel width:
+- approximately 354–362px
+
+Within that space fit:
+
+[ LEFT CARD ] [ GAP ] [ CENTRE CARD ] [ GAP ] [ RIGHT CARD ]
+
+A sensible starting target:
+
+Centre card:
+- around 166–172px wide
+
+Side cards:
+- around 82–90px wide each
+
+Gaps:
+- around 8–10px each side
+
+Example:
+
+86 + 9 + 170 + 9 + 86 = 360px
+
+That fits properly.
+
+Use the actual rendered viewport rather than blindly hardcoding this exact example.
+
+## 5. SIDE CARD HEIGHT
+
+Keep side cards smaller than centre.
+
+Target roughly:
+- centre card: current premium portrait proportion
+- side cards: around 72–78% of centre height
+
+They should remain recognisable profile photos.
+
+No clipping into strips.
+No overlap.
+No off-screen cropping.
+
+## 6. CENTRE CARD
+
+Keep the centre card dominant.
+
+Do not shrink it excessively.
+
+Keep:
+- premium image crop
+- name/age
+- location footer
+- current dark wine styling
+
+But reduce width just enough to allow both side cards to fit properly.
+
+## 7. CAROUSEL MUST BE CENTRED
+
+The complete 3-card group must be horizontally centred in the viewport.
+
+Left and right margins should be visually equal.
+
+Required:
+
+LEFT SCREEN EDGE
+padding
+LEFT CARD
+gap
+CENTRE CARD
+gap
+RIGHT CARD
+padding
+RIGHT SCREEN EDGE
+
+No card may extend beyond the viewport.
+
+## 8. DO NOT CHANGE THE GOOD PART
+
+The visible gap between cards is now the correct direction.
+
+Keep that.
+
+I want:
+- separate cards
+- visible gaps
+- centre dominant
+- side cards smaller
+
+I do NOT want:
+- overlap again
+- thin slivers again
+- cards pushed off-screen
+
+## 9. LOWER CONTENT IS NOW CLOSE
+
+Keep the current lower hierarchy broadly as-is:
+
+Tonight’s possible connections
+thumbnails
+supporting copy
+SPIN
+purchase caption
+0/10 / Day 2 / Day 3
+streak explanation
+
+Do not create another big spacing redesign.
+
+The streak text is now visible, which is good.
+
+Only ensure the nav repositioning does not cover it.
+
+## 10. BOTTOM CLEARANCE
+
+After moving the nav icons/labels down:
+
+The complete line:
+
+“Like 10× daily for 3 days to earn a free spin”
+
+must remain fully visible above the white nav.
+
+Keep a small deliberate dark gap between:
+- streak text
+and
+- white navigation
+
+No overlap.
+
+## 11. DO NOT CHANGE
+
+Do not touch:
+
+- winner selection
+- randomness
+- eligibility
+- streak logic
+- purchases
+- matching
+- APIs
+- candidate sourcing
+- navigation behaviour
+- active SpinRoom animation
+- result screen
+
+## 12. REAL IPHONE ACCEPTANCE
+
+At 390×844 verify:
+
+### MAIN CARDS
+1. Left card fully inside screen.
+2. Centre card fully inside screen.
+3. Right card fully inside screen.
+4. Visible gap left→centre.
+5. Visible gap centre→right.
+6. No overlap.
+7. No horizontal clipping.
+8. Carousel centred.
+
+### LOWER SECTION
+9. Full SPIN visible.
+10. Purchase caption visible.
+11. Progress visible.
+12. Full streak explanation visible.
+
+### BOTTOM NAV
+13. White nav remains compact.
+14. Icons/labels move down WITH the nav.
+15. Icons/labels are vertically centred inside the white bar.
+16. Tap targets remain at least 44px.
+17. Safe-area inset remains respected.
+18. No large empty white strip underneath the labels.
+
+## 13. DEPLOYMENT
+
+After making the change:
+
+- commit
+- push GitHub main
+- wait for Vercel production
+- verify live service-worker commit
+- verify new live bundle
+
+Do not stop at local source.
+
+At the end report only:
+
+1. exact files changed
+2. final centre-card width/height
+3. final side-card width/height
+4. exact card gaps
+5. carousel total rendered width
+6. left/right outer margins
+7. old/new bottom-nav internal positioning
+8. confirmation 44px tap targets preserved
+9. confirmation streak text remains fully visible
+10. production commit + live-bundle verification

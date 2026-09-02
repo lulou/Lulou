@@ -1,0 +1,54 @@
+Add this to the current Intention Wheel fix.
+
+Remove the supporting sentence directly under the “Intention Wheel” heading:
+
+“Every spin is random — yours could be any of them”
+
+It is not needed there because the same message already appears lower down near “Tonight’s possible connections.”
+
+Use the freed vertical space to improve the page fit.
+
+Requirements:
+
+- Keep the “Intention Wheel” title.
+- Remove only the descriptive sentence underneath it.
+- Do not replace it with different copy.
+- Pull the main 3-card carousel upward into that freed space.
+- Keep the title/header visually balanced.
+- Preserve the sound control and 0/10 indicator.
+- Use the extra vertical room to help:
+ - keep all three main cards inside the screen
+ - maintain visible gaps between the three cards
+ - keep the full SPIN button visible
+ - keep the progress row visible
+ - keep the full streak explanation visible above the bottom nav
+
+Also continue with the current requested fixes:
+
+- bottom-nav icons and labels must move down with the shortened white nav and be vertically centred inside it
+- preserve 44px minimum tap targets and iPhone safe-area handling
+- all three main cards must fit completely inside the 390px viewport
+- centre card dominant
+- smaller left/right cards
+- visible 8–12px gaps between cards
+- no overlap
+- no off-screen cropping
+- no white/light borders
+- no blank thumbnail placeholders
+
+Do not alter Wheel logic, active spin behaviour, winner selection, eligibility, purchases, matching, APIs, or navigation behaviour.
+
+After the change, deploy it to production and verify the live service worker/bundle contains the new commit.
+
+At the end report only:
+
+1. exact files changed
+2. confirmation the header description was removed
+3. final centre-card dimensions
+4. final side-card dimensions
+5. exact gaps between cards
+6. final bottom-nav internal positioning
+7. confirmation streak text is fully visible
+8. confirmation no scrolling is required
+9. production commit
+10. live-bundle verification
