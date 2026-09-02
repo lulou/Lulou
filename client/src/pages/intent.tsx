@@ -1153,7 +1153,6 @@ export default function IntentPage() {
   const { data: profiles, isLoading, isError, refetch: refetchProfiles } = useQuery<CandidateFeed<Profile>>({
     queryKey: ["/api/popular"],
     ...liveCandidateQueryOptions,
-    placeholderData: (prev) => prev,
   });
 
   const [intentLoadingTooLong, setIntentLoadingTooLong] = useState(false);
@@ -1215,18 +1214,16 @@ export default function IntentPage() {
   // Set synchronously at spin start, before React can render an in-flight query
   // response. This preserves the candidate order used to choose the winner.
   const presentationLockedRef = useRef(false);
-  // Cache the last non-empty set of profiles so the wheel stays visible
-  // when a refetch temporarily returns [] (test environment with few users,
-  // or after a spin invalidates the query and the API filters leave an empty pool).
-  const lastNonEmptyRef = useRef<Profile[]>([]);
   if (profiles !== prevProfilesRef.current && canApplyWheelCandidateUpdate(presentationLockedRef.current)) {
     prevProfilesRef.current = profiles ?? null;
     if (profiles && profiles.length > 0) {
       shuffledItemsRef.current = shuffleArray(profiles);
-      lastNonEmptyRef.current = shuffledItemsRef.current;
+    } else if (profiles) {
+      // A successful empty response is authoritative. Keeping the previous cards
+      // here made the Wheel display candidates that no longer matched the current
+      // radius/preferences while Discover truthfully showed an empty live pool.
+      shuffledItemsRef.current = [];
     }
-    // When profiles is empty/null, keep shuffledItemsRef unchanged so the
-    // wheel continues to display the last known profile cards.
   }
 
   const [isSpinning, setIsSpinning] = useState(false);
@@ -1458,11 +1455,10 @@ export default function IntentPage() {
   const orbitLockedRef              = useRef(false);
   const winnerMomentStartRef        = useRef(0);  // performance.now() at pullforward; momentum RAF derives elapsed from this
 
-  // Use the last non-empty ref as fallback so the wheel stays visible when the
-  // current query result is empty (e.g. test environment, post-spin refetch).
-  const items = shuffledItemsRef.current.length > 0
-    ? shuffledItemsRef.current
-    : lastNonEmptyRef.current;
+  // During a spin, presentationLockedRef prevents query updates from changing
+  // the candidate order. Outside that protected window, this always mirrors the
+  // latest successful server pool, including an authoritative empty result.
+  const items = shuffledItemsRef.current;
   const count = items.length;
   const angleStep = count > 0 ? 360 / count : 0;
   const radius = count > 4 ? Math.max(188, count * 26) : 172;
@@ -3305,9 +3301,9 @@ export default function IntentPage() {
           }}
           data-testid="intent-wheel"
         >
-          {/* 3D carousel — the same existing candidate cards are visible in their
-               resting positions before Spin, then remain the legacy wheel behind
-               the cinematic SpinRoom overlay. */}
+          {/* Old-wheel resting structure: one dominant centre portrait with one
+               smaller real profile partially visible on each available side.
+               The same mounted cards physically orbit when Spin begins. */}
           {!dispersed && (
             <div
               className="absolute left-1/2 top-1/2"
@@ -3529,23 +3525,33 @@ export default function IntentPage() {
             ) : (
               <button
                 onClick={() => setShowPurchase(true)}
+                aria-label={t("spin_label")}
                 style={{
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  width: "100%", maxWidth: 304, height: 54, padding: "0 22px", borderRadius: 17,
-                  border: "1px solid rgba(255,226,217,0.18)",
-                  background: "rgba(255,226,217,0.07)",
-                  color: "rgba(255,235,228,0.82)", cursor: "pointer",
-                  boxShadow: "0 10px 24px rgba(18,8,13,0.18)",
-                  transition: "transform 0.12s ease, background 0.15s ease",
+                  width: 80, height: 80, borderRadius: "50%",
+                  border: "1px solid rgba(255,231,223,0.22)",
+                  background: "radial-gradient(circle at 36% 28%, #a9636d 0%, #824552 42%, #60303b 100%)",
+                  color: "rgba(255,244,240,0.90)", cursor: "pointer",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                  boxShadow: "0 10px 24px rgba(31,12,19,0.34), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -9px 20px rgba(38,13,21,0.18)",
+                  transition: "transform 0.12s ease, box-shadow 0.12s ease",
                   outline: "none", WebkitTapHighlightColor: "transparent", flexShrink: 0,
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.015)"; (e.currentTarget as HTMLElement).style.background = "rgba(255,226,217,0.10)"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; (e.currentTarget as HTMLElement).style.background = "rgba(255,226,217,0.07)"; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(1px) scale(0.965)"; }}
+                onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px) scale(1.025)"; }}
                 data-testid="button-spin-locked"
               >
-                <Lock style={{ width: 14, height: 14, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.01em" }}>
-                  Tap to unlock spin
+                <div style={{ position: "relative", width: 24, height: 24 }}>
+                  <RotateCw style={{ width: 23, height: 23, opacity: 0.82 }} />
+                  <Lock style={{
+                    position: "absolute", right: -3, bottom: -2,
+                    width: 10, height: 10,
+                    fill: "#824552", color: "rgba(255,244,240,0.92)",
+                  }} />
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}>
+                  {t("spin_label")}
                 </span>
               </button>
             )}

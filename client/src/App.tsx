@@ -65,6 +65,7 @@ import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSession
 import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match, UserSettings } from "@shared/schema";
+import { resolvePersistedOnboardingStep } from "@shared/onboarding-compatibility";
 import { Loader2, Mail, CheckCircle, AlertCircle } from "lucide-react";
 import { supabase, supabaseConfigError } from "@/lib/supabase";
 import { sendVerificationResend } from "@/lib/auth-helpers";
@@ -2722,7 +2723,11 @@ function AppContent() {
     staleTime: 30_000,
     retry: 2,
   });
-  const { data: dnaData, isPending: dnaIsPending, isError: dnaIsError } = useQuery<{ completed: boolean; hasDna: boolean }>({
+  const { data: dnaData, isPending: dnaIsPending, isError: dnaIsError } = useQuery<{
+    completed: boolean;
+    hasDna: boolean;
+    legacyEstablished: boolean;
+  }>({
     queryKey: ["dna-status-check"],
     queryFn: async () => {
       const headers = await getAuthHeaders();
@@ -2736,6 +2741,13 @@ function AppContent() {
     retryDelay: 1000,
   });
   const dnaComplete: boolean = dnaData?.completed === true;
+  const persistedOnboardingStep = onboardingSettings && dnaData
+    ? resolvePersistedOnboardingStep({
+        tutorialCompleted: onboardingSettings.onboardingTutorialCompleted,
+        dnaCompleted: dnaComplete,
+        legacyEstablished: dnaData.legacyEstablished === true,
+      })
+    : null;
 
   // profilePending = query has no data yet (covers the gap between "enabled"
   // and "fetch started" that caused isLoading to briefly be false).
@@ -3318,17 +3330,20 @@ function AppContent() {
     );
   }
 
-  if (!onboardingSettings.onboardingTutorialCompleted) {
+  if (persistedOnboardingStep === "tutorial") {
     console.log("[AUTH_FLOW] tutorial incomplete — showing required How to use Lulou flow", { userId: user.id });
     return <LulouOnboardingTour required />;
   }
 
-  if (!dnaComplete) {
+  if (persistedOnboardingStep === "dna") {
     console.log("[AUTH_FLOW] dna incomplete — route connection-dna", { userId: user.id });
     return <ConnectionDnaPage />;
   }
 
-  console.log("[AUTH_FLOW] session restored — route main app", { userId: user.id });
+  console.log("[AUTH_FLOW] session restored — route main app", {
+    userId: user.id,
+    legacyEstablished: dnaData.legacyEstablished === true,
+  });
   return (
     <Switch>
       <Route path="/elevate/success" component={ElevateSuccessPage} />

@@ -42,7 +42,9 @@
 - [SpinRoom proven production bugs](spinroom-proven-bugs.md) — React #31=dnaReasons[0] is {key,text} object; photo jump=FLIP handoff at pause; Retry 401=bare fetch omits auth headers; text invisible=under investigation pending winner_node logs.
 - [SpinRoom cinematic finish](spinroom-cinematic-overhaul.md) — guided stop starts while the orbit is fast; the original locked card interpolates to a measured hero rect, then hands off only after a ≤1px geometry check.
 - [Post-signup tutorial ordering](post-signup-tutorial-order.md) — the Lulou tour is additive and may render only after profile onboarding and server-confirmed Connection DNA completion.
+- [Legacy onboarding compatibility](legacy-onboarding-compatibility.md) — completed profiles created before the mandatory onboarding rollout enter the app without fabricated DNA; modern accounts remain strictly gated.
 - [Discover live eligibility refresh](discover-live-eligibility-refresh.md) — Discover is a live feed: empty responses must refetch on reopen and app foreground so later compatible signups appear.
+- [Wheel live candidate authority](wheel-live-candidate-authority.md) — outside an active spin/result lock, a successful empty Wheel response must clear old cards rather than resurrect stale candidates.
 - [Candidate-feed header metadata](candidate-feed-header-metadata.md) — non-enumerable feed metadata needs structuralSharing:false or React Query can retain stale headers after an empty-to-empty refetch.
 - [Discover async flex scroll](discover-async-flex-scroll.md) — WebKit can retain a skeleton-sized flex child after asynchronous Discover profile content mounts.
 - [GitHub push authentication](github-push-auth.md) — an attached GitHub connection can appear healthy while Git HTTPS rejects it; use an ephemeral askpass fallback without persisting credentials.

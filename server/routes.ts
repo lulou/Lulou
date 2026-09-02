@@ -41,6 +41,7 @@ import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 import { sendEmail, getEmailLog } from "./emailService";
 import { welcomeEmail } from "./emailTemplates";
 import { registerAdminSimulatorRoutes } from "./adminSimulator";
+import { isLegacyEstablishedProfile } from "@shared/onboarding-compatibility";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -2342,10 +2343,6 @@ export async function registerRoutes(
     "Korean","Hindi","Swahili",
   ]);
   const VALID_UNIT_VALUES     = new Set(["miles", "km"]);
-  // Accounts created before this guided tour shipped are already established
-  // members, even if they have never opened Settings and therefore have no
-  // local settings row yet.
-  const ONBOARDING_TOUR_ROLLOUT_AT = new Date("2026-08-20T00:00:00.000Z");
   // Allowlist of accepted PATCH keys — unknown keys are rejected to prevent
   // accidental writes from stale or untrusted client code.
   const ALLOWED_SETTING_KEYS  = new Set([
@@ -2358,16 +2355,25 @@ export async function registerRoutes(
       const userId = req.user.id;
       let [row] = await db.select().from(userSettings)
         .where(eq(userSettings.userId, userId)).limit(1);
-      if (!row) {
+      if (!row || !row.onboardingTutorialCompleted) {
         // Settings did not exist when many established accounts were created.
         // Profile creation is authoritative across devices, unlike local storage.
         const profile = await getStorage(req).getProfileMeta(userId);
-        const profileCreatedAt = profile?.createdAt ? new Date(profile.createdAt) : null;
-        const isEstablishedAccount = !!profileCreatedAt && profileCreatedAt < ONBOARDING_TOUR_ROLLOUT_AT;
-        await db.insert(userSettings).values({
-          userId,
-          onboardingTutorialCompleted: isEstablishedAccount,
-        }).onConflictDoNothing();
+        const isEstablishedAccount = isLegacyEstablishedProfile(profile);
+        if (!row) {
+          await db.insert(userSettings).values({
+            userId,
+            onboardingTutorialCompleted: isEstablishedAccount,
+          }).onConflictDoNothing();
+        } else if (isEstablishedAccount) {
+          // Idempotent lazy backfill for pre-rollout completed profiles only.
+          await db.update(userSettings)
+            .set({ onboardingTutorialCompleted: true, updatedAt: new Date() })
+            .where(and(
+              eq(userSettings.userId, userId),
+              eq(userSettings.onboardingTutorialCompleted, false),
+            ));
+        }
         [row] = await db.select().from(userSettings)
           .where(eq(userSettings.userId, userId)).limit(1);
       }
@@ -7375,14 +7381,21 @@ export async function registerRoutes(
     try {
       const userId = req.user.id;
       const { pool } = await import("./db");
-      const r = await (pool as any).query(
-        "SELECT completed_at, dimensions IS NOT NULL AS has_dimensions FROM connection_dna_profiles WHERE user_id = $1",
-        [userId],
-      );
+      const [r, profile] = await Promise.all([
+        (pool as any).query(
+          "SELECT completed_at, dimensions IS NOT NULL AS has_dimensions FROM connection_dna_profiles WHERE user_id = $1",
+          [userId],
+        ),
+        getStorage(req).getProfileMeta(userId),
+      ]);
+      if (!profile) {
+        return res.status(503).json({ message: "Could not confirm profile onboarding status" });
+      }
       const row = r.rows[0];
       res.json({
         completed:   !!row?.completed_at,
         hasDna:      !!row?.has_dimensions,
+        legacyEstablished: isLegacyEstablishedProfile(profile),
       });
     } catch (err: any) {
       console.error("GET /api/dna/status error:", err?.message);
