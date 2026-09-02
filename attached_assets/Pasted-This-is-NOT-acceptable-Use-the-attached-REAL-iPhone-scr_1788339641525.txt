@@ -1,0 +1,271 @@
+This is NOT acceptable. Use the attached REAL iPhone screenshot as the source of truth.
+
+The Intention Wheel has now been over-corrected and the spacing is visibly broken across the whole page.
+
+Do not make another tiny CSS tweak.
+
+Fix the RESTING Intention Wheel composition properly as one complete screen.
+
+Change only the Intention Wheel presentation in `client/src/pages/intent.tsx`.
+
+DO NOT change:
+- winner selection
+- randomness
+- spin eligibility
+- streak rules
+- purchases
+- matching
+- candidate sourcing
+- APIs
+- navigation
+- result logic
+
+## WHAT IS WRONG IN THE CURRENT SCREENSHOT
+
+### 1. THE MAIN THREE PHOTOS LOOK TERRIBLE
+
+The side cards are now way too narrow and too far away from the centre card.
+
+They look like vertical strips rather than profile cards.
+
+This is not what I asked for.
+
+The composition should clearly read as:
+
+[ LEFT PROFILE ] [ DOMINANT CENTRE PROFILE ] [ RIGHT PROFILE ]
+
+The side cards should be recognisable profile photographs, not thin slivers.
+
+Fix them to approximately:
+
+- centre card: around 176–186px wide
+- side cards: around 125–140px wide
+- expose roughly 55–70px of each side card
+- side cards positioned partially behind centre card
+- symmetric left/right exposure
+- no giant gaps between centre and side cards
+- no identity footer on side cards
+- slight darkening only
+- minimal/no rotation
+
+They must feel connected as ONE premium carousel.
+
+Right now they look like three unrelated objects.
+
+## 2. HUGE EMPTY GAP UNDER THE MAIN CARDS
+
+There is a ridiculous amount of empty space between:
+
+the main carousel
+
+and
+
+“Tonight’s possible connections”
+
+This needs to be dramatically reduced.
+
+The possible-connections section should sit naturally below the centre profile card.
+
+Target roughly 28–40px of visual breathing room, not hundreds of pixels.
+
+This empty space is one of the biggest reasons the page looks unfinished.
+
+## 3. THE LOWER HALF IS NOW TOO BUNCHED
+
+While there is too much space above “Tonight’s possible connections”, everything underneath it is crushed together.
+
+Currently:
+
+- thumbnails
+- supporting sentence
+- SPIN
+- “Tap to buy…”
+- progress
+- streak copy
+
+are all stacked too tightly.
+
+Rebalance them.
+
+Do NOT simply move the entire lower group up or down.
+
+Create proper consistent spacing between each element.
+
+## 4. REMOVE THE LOCK ICON FROM INSIDE THE SPIN GRAPHIC
+
+The screenshot shows the rotating-arrow SPIN icon with a tiny lock icon sitting awkwardly on top of it.
+
+That looks broken.
+
+If spin is locked:
+
+Either:
+- use a clean lock state intentionally
+
+OR
+- keep the normal SPIN graphic and communicate locked/purchase state underneath.
+
+Do not overlay a tiny lock on the rotating arrow.
+
+The SPIN button itself must remain visually clean and premium.
+
+## 5. “TAP TO BUY…” PLACEMENT
+
+The line:
+
+“Tap to buy · or earn free with a streak”
+
+currently sits too close to the SPIN control and makes the control group cluttered.
+
+Give it proper separation.
+
+Preferred hierarchy:
+
+[ SPIN ]
+
+small gap
+
+Tap to buy · or earn free with a streak
+
+small gap
+
+0/10        Day 2        Day 3
+
+small gap
+
+Like 10x daily for 3 days to earn a free spin
+
+This whole group should read as one intentional control section.
+
+## 6. POSSIBLE CONNECTIONS ROW
+
+Keep five thumbnails if five valid candidates exist.
+
+But:
+
+- equal spacing
+- same dimensions
+- same corner radius
+- no blank placeholders
+- no random gaps
+- centred as a group
+
+The title should sit close above the thumbnails.
+
+The supporting sentence should sit close below.
+
+## 7. REBUILD THE VERTICAL RHYTHM
+
+The page should use the available height intelligently.
+
+At 390×844 the visual rhythm should approximately be:
+
+HEADER
+↓ 12–18px
+MAIN CAROUSEL
+↓ 28–40px
+Tonight’s possible connections
+↓ 10–14px
+THUMBNAILS
+↓ 10–14px
+Every spin is random…
+↓ 20–28px
+SPIN
+↓ 12–16px
+Tap to buy…
+↓ 12–16px
+PROGRESS
+↓ 8–12px
+streak explanation
+↓
+comfortable clearance
+BOTTOM NAV
+
+Do not blindly hardcode these exact numbers if the rendered geometry requires slight adjustment, but this is the intended rhythm.
+
+## 8. USE THE WHOLE SCREEN — BUT BALANCED
+
+The previous version had too much empty space at the bottom.
+
+This version has transferred that empty space into the middle of the screen.
+
+That is not a fix.
+
+Distribute the available vertical space properly.
+
+There should be:
+- no giant empty middle section
+- no crushed lower controls
+- no giant empty bottom section
+
+The whole page should feel deliberately composed from top to bottom.
+
+## 9. KEEP THE CURRENT PREMIUM DESIGN
+
+Keep:
+- current dark wine/plum background
+- current typography
+- current rose SPIN material
+- current premium centre-card footer
+- current progress styling
+- current bottom navigation
+
+Do NOT return to the old neon/arcade design.
+
+This is a layout correction, not another redesign.
+
+## 10. ACTIVE SPIN ANIMATION
+
+Preserve the recent stable-node/RAF flicker fix.
+
+Do NOT undo:
+- preloaded/decoded images
+- stable card DOM nodes
+- RAF-owned transforms
+- translate3d
+- no per-frame React card swapping
+
+But make sure the active side cards also use the corrected, recognisable proportions rather than giant fragments or tiny slivers.
+
+The spinning carousel should visually relate to the resting carousel.
+
+## 11. REAL IPHONE VALIDATION
+
+This time do not rely on source dimensions alone.
+
+After changing the source:
+
+1. push the commit to GitHub
+2. wait for Vercel production
+3. verify the new commit is in the live service worker/bundle
+4. then compare against the attached real-iPhone screenshot
+
+At 390×844 verify:
+
+- side profiles are recognisable
+- side cards are symmetrical
+- no giant gap below carousel
+- possible-connections section is correctly positioned
+- thumbnails evenly spaced
+- SPIN area is not cramped
+- lock state does not visually collide with SPIN icon
+- progress hierarchy is clean
+- streak text fully visible
+- no overlap with bottom navigation
+- no scrolling required
+- no horizontal overflow
+
+DO NOT claim this is fixed if the latest source has not actually been pushed/deployed.
+
+At the end report only:
+
+1. exact file changed
+2. final centre-card dimensions
+3. final side-card dimensions
+4. final side-card offsets / visible widths
+5. carousel-to-connections gap
+6. spacing between thumbnails / caption / SPIN / progress
+7. locked-SPIN visual change
+8. production commit deployed
+9. live-bundle verification
+10. final 390×844 fit result

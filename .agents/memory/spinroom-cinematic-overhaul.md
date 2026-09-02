@@ -30,6 +30,11 @@ the data flow but makes the experience read as a generic profile slideshow.
 and enough horizontal radius for side cards to remain legible. Never add React-owned
 transform, opacity, filter, or z-index styles to the active orbit cards.
 
+For the resting three-card composition, overlap full side cards behind the higher
+z-index centre card; do not use a 50% clip-path to manufacture exposure. Use explicit
+vertical intervals rather than `space-evenly`, which transfers spare height into an
+uncontrolled carousel-to-preview gap.
+
 ## Stable photo surfaces
 
 **Rule:** Resolve and decode every active orbit photo before SpinRoom becomes visible,
