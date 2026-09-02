@@ -1,0 +1,165 @@
+Do NOT close this task by saying the compact layout is already implemented.
+
+The attached REAL iPhone screenshot proves the currently shipped/rendered Intention Wheel still does NOT meet the acceptance criteria.
+
+The current production problem is visible:
+
+- the circular SPIN button is still partially below the visible content area / behind the bottom navigation
+- the full resting Wheel does not fit on screen like the reference layout
+- therefore the previous claimed 390×844 measurements do not represent the actual production render
+
+I need you to make an ACTUAL SOURCE CHANGE now.
+
+Do not rely on previous browser measurements or an older verification run.
+
+## REQUIRED ACTION
+
+Open the active production `client/src/pages/intent.tsx` renderer and reduce the REAL rendered vertical footprint until the complete Wheel fits on an iPhone without scrolling.
+
+Keep the current luxury visual design.
+
+Do not redesign it again.
+
+## MUST FIT ON ONE SCREEN
+
+At approximately 390×844, all of this must simultaneously be visible ABOVE the fixed bottom navigation:
+
+- Intention Wheel heading
+- supporting sentence
+- three-card profile carousel
+- center profile identity
+- Tonight’s possible connections
+- candidate thumbnails
+- “Every spin is random…” supporting text
+- ENTIRE circular SPIN button
+- 0/10 / Day 2 / Day 3 progress row
+- streak explanation
+
+No scrolling.
+
+The old screenshot I provided proves this amount of content can fit on an iPhone.
+
+Use its COMPACTNESS and vertical proportions as the structural reference, while keeping the NEW luxury styling.
+
+## MAKE THE REAL LAYOUT SHORTER
+
+Do this by actually reducing the components that are consuming height.
+
+Inspect the rendered DOM and determine the true heights of:
+
+- header
+- wheel stage
+- center card
+- center identity footer
+- possible-connections section
+- thumbnail row
+- supporting copy
+- SPIN control
+- progress area
+- bottom-nav reserved space
+
+Then reduce the actual offending dimensions.
+
+Do not simply change a margin and claim success.
+
+## CARD SIZE
+
+If necessary, reduce the center card further.
+
+The previous 196×261 target is NOT sacred.
+
+If that size still causes the real page to overflow, make it smaller.
+
+Keep it visually dominant, but prioritize fitting the complete experience correctly.
+
+Side cards should scale with it.
+
+## VERTICAL GAPS
+
+Aggressively remove excess space while retaining premium spacing.
+
+Especially inspect:
+
+- gap below header
+- space around wheel stage
+- wheel → possible-connections gap
+- possible-connections title → thumbnails
+- thumbnails → caption
+- caption → SPIN
+- SPIN → progress
+- progress → nav
+
+There should be no large dead areas.
+
+## SPIN BUTTON
+
+Keep the circular 80px SPIN button if possible.
+
+But its ENTIRE circle must appear above the bottom nav when the page first opens.
+
+It cannot be partially hidden.
+
+It cannot require scrolling.
+
+The fixed bottom nav must be treated as unavailable viewport space.
+
+## BORDERS
+
+Keep the latest border correction:
+
+- no white/grey outlines around large profile cards
+- no white/grey outlines around thumbnails
+- only subtle dark wine/charcoal separation if needed
+
+## IMPORTANT VALIDATION RULE
+
+Do not use an old test result.
+
+Do not say “this already passed.”
+
+After making the new source change, run a fresh rendering of THIS exact code at 390×844.
+
+Measure the ACTUAL DOM after fonts/images/layout have settled.
+
+Specifically report:
+
+- bottom edge of SPIN button
+- top edge of fixed bottom nav
+- bottom edge of streak explanation
+- total resting-content height
+
+There must be positive clearance between the content and bottom nav.
+
+Then capture/inspect the final rendered screenshot.
+
+If authentication prevents visual validation, do not claim it passes.
+
+In that case, fix the authentication test fixture or report that final validation remains blocked.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- spin physics
+- winner selection
+- randomness
+- eligibility
+- streak logic
+- purchases
+- APIs
+- matching
+- candidate sourcing
+- navigation
+- result screen
+
+This is only a resting-layout fit correction.
+
+At the end report only:
+
+1. actual source changes made
+2. final rendered center-card dimensions
+3. final rendered SPIN button top/bottom coordinates
+4. final bottom-nav top coordinate
+5. final streak-explanation bottom coordinate
+6. confirmation whether scrolling is required
+7. screenshot/visual validation result

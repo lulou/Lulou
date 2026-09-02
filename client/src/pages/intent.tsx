@@ -836,9 +836,9 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const cardWidth = vw < 380 ? 54 : 58;
-  const cardHeight = vw < 380 ? 66 : 70;
-  const cardGap = 7;
+  const cardWidth = vw < 380 ? 52 : 54;
+  const cardHeight = vw < 380 ? 62 : 64;
+  const cardGap = 5;
   const maxCount = 5;
   const preview = useMemo(() => items.slice(0, Math.min(maxCount, items.length)), [items, maxCount]);
   if (preview.length < 2) return null;
@@ -846,9 +846,9 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
   return (
     <div
       style={{
-        width: "calc(100% - 32px)",
+        width: "calc(100% - 24px)",
         maxWidth: 390,
-         padding: "0 10px 1px",
+        padding: "0 8px",
         borderRadius: 24,
         background: "transparent",
         border: "none",
@@ -860,7 +860,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
         fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
         textAlign: "center",
         color: "rgba(255,239,235,0.72)",
-         marginBottom: 6,
+        marginBottom: 4,
       }}>
         {t("tonight_connections")}
       </p>
@@ -875,7 +875,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
             <div style={{
                width: cardWidth, height: cardHeight, borderRadius: 16, overflow: "hidden",
               position: "relative",
-               boxShadow: "0 9px 22px rgba(8,4,6,0.30)",
+                boxShadow: "0 7px 18px rgba(8,4,6,0.30)",
                border: "1px solid rgba(69,34,45,0.42)",
               cursor: onTap ? "pointer" : "default",
               transition: "transform 0.12s ease",
@@ -887,7 +887,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
         ))}
       </div>
       <p style={{
-         fontSize: 10, lineHeight: 1.3, textAlign: "center", marginTop: 6,
+        fontSize: 10, lineHeight: 1.2, textAlign: "center", marginTop: 4,
         color: "rgba(255,244,239,0.42)",
       }}>
         {t("spin_random_desc")}
@@ -1495,7 +1495,7 @@ export default function IntentPage() {
     return () => window.removeEventListener("resize", h);
   }, []);
   const isCompact = viewportH < 700;
-  const itemWidth  = viewportW < 380 ? 184 : viewportW < 430 ? 196 : 216;
+  const itemWidth  = viewportW < 380 ? 176 : viewportW < 430 ? 184 : 216;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
   // The main wheel is a static preview until Spin is pressed. Its resting layout
   // uses a wider, controlled card spread; the actual spin-time wheel radius and
@@ -1512,7 +1512,7 @@ export default function IntentPage() {
   const wheelBufferY = isCompact ? 46 : viewportW < 380 ? 56 : 64;
   // The idle hero has its identity in a dedicated in-card footer, so it does not
   // need the external caption buffer reserved for the active spinning state.
-  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 12);
+  const wheelStageHeight = itemHeight + (isSpinning ? wheelBufferY : 4);
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -3200,7 +3200,7 @@ export default function IntentPage() {
       `}</style>
 
       {/* ── Header ── */}
-      <div className="px-6 pt-5 pb-2">
+      <div className="px-6 pt-3 pb-1">
         <div className="flex items-start justify-between gap-5">
           <div>
             <h1
@@ -3211,7 +3211,7 @@ export default function IntentPage() {
               {t("intention_wheel_title")}
             </h1>
             <p style={{
-               margin: "6px 0 0",
+                margin: "4px 0 0",
               fontSize: 12,
               lineHeight: 1.4,
               color: "rgba(255,238,231,0.48)",
@@ -3274,7 +3274,7 @@ export default function IntentPage() {
       {/* ── Wheel stage ── */}
       <div
         dir={isRTL ? "rtl" : "ltr"}
-        className={`flex-1 min-h-0 w-full flex flex-col items-center overflow-y-auto overflow-x-hidden ${isCompact ? "justify-start pt-2 gap-2" : "justify-start pt-2 gap-2"} transition-all duration-700`}
+        className={`flex-1 min-h-0 w-full flex flex-col items-center overflow-y-auto overflow-x-hidden ${isCompact ? "justify-start pt-1 gap-1.5" : "justify-start pt-1 gap-1.5"} transition-all duration-700`}
         style={{
           background: isSpinning
             ? "linear-gradient(180deg, #241b1e 0%, #151214 100%)"
@@ -3489,8 +3489,8 @@ export default function IntentPage() {
         {/* ── Spin button & streak ── */}
         {!dispersed && !showPurchase && (
              <div
-             className="flex flex-col items-center gap-2 px-6 w-full max-w-xs mx-auto"
-             style={{ paddingBottom: "max(env(safe-area-inset-bottom,0px), 12px)" }}
+              className="flex flex-col items-center gap-1 px-6 w-full max-w-xs mx-auto"
+              style={{ paddingBottom: "max(env(safe-area-inset-bottom,0px), 8px)" }}
           >
             {canSpin ? (
               <button
@@ -3585,13 +3585,13 @@ export default function IntentPage() {
             )}
 
             {!streakComplete && (
-              <div className="w-full space-y-1.5">
-                <div className="flex items-center gap-2">
+              <div className="w-full space-y-1">
+                <div className="flex items-center gap-1.5">
                   {Array.from({ length: STREAK_GOAL }).map((_, i) => {
                     const isCurrentDay = i === consecutiveDays;
                     const isDone = i < consecutiveDays;
                     return (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                      <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
                         <div className="w-full h-px rounded-full overflow-hidden" style={{ background: "rgba(255,240,234,0.16)" }}>
                           {isDone ? <div className="w-full h-full rounded-full" style={{ background: "rgba(224,154,151,0.76)" }} /> :
                            isCurrentDay ? <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%`, background: "rgba(224,154,151,0.62)" }} /> : null}
