@@ -1,0 +1,211 @@
+Fix ONLY the resting Intention Wheel page alignment shown in the attached REAL iPhone screenshot.
+
+The page is finally much closer, but the whole composition is not vertically centred correctly inside the usable screen.
+
+Do not redesign anything.
+Do not change card sizes unless absolutely necessary.
+Do not touch Wheel logic.
+
+The issue is now simple:
+
+The entire Intention Wheel content stack is sitting too high, leaving a massive unused dark area underneath the streak text before the bottom navigation.
+
+I should not have to specify every individual margin.
+
+Treat the complete page as ONE composition and centre it properly inside the available vertical space.
+
+## TARGET
+
+The usable area is:
+
+TOP:
+iPhone safe area / Intention Wheel header
+
+BOTTOM:
+top edge of the fixed white navigation
+
+Inside that available area, vertically balance this complete content stack:
+
+- Intention Wheel heading / sound / 0/10
+- three-card carousel
+- Tonight’s possible connections
+- five thumbnails
+- “Every spin is random — yours could be any of them”
+- circular SPIN button
+- “Tap to buy · or earn free with a streak”
+- 0/10 / Day 2 / Day 3
+- “Like 10× daily for 3 days to earn a free spin”
+
+The entire stack should feel visually centred between the top and bottom boundaries.
+
+## CURRENT PROBLEM
+
+The screenshot clearly shows:
+
+- content finishes around the upper/middle portion of the available page
+- then there is a huge empty dark block before the bottom navigation
+
+That is poor composition.
+
+Do NOT leave several hundred pixels of dead space underneath the streak text.
+
+## CORRECT APPROACH
+
+Do not individually guess margins again.
+
+Measure:
+
+1. available height from bottom of the Intent header to top of bottom navigation
+2. total height of the complete Wheel content stack
+3. remaining free vertical space
+
+Then distribute that remaining space intentionally.
+
+Use the equivalent of a centred vertical composition with controlled internal gaps.
+
+The content should NOT be glued to the top.
+
+The content should NOT be glued to the nav.
+
+It should sit naturally in the middle of the available dark area.
+
+## KEEP INTERNAL SPACING CONSISTENT
+
+Preserve sensible internal rhythm:
+
+Carousel
+↓
+Tonight’s possible connections
+↓
+Thumbnails
+↓
+supporting copy
+↓
+SPIN
+↓
+purchase copy
+↓
+progress
+↓
+streak explanation
+
+Do not increase giant gaps between individual sections just to fake centring.
+
+Move/rebalance the GROUP as a whole.
+
+## CAROUSEL
+
+Keep the latest separated-card geometry.
+
+Do not undo the current improvement.
+
+Keep approximately:
+
+- centre: 170×227px
+- sides: 86×168px
+- 9px gaps
+- all three cards completely inside viewport
+- no overlap
+- no clipping
+
+## HEADER
+
+Keep:
+- Intention Wheel
+- sound icon
+- 0/10
+
+Do not bring the Lulou white header back.
+
+Keep proper top safe-area spacing.
+
+## BOTTOM NAV
+
+Keep the current compact white bottom navigation.
+
+Do not make it taller again.
+
+Keep:
+- 44px tap targets
+- safe-area handling
+- lowered/centred icons and labels
+
+## IMPORTANT
+
+There is now enough room on this page.
+
+The task is NOT to make everything smaller again.
+
+The task is to USE THE AVAILABLE HEIGHT CORRECTLY.
+
+Do not shrink the cards or SPIN button simply because there is empty space.
+
+Instead centre the full layout vertically.
+
+## DO NOT CHANGE
+
+Do not touch:
+
+- spin animation
+- RAF logic
+- winner selection
+- randomness
+- eligibility
+- purchases
+- streak calculations
+- matching
+- candidate sourcing
+- APIs
+- navigation behaviour
+- result screen
+
+## 390×844 ACCEPTANCE
+
+On a real 390×844 iPhone viewport:
+
+1. Intention Wheel header clears status bar.
+2. Carousel remains fully visible.
+3. Three cards remain centred horizontally.
+4. Possible-connections section remains centred.
+5. SPIN remains fully visible.
+6. Progress remains visible.
+7. Streak explanation remains visible.
+8. Bottom nav remains visible.
+9. No scrolling.
+10. No horizontal overflow.
+11. No giant dead space underneath the streak text.
+12. No giant dead space between individual sections.
+13. The COMPLETE Wheel composition looks vertically centred and balanced inside the usable screen.
+
+## VALIDATION
+
+Do not report success from source values alone.
+
+After the change:
+
+- deploy to GitHub/Vercel
+- verify the live service-worker commit
+- inspect the production render
+
+Measure:
+
+- usable content-area top
+- usable content-area bottom / nav top
+- complete Wheel stack top
+- complete Wheel stack bottom
+- empty space above stack
+- empty space below stack
+
+Those top/bottom free-space values should be visually balanced rather than the current huge difference.
+
+At the end report only:
+
+1. exact file changed
+2. previous stack top/bottom
+3. new stack top/bottom
+4. free space above
+5. free space below
+6. confirmation card geometry remained unchanged
+7. confirmation no scrolling is required
+8. production commit
+9. live-bundle verification
