@@ -1,0 +1,269 @@
+Use the attached iPhone screenshot as the STRUCTURAL / SPACING reference for the Intention Wheel.
+
+Important:
+I do NOT want the old visual style back.
+
+I want the NEW premium/luxury Intention Wheel design to FIT on screen like this older layout does.
+
+So the target is:
+
+OLD SCREEN FIT / COMPACTNESS
++
+NEW LUXURY LOOK / COLOURS / MATERIALS
+
+Change only the Intention Wheel layout/presentation.
+
+Do not change:
+- spin logic
+- winner selection
+- timing
+- eligibility
+- streak rules
+- purchases
+- candidate sourcing
+- matching behaviour
+- navigation
+- APIs
+- result logic
+
+## MAIN GOAL
+
+On a normal iPhone viewport around 390×844, the entire resting Intention Wheel must fit comfortably between the top header and the fixed bottom navigation.
+
+The user should be able to see, WITHOUT SCROLLING:
+
+- Intention Wheel heading
+- 3-card wheel
+- “Tonight’s possible connections”
+- candidate previews
+- supporting text
+- FULL circular SPIN button
+- 0/10 / Day 2 / Day 3 progress
+- “Like 10x daily for 3 days to earn a free spin”
+- bottom navigation
+
+Use the attached screenshot as proof of the amount of vertical content that should fit on one screen.
+
+## KEEP THE NEW LOOK
+
+Do not revert to the old purple/neon styling.
+
+Keep the new premium design:
+- deep wine / plum / charcoal background
+- rose accents
+- ivory typography
+- refined shadows
+- restrained depth
+- premium photography
+- elegant serif headings
+- iOS-style spacing
+- subtle dark borders only
+- luxury dating-app feel
+
+The new layout should look like the latest design, just properly compacted to fit.
+
+## 1. SHRINK THE 3-CARD WHEEL STAGE
+
+The current new Wheel is still too vertically large.
+
+Reduce the entire wheel stage proportionally.
+
+The center card should remain dominant, but the three-card composition must take significantly less vertical space.
+
+Target the visual footprint of the older screenshot:
+- compact center card
+- side cards partially visible
+- no giant surrounding container
+- no oversized identity footer
+- no excessive empty space beneath the cards
+
+Keep the centre card premium and readable.
+
+## 2. KEEP 3-CARD STRUCTURE
+
+Keep:
+- center profile card
+- partially visible left card
+- partially visible right card
+
+But tighten them into a clean compact carousel.
+
+Side cards:
+- slightly smaller
+- tucked behind center
+- around 25–35% visible
+- no side identity text
+- no white/light border
+- no excessive tilt
+
+Center card:
+- clear profile image
+- compact identity footer
+- name, age, location readable
+- no overlap with the next section
+
+## 3. REMOVE UNNECESSARY VERTICAL HEIGHT
+
+Audit every margin/padding/gap from top to bottom.
+
+Reduce excessive spacing between:
+- header and wheel
+- wheel and “Tonight’s possible connections”
+- label and previews
+- previews and supporting text
+- supporting text and SPIN
+- SPIN and progress
+- progress and bottom navigation
+
+Do NOT make everything cramped.
+
+Use premium, deliberate spacing — just not oversized spacing.
+
+## 4. TONIGHT’S POSSIBLE CONNECTIONS
+
+Keep this section compact like the reference screenshot.
+
+Use:
+- one short label
+- compact row of previews
+- small supporting sentence underneath
+
+Do not let this section become a large standalone content block.
+
+Candidate previews should be small and neatly spaced.
+
+## 5. CIRCULAR SPIN BUTTON MUST FULLY FIT
+
+The full circular SPIN button must be visible on first load.
+
+No part of it can sit behind the bottom nav.
+
+No scrolling should be needed to reach it.
+
+Keep:
+- circular control
+- rotating-arrow symbol
+- SPIN
+- premium rose/wine material
+
+Place it immediately below the possible-connections caption with a compact gap.
+
+## 6. PROGRESS MUST ALSO FIT
+
+Directly below SPIN, show:
+
+0/10      Day 2      Day 3
+
+and underneath:
+
+Like 10x daily for 3 days to earn a free spin
+
+Keep this compact.
+
+The progress section must also remain fully visible above the bottom navigation.
+
+## 7. BOTTOM NAV
+
+Treat the fixed bottom nav as hard reserved space.
+
+Do not position content behind it and assume the user can scroll.
+
+At 390×844:
+- all Wheel content must finish above the nav
+- allow safe-area padding
+- no overlap
+
+## 8. HEADER
+
+Keep the premium new header.
+
+But reduce unnecessary vertical padding if needed.
+
+Do not change:
+- “Intention Wheel”
+- supporting line
+- sound control
+- 0/10 indicator
+
+Just compact the vertical footprint enough to give the Wheel more usable space.
+
+## 9. BORDERS
+
+Keep the recent border correction:
+
+- NO visible white/grey outlines around profile cards
+- NO light border around thumbnails
+- use only subtle dark wine / charcoal separation if necessary
+
+Do not reintroduce bright outlines while compacting the layout.
+
+## 10. RESPONSIVE TARGET
+
+Validate at 390×844.
+
+The resting page must show all of this at once:
+
+HEADER
+↓
+3-CARD WHEEL
+↓
+TONIGHT’S POSSIBLE CONNECTIONS
+↓
+PREVIEWS
+↓
+SUPPORTING TEXT
+↓
+FULL CIRCULAR SPIN BUTTON
+↓
+PROGRESS
+↓
+BOTTOM NAV
+
+No scrolling.
+
+## 11. DO NOT REDESIGN AGAIN
+
+Do not replace the current luxury aesthetic.
+
+Do not change it into the exact old screenshot.
+
+The old screenshot is only the reference for:
+- proportions
+- screen fit
+- compact vertical hierarchy
+
+The final visual must still be the NEW premium Lulou Wheel.
+
+Think:
+
+“Take the latest luxury Intention Wheel and compress/rebalance it so it fits as efficiently as the older version.”
+
+## ACCEPTANCE CRITERIA
+
+At 390×844 verify:
+
+1. Full heading visible.
+2. Full 3-card Wheel visible.
+3. Center profile identity readable.
+4. Side cards visible but restrained.
+5. No white/light photo borders.
+6. Tonight’s possible connections visible.
+7. Preview row visible.
+8. Supporting text visible.
+9. Entire circular SPIN button visible.
+10. 0/10 / Day 2 / Day 3 visible.
+11. Streak explanation visible.
+12. Bottom nav visible.
+13. No scrolling required.
+14. No overlap.
+15. No horizontal overflow.
+
+At the end report only:
+
+1. exact files changed
+2. final card dimensions
+3. final vertical spacing changes
+4. SPIN button position at 390×844
+5. progress position at 390×844
+6. confirmation that the entire resting Wheel fits without scrolling
+7. confirmation that Wheel logic was untouched
