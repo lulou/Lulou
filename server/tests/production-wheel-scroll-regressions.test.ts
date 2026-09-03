@@ -4,6 +4,7 @@ import { resolveWheelDismissal } from "../../client/src/lib/wheel-presentation-g
 import { canStartHaloSend, SPIN_ROOM_TIMING } from "../../client/src/lib/spin-room-timing";
 import { shouldPreventPhotoTouchMove } from "../../client/src/lib/photo-gesture";
 import { getIdleWheelVisibleIndices } from "../../client/src/lib/wheel-idle-presentation";
+import { LULOU_SPIN_ACTION_STYLE } from "../../client/src/lib/lulou-action-style";
 
 describe("production Discover and Wheel regressions", () => {
   it("keeps Discover in the shell's single shrinkable vertical scroll region", () => {
@@ -102,6 +103,7 @@ describe("production Discover and Wheel regressions", () => {
 
   it("keeps Open on the active photo while Close floats at profile level", () => {
     const discover = readFileSync("client/src/pages/discover.tsx", "utf8");
+    const intent = readFileSync("client/src/pages/intent.tsx", "utf8");
     const photoViewer = readFileSync("client/src/components/profile-photo-viewer.tsx", "utf8");
     const storage = readFileSync("server/storage.ts", "utf8");
     const routes = readFileSync("server/routes.ts", "utf8");
@@ -111,7 +113,7 @@ describe("production Discover and Wheel regressions", () => {
     expect(discover).toMatch(/>\s*Close\s*<\/button>/);
     expect(discover).not.toContain("ArrowUpRight");
     expect(discover).not.toContain("<X");
-    expect((discover.match(/h-\[45px\] w-\[56px\]/g) ?? []).length).toBe(2);
+    expect((discover.match(/h-11 min-w-11/g) ?? []).length).toBe(2);
     expect(discover).not.toContain("bg-white/95");
     expect(discover).not.toContain("Send Halo");
     expect(discover).toContain('data-testid="button-close-profile-floating"');
@@ -122,10 +124,14 @@ describe("production Discover and Wheel regressions", () => {
     expect(discover).toContain('data-testid="button-discover-safety-menu"');
     expect(discover).toContain('"/api/discover/remove-profile"');
     expect(discover).toContain('"/api/discover/block-profile"');
-    expect(discover).toContain('const DISCOVER_ACTION_COLOR = "hsl(350 45% 34%)"');
-    expect(discover).toContain('const DISCOVER_ACTION_TEXT_COLOR = "hsl(38 38% 94%)"');
-    expect((discover.match(/backgroundColor: DISCOVER_ACTION_COLOR/g) ?? []).length).toBe(2);
-    expect((discover.match(/color: DISCOVER_ACTION_TEXT_COLOR/g) ?? []).length).toBe(2);
+    expect(discover).toContain('import { LULOU_SPIN_ACTION_STYLE } from "@/lib/lulou-action-style"');
+    expect((discover.match(/LULOU_SPIN_ACTION_STYLE/g) ?? []).length).toBe(3);
+    expect(intent).toContain('import { LULOU_SPIN_ACTION_STYLE } from "@/lib/lulou-action-style"');
+    expect(intent).toContain("...LULOU_SPIN_ACTION_STYLE");
+    expect(LULOU_SPIN_ACTION_STYLE.background).toContain("radial-gradient");
+    expect(LULOU_SPIN_ACTION_STYLE.border).toBe("1px solid rgba(255,231,223,0.28)");
+    expect(LULOU_SPIN_ACTION_STYLE.color).toBe("#fff");
+    expect(LULOU_SPIN_ACTION_STYLE.boxShadow).toContain("0 12px 28px");
     expect(discover).not.toContain("rounded-[21px] bg-primary");
     expect(photoViewer).toContain("currentAction");
     expect(photoViewer).not.toContain("leftAction");

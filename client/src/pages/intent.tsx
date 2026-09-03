@@ -32,6 +32,7 @@ import { canStartHaloSend, SPIN_ROOM_TIMING } from "@/lib/spin-room-timing";
 import { getWheelRestingDistance } from "@/lib/wheel-idle-presentation";
 import { formatDistance, useUnits } from "@/lib/units";
 import type { CandidateFeed } from "@/lib/candidate-feed";
+import { LULOU_SPIN_ACTION_STYLE } from "@/lib/lulou-action-style";
 
 // ── Module-level wheel-state logger ──────────────────────────────────────────
 // Callable from RAF closures, class methods, and useLayoutEffect — anything
@@ -3648,14 +3649,14 @@ export default function IntentPage() {
                 disabled={isSpinning || isPreparingSpin || items.length === 0}
                 style={{
                   width: 72, height: 72, borderRadius: "50%",
-                  border: "1px solid rgba(255,231,223,0.28)",
+                   ...LULOU_SPIN_ACTION_STYLE,
                   background: isSpinning || isPreparingSpin
                     ? "linear-gradient(145deg, #8d515b, #623440)"
-                    : "radial-gradient(circle at 36% 28%, #c6777f 0%, #a15360 38%, #773846 100%)",
+                     : LULOU_SPIN_ACTION_STYLE.background,
                   boxShadow: isSpinning || isPreparingSpin
                     ? "0 8px 22px rgba(18,8,13,0.24), inset 0 1px 0 rgba(255,255,255,0.10)"
-                    : "0 12px 28px rgba(54,20,29,0.42), inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -10px 22px rgba(52,19,29,0.16)",
-                  color: "#fff", cursor: isSpinning || isPreparingSpin ? "default" : "pointer",
+                     : LULOU_SPIN_ACTION_STYLE.boxShadow,
+                   cursor: isSpinning || isPreparingSpin ? "default" : "pointer",
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
                   animation: "none",
                   transition: "background 0.3s ease, transform 0.12s ease, box-shadow 0.12s ease",
