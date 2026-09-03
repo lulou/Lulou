@@ -29,6 +29,25 @@ import { resolveCommunicationEntitlements, type CallGate } from "@shared/communi
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
+const LOCKED_CALL_COLOR = "hsl(32 12% 54%)";
+const WINE_CALL_COLOR = "hsl(350 45% 34%)";
+const USED_CALL_COLOR = "hsl(350 35% 42%)";
+
+const callStateStyle = (gate: CallGate, surface = false) => {
+  if (gate.state === "locked") {
+    return surface
+      ? { color: LOCKED_CALL_COLOR, backgroundColor: "hsl(32 12% 54% / 0.10)" }
+      : { color: LOCKED_CALL_COLOR, opacity: 0.78 };
+  }
+  if (gate.state === "available") {
+    return surface
+      ? { color: "hsl(var(--primary-foreground))", backgroundColor: WINE_CALL_COLOR }
+      : { color: WINE_CALL_COLOR };
+  }
+  return surface
+    ? { color: USED_CALL_COLOR, backgroundColor: "hsl(350 35% 42% / 0.10)", border: `1px solid hsl(350 35% 42% / 0.35)` }
+    : { color: USED_CALL_COLOR, opacity: 0.88 };
+};
 
 const FALLBACK_STARTERS = [
   "What made you want to try a more intentional approach to dating?",
@@ -1402,28 +1421,45 @@ export default function Messaging() {
   });
 
   const showCommunicationGate = (feature: "phone" | "video", gate: CallGate) => {
-    const label = feature === "phone" ? "Voice call" : "Video call";
-    if (gate.reason === "complete_first_call") {
-      toast({ title: `${label} locked`, description: "Complete your first call to unlock video calling." });
-    } else if (gate.reason === "waiting_for_partner") {
-      toast({ title: `${label} locked`, description: `Waiting for your match to finish ${gate.remainingMessages} more message${gate.remainingMessages === 1 ? "" : "s"}.` });
-    } else {
-      toast({ title: `${label} locked`, description: `${gate.remainingMessages} more message${gate.remainingMessages === 1 ? "" : "s"} until this call unlocks.` });
+    if (feature === "phone") {
+      const progress = gate.remainingMessages > 0
+        ? ` ${gate.remainingMessages} message${gate.remainingMessages === 1 ? "" : "s"} left until your first call unlocks.`
+        : "";
+      toast({
+        title: "Audio call locked",
+        description: `Audio call unlocks after you both complete this chat stage.${progress}`,
+      });
+      return;
     }
+    toast({
+      title: "Video call locked",
+      description: gate.reason === "complete_first_call"
+        ? "Video call unlocks later in your connection."
+        : `Complete this chat stage to unlock video.${gate.remainingMessages > 0 ? ` ${gate.remainingMessages} messages left.` : ""}`,
+    });
   };
 
   const handleCallAction = (isVideo: boolean) => {
-    if (startPaidCall.isPending) return;
     const feature = isVideo ? "video" : "phone";
     const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
     if (gate.state === "locked") return showCommunicationGate(feature, gate);
+    if (startPaidCall.isPending) return;
     if (gate.state === "available") {
       navigate("/matches");
       return;
     }
     const credits = isVideo ? videoCredits : phoneCredits;
-    if (credits > 0) return startPaidCall.mutate({ isVideo });
-    toast({ title: `${isVideo ? "Video" : "Voice"} call used`, description: "Your included call has been used. Additional calls are available through Lulou Extras." });
+    if (credits > 0) {
+      toast({
+        title: `${isVideo ? "Video" : "Audio"} call used`,
+        description: `Your included ${isVideo ? "video" : "audio"} call has been used. Unlock another call to keep talking.`,
+      });
+      return startPaidCall.mutate({ isVideo });
+    }
+    toast({
+      title: `${isVideo ? "Video" : "Audio"} call used`,
+      description: `Your included ${isVideo ? "video" : "audio"} call has been used. Unlock another call to keep talking.`,
+    });
     setPurchasePromptFeature(feature);
   };
 
@@ -1677,59 +1713,51 @@ export default function Messaging() {
           <div className="flex items-center justify-center gap-6 pb-2.5 border-t border-border/30">
             {!allCallsDone && (
               <button
-                onClick={() => {
-                  if (phoneCredits > 0) {
-                    startPaidCall.mutate({ isVideo: false });
-                  } else {
-                    setPurchasePromptFeature("phone");
-                  }
-                }}
-                disabled={startPaidCall.isPending}
+                onClick={() => handleCallAction(false)}
+                aria-busy={startPaidCall.isPending}
+                aria-disabled={communicationEntitlements.audio.state === "locked"}
+                style={callStateStyle(communicationEntitlements.audio, true)}
                 className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
                 data-testid="button-phone-tray"
               >
                 <Phone
                   className="w-[18px] h-[18px] transition-all duration-300"
-                  style={!callCreditsData
-                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                    : phoneCredits > 0
-                    ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                    style={callStateStyle(communicationEntitlements.audio)}
                 />
                 <span
                   className="text-[10px] font-semibold leading-none"
-                  style={phoneCredits > 0 ? { color: "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                    style={callStateStyle(communicationEntitlements.audio)}
                 >
-                  {!callCreditsData ? "·" : phoneCredits > 0 ? "Use 1" : "Unlock"}
+                  {communicationEntitlements.audio.state === "locked"
+                    ? "Locked"
+                    : communicationEntitlements.audio.state === "available"
+                      ? "Call"
+                      : phoneCredits > 0 ? "Use 1" : "Unlock"}
                 </span>
               </button>
             )}
             {!allCallsDone && (
               <button
-                onClick={() => {
-                  if (videoCredits > 0) {
-                    startPaidCall.mutate({ isVideo: true });
-                  } else {
-                    setPurchasePromptFeature("video");
-                  }
-                }}
-                disabled={startPaidCall.isPending}
+                onClick={() => handleCallAction(true)}
+                aria-busy={startPaidCall.isPending}
+                aria-disabled={communicationEntitlements.video.state === "locked"}
+                style={callStateStyle(communicationEntitlements.video, true)}
                 className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
                 data-testid="button-video-tray"
               >
                 <Video
                   className="w-[18px] h-[18px] transition-all duration-300"
-                  style={!callCreditsData
-                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                    : videoCredits > 0
-                    ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
-                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                    style={callStateStyle(communicationEntitlements.video)}
                 />
                 <span
                   className="text-[10px] font-semibold leading-none"
-                  style={videoCredits > 0 ? { color: "rgb(99,102,241)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                    style={callStateStyle(communicationEntitlements.video)}
                 >
-                  {!callCreditsData ? "·" : videoCredits > 0 ? "Use 1" : "Unlock"}
+                  {communicationEntitlements.video.state === "locked"
+                    ? "Locked"
+                    : communicationEntitlements.video.state === "available"
+                      ? "Video"
+                      : videoCredits > 0 ? "Use 1" : "Unlock"}
                 </span>
               </button>
             )}
@@ -2158,19 +2186,17 @@ export default function Messaging() {
                   {/* Voice call shortcut */}
                    {!allCallsDone && voicePhase === "idle" && (
                     <button
-                       onClick={() => handleCallAction(false)}
-                      disabled={startPaidCall.isPending}
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
+                      onClick={() => handleCallAction(false)}
+                      aria-busy={startPaidCall.isPending}
+                      aria-disabled={communicationEntitlements.audio.state === "locked"}
+                      style={callStateStyle(communicationEntitlements.audio, true)}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                       data-testid="button-phone-composer"
-                      title={phoneCredits > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
+                      title={communicationEntitlements.audio.state === "locked" ? "Audio call locked" : communicationEntitlements.audio.state === "available" ? t("start_voice_call") : t("unlock_voice_calling")}
                     >
                       <Phone
                         className="h-[18px] w-[18px] transition-all duration-300"
-                        style={!callCreditsData
-                          ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                          : phoneCredits > 0
-                          ? { color: "hsl(var(--primary))" }
-                          : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
+                        style={callStateStyle(communicationEntitlements.audio)}
                       />
                     </button>
                   )}
@@ -2178,19 +2204,17 @@ export default function Messaging() {
                   {/* Video call shortcut */}
                    {!allCallsDone && voicePhase === "idle" && (
                     <button
-                       onClick={() => handleCallAction(true)}
-                      disabled={startPaidCall.isPending}
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
+                      onClick={() => handleCallAction(true)}
+                      aria-busy={startPaidCall.isPending}
+                      aria-disabled={communicationEntitlements.video.state === "locked"}
+                      style={callStateStyle(communicationEntitlements.video, true)}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                       data-testid="button-video-composer"
-                      title={t("start_video_call")}
+                      title={communicationEntitlements.video.state === "locked" ? "Video call locked" : t("start_video_call")}
                     >
                       <Video
                         className="h-[18px] w-[18px] transition-all duration-300"
-                        style={!callCreditsData
-                          ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                          : videoCredits > 0
-                          ? { color: "hsl(var(--primary))" }
-                          : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
+                        style={callStateStyle(communicationEntitlements.video)}
                       />
                     </button>
                   )}

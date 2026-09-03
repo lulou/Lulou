@@ -110,4 +110,27 @@ describe("chat composer regressions", () => {
     expect(routes).toContain("upsert: !!clientRequestId");
     expect(routes).toContain("[AI_STARTERS] route=hit auth=ok");
   });
+
+  it("keeps every visible call control tappable for entitlement feedback", () => {
+    const messaging = readFileSync("client/src/pages/messaging.tsx", "utf8");
+    const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
+
+    for (const source of [messaging, matches]) {
+      expect(source).toContain("Audio call unlocks after you both complete this chat stage.");
+      expect(source).toContain("Video call unlocks later in your connection.");
+      expect(source).toContain("Complete this chat stage to unlock video.");
+      expect(source).toContain("Unlock another call to keep talking.");
+      expect(source).toContain('aria-disabled={communicationEntitlements.audio.state === "locked"}');
+      expect(source).toContain('aria-disabled={communicationEntitlements.video.state === "locked"}');
+      expect(source).not.toMatch(/\sdisabled=\{communicationEntitlements\.audio\.state === "locked"\}/);
+      expect(source).not.toMatch(/\sdisabled=\{communicationEntitlements\.video\.state === "locked"\}/);
+    }
+
+    expect((messaging.match(/onClick=\{\(\) => handleCallAction\(false\)\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((messaging.match(/onClick=\{\(\) => handleCallAction\(true\)\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((matches.match(/onClick=\{\(\) => handleCallAction\(false\)\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((matches.match(/onClick=\{\(\) => handleCallAction\(true\)\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(matches).toContain('const WINE_CALL_COLOR = "hsl(350 45% 34%)"');
+    expect(matches).toContain('const LOCKED_CALL_COLOR = "hsl(32 12% 54%)"');
+  });
 });
