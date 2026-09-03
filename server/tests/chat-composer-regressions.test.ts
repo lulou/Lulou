@@ -152,20 +152,31 @@ describe("chat composer regressions", () => {
     expect(matches).not.toContain("You've both sent 8 messages");
   });
 
-  it("keeps the top communication gadgets fixed-size with labels outside the surface", () => {
+  it("keeps communication gadgets unboxed with the label inside the tap target", () => {
     const control = readFileSync("client/src/components/communication-control.tsx", "utf8");
     const messaging = readFileSync("client/src/pages/messaging.tsx", "utf8");
     const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
 
-    expect(control).toContain('h-[50px] w-[50px]');
-    expect(control).toContain("rounded-2xl border");
-    expect(control).toContain('backgroundColor: "hsl(350 45% 34%)"');
-    expect(control).toContain('backgroundColor: "hsl(32 15% 88%)"');
+    expect(control).toContain("min-h-11 w-[58px]");
+    expect(control).toContain("border-0 bg-transparent");
+    expect(control).not.toContain("backgroundColor");
+    expect(control).not.toContain("boxShadow");
+    expect(control).not.toContain("rounded-2xl");
     expect(control).toContain('aria-disabled={state === "locked"}');
     expect(control).not.toMatch(/\sdisabled=\{state/);
+    expect(control).toMatch(/<button[\s\S]*\{icon\}[\s\S]*\{label\}[\s\S]*<\/button>/);
     expect(messaging).toContain('data-ui-version="communication-controls-105"');
     expect(matches).toContain('data-ui-version="communication-controls-105"');
+    expect(messaging).not.toContain("callStateStyle(communicationEntitlements.audio, true)");
+    expect(messaging).not.toContain("callStateStyle(communicationEntitlements.video, true)");
+    expect(matches).not.toContain("callStateStyle(communicationEntitlements.audio, true)");
+    expect(matches).not.toContain("callStateStyle(communicationEntitlements.video, true)");
+    expect((messaging.match(/showVoiceNoteGate\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((matches.match(/showVoiceNoteGate\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(messaging).not.toContain('color: "rgb(239,68,68)"');
+    expect(matches).not.toContain('color: "rgb(34,197,94)"');
     expect(messaging).toContain('description: "Voice notes unlock after your first call."');
     expect(matches).toContain('description: "Voice notes unlock after your first call."');
+    expect(matches).toContain('else if (voicePhase === "idle") startRecording();');
   });
 });

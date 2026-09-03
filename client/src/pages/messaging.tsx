@@ -34,20 +34,14 @@ const LOCKED_CALL_COLOR = "hsl(32 12% 54%)";
 const WINE_CALL_COLOR = "hsl(350 45% 34%)";
 const USED_CALL_COLOR = "hsl(350 35% 42%)";
 
-const callStateStyle = (gate: CallGate, surface = false) => {
+const callStateStyle = (gate: CallGate) => {
   if (gate.state === "locked") {
-    return surface
-      ? { color: LOCKED_CALL_COLOR, backgroundColor: "hsl(32 12% 54% / 0.10)" }
-      : { color: LOCKED_CALL_COLOR, opacity: 0.78 };
+    return { color: LOCKED_CALL_COLOR, opacity: 0.78 };
   }
   if (gate.state === "available") {
-    return surface
-      ? { color: "hsl(var(--primary-foreground))", backgroundColor: WINE_CALL_COLOR }
-      : { color: WINE_CALL_COLOR };
+    return { color: WINE_CALL_COLOR };
   }
-  return surface
-    ? { color: USED_CALL_COLOR, backgroundColor: "hsl(350 35% 42% / 0.10)", border: `1px solid hsl(350 35% 42% / 0.35)` }
-    : { color: USED_CALL_COLOR, opacity: 0.88 };
+  return { color: USED_CALL_COLOR, opacity: 0.88 };
 };
 
 const FALLBACK_STARTERS = [
@@ -1438,6 +1432,10 @@ export default function Messaging() {
     });
   };
 
+  const showVoiceNoteGate = () => {
+    toast({ title: "Voice notes locked", description: "Voice notes unlock after your first call." });
+  };
+
   const handleCallAction = (isVideo: boolean) => {
     const feature = isVideo ? "video" : "phone";
     const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
@@ -1743,7 +1741,7 @@ export default function Messaging() {
             <CommunicationControl
               onClick={() => {
                 if (communicationEntitlements.voiceNote.state === "locked") {
-                  toast({ title: "Voice notes locked", description: "Voice notes unlock after your first call." });
+                  showVoiceNoteGate();
                   return;
                 }
                 if (voicePhase === "idle") startRecording();
@@ -2114,7 +2112,7 @@ export default function Messaging() {
                     onPointerDown={e => {
                       e.currentTarget.setPointerCapture(e.pointerId);
                       if (!voiceNotesUnlocked) {
-                        toast({ description: "Voice notes unlock after your first call." });
+                        showVoiceNoteGate();
                         return;
                       }
                       if (voicePhase === "idle") startRecording();
@@ -2132,10 +2130,10 @@ export default function Messaging() {
                     <Mic
                       className="h-[18px] w-[18px] transition-all duration-300"
                       style={voicePhase === "recording"
-                        ? { color: "rgb(239,68,68)" }
+                        ? { color: "hsl(350 58% 45%)" }
                         : voiceNotesUnlocked
-                        ? { color: "hsl(var(--primary))" }
-                        : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                        ? { color: WINE_CALL_COLOR }
+                        : { color: LOCKED_CALL_COLOR, opacity: 0.78 }}
                     />
                   </button>
 
@@ -2153,13 +2151,13 @@ export default function Messaging() {
                   )}
 
                   {/* Voice call shortcut */}
-                   {!allCallsDone && voicePhase === "idle" && (
+                  {!allCallsDone && voicePhase === "idle" && (
                     <button
                       onClick={() => handleCallAction(false)}
                       aria-busy={startPaidCall.isPending}
                       aria-disabled={communicationEntitlements.audio.state === "locked"}
-                      style={callStateStyle(communicationEntitlements.audio, true)}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
+                      style={callStateStyle(communicationEntitlements.audio)}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-muted-foreground transition-all active:scale-90 hover:bg-foreground/[0.06]"
                       data-testid="button-phone-composer"
                       title={communicationEntitlements.audio.state === "locked" ? "Audio call locked" : communicationEntitlements.audio.state === "available" ? t("start_voice_call") : t("unlock_voice_calling")}
                     >
@@ -2171,13 +2169,13 @@ export default function Messaging() {
                   )}
 
                   {/* Video call shortcut */}
-                   {!allCallsDone && voicePhase === "idle" && (
+                  {!allCallsDone && voicePhase === "idle" && (
                     <button
                       onClick={() => handleCallAction(true)}
                       aria-busy={startPaidCall.isPending}
                       aria-disabled={communicationEntitlements.video.state === "locked"}
-                      style={callStateStyle(communicationEntitlements.video, true)}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
+                      style={callStateStyle(communicationEntitlements.video)}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-muted-foreground transition-all active:scale-90 hover:bg-foreground/[0.06]"
                       data-testid="button-video-composer"
                       title={communicationEntitlements.video.state === "locked" ? "Video call locked" : t("start_video_call")}
                     >
