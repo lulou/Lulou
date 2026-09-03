@@ -1,0 +1,282 @@
+Fix ONLY the communication gadgets in the active chat shown in the attached REAL iPhone screenshot.
+
+Two things are wrong:
+
+1. The new boxes/background containers around the call/video/mic gadgets should NOT be there.
+2. Tapping a locked gadget still does NOTHING — no Lulou explanation appears.
+
+Do not redesign the rest of chat.
+
+## 1. REMOVE THE BOXES AROUND THE GADGETS
+
+The current top communication row now has large pale rounded boxes around:
+
+- audio call
+- video call
+- mic
+
+I do NOT want those boxes.
+
+Restore the cleaner previous style:
+
+- standalone icons
+- no large rounded-square background containers
+- no oversized button surfaces
+- no chunky card-like treatment
+
+The controls should feel light and integrated into the header.
+
+Keep:
+
+- icon
+- small label underneath if needed
+- clean spacing
+- minimum 44×44 tap target invisibly if necessary
+
+The visible UI should NOT look like three boxed buttons.
+
+## 2. KEEP THE STATE COLOURS WITHOUT THE BOXES
+
+Use colour on the ICON / small label only.
+
+### LOCKED
+- soft taupe / warm grey icon
+- soft taupe / warm grey label
+- no box background
+
+### AVAILABLE
+- deep muted Lulou wine / burgundy icon
+- matching label if shown
+- no box background
+
+### USED / PAID
+- distinct muted wine/taupe treatment
+- still visibly actionable
+- no box background
+
+Do not use green for the gadget itself.
+
+## 3. LOCKED GADGET MUST STILL BE TAPPABLE
+
+This is still broken.
+
+In the screenshot:
+
+- audio call shows Locked
+- I tap it
+- nothing appears
+
+That must be fixed.
+
+A locked control should LOOK locked but still receive taps.
+
+Do NOT use:
+
+- `disabled`
+- `pointer-events-none`
+- anything that suppresses `onClick`
+- a disabled Button component that prevents events
+
+If needed use:
+
+- `aria-disabled="true"`
+- visual muted state only
+- normal tap handler preserved
+
+The tap must NOT start the feature.
+
+It must only show the explanation.
+
+## 4. REQUIRED LULOU MESSAGES
+
+### LOCKED AUDIO CALL
+
+When audio is not unlocked:
+
+“Audio call unlocks after you both complete this chat stage.”
+
+If the real remaining amount is available, optionally add:
+
+“4 messages left until your first call unlocks.”
+
+Use the real state only.
+
+Do not hardcode fake numbers.
+
+### LOCKED VIDEO CALL
+
+“Video call unlocks later in your connection.”
+
+Or, if the first call is done but the second message stage is incomplete:
+
+“Complete this chat stage to unlock video.”
+
+### LOCKED MIC
+
+Before first valid audio call completion:
+
+“Voice notes unlock after your first call.”
+
+## 5. SHOW THE MESSAGE IMMEDIATELY
+
+Use the existing premium Lulou feedback component:
+
+- small toast
+- compact bottom sheet
+- subtle inline notice
+
+Do NOT use:
+
+- browser alert()
+- giant modal
+- red error banner
+
+The message must appear immediately after the tap.
+
+## 6. AUDIT TOP + BOTTOM CONTROLS
+
+The screenshot shows both:
+
+- top communication controls
+- bottom composer call/video/mic controls
+
+Audit all of them.
+
+They must use the SAME shared entitlement resolver and SAME feedback handler.
+
+At the current stage shown:
+
+Top audio:
+LOCKED
+
+Bottom audio:
+LOCKED
+
+Top video:
+LOCKED
+
+Bottom video:
+LOCKED
+
+Mic:
+LOCKED until first valid call completion
+
+Tapping ANY locked version must show the correct Lulou explanation.
+
+No dead taps anywhere.
+
+## 7. IPHONE TOUCH HANDLING
+
+This must work in the installed iPhone PWA.
+
+Verify the tap path supports iPhone reliably.
+
+Use the app’s existing pattern:
+
+- onClick
+- onPointerUp if appropriate
+- touch-end fallback only if needed
+
+Avoid double firing.
+
+Use existing debounce/single-flight protection.
+
+## 8. DO NOT BREAK UNLOCKED STATES
+
+When audio becomes available:
+
+- icon changes to deep muted Lulou wine
+- tap starts the real call
+- no locked message appears
+
+When mic unlocks after valid first call:
+
+- mic becomes active
+- recording works normally
+- no locked message appears
+
+## 9. DO NOT CHANGE
+
+Do not change:
+
+- chat layout
+- stage progression
+- quotas
+- call durations
+- voice-note unlock rule
+- WebRTC
+- payment rules
+- message bubbles
+- conversation starters
+- bottom navigation
+
+Do not add any new boxes or containers.
+
+This task is ONLY:
+
+1. remove the unwanted gadget boxes
+2. restore clean icon-only communication controls
+3. make every locked gadget tap show the correct Lulou message
+
+## TEST EXACTLY
+
+1. Locked audio top:
+  - tap
+  - explanation appears
+  - no ringing
+
+2. Locked audio bottom:
+  - tap
+  - explanation appears
+  - no ringing
+
+3. Locked video top:
+  - tap
+  - explanation appears
+
+4. Locked video bottom:
+  - tap
+  - explanation appears
+
+5. Locked mic:
+  - tap
+  - “Voice notes unlock after your first call.”
+
+6. Audio becomes available:
+  - icon turns deep muted wine
+  - tap starts call
+
+7. Mic unlocks after valid first call:
+  - recording starts normally
+
+8. No communication control has a large background box.
+
+9. No duplicate popup from one tap.
+
+10. Verify on installed iPhone PWA.
+
+## DEPLOYMENT
+
+After implementation:
+
+- run focused interaction tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+- verify Railway call eligibility is unchanged
+
+At the end report only:
+
+1. exact cause of the unwanted boxes
+2. exact cause of the dead locked tap
+3. files changed
+4. final locked visual treatment
+5. final available visual treatment
+6. exact audio locked copy
+7. exact video locked copy
+8. exact mic locked copy
+9. tests
+10. production commit
+11. live deployment verification

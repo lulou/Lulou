@@ -1,0 +1,91 @@
+Refine ONLY the Discover profile Open / Close buttons shown in the attached REAL iPhone screenshots.
+
+The only change I want in this pass:
+
+Make the Open and Close buttons use the SAME colour treatment as the Intention Wheel SPIN button.
+
+Do not redesign anything else.
+
+GOAL
+The current Open and Close buttons feel visually disconnected from Lulou.
+They should feel like part of the same premium system as the SPIN button.
+
+REQUIRED CHANGE
+Use the exact same Lulou pink / rose treatment as the SPIN button for both:
+- Open
+- Close
+
+That means:
+- same primary fill colour family
+- same visual tone / richness
+- same premium feel
+- same border / highlight treatment if the SPIN button uses one
+- same shadow softness if the SPIN button uses one
+
+Do NOT leave them as ivory / white / taupe.
+Do NOT use a different red.
+Do NOT use emojis.
+Do NOT add new icons unless they already exist.
+
+BUTTON STYLE
+Keep the buttons compact and clean.
+They should be smaller and elegant, not chunky.
+
+Requirements:
+- compact rounded-pill / near-circular style
+- visually lighter than before
+- enough internal padding to look premium
+- minimum 44x44 tap target preserved
+- white or very light text on the pink spin-button background
+- no oversized boxes
+- no heavy borders
+
+PLACEMENT
+Keep current placement logic unchanged:
+- Open stays over the lower-right of the main profile photo
+- Close stays near the lower-left of the profile info card
+Do not move the overall layout unless tiny alignment correction is required.
+
+TEXT
+Keep labels simple:
+- “Open”
+- “Close”
+
+No emoji.
+No extra copy.
+No change in behavior.
+
+BEHAVIOR
+Do not change:
+- open action
+- close action
+- discover layout
+- profile card sizing
+- photo carousel
+- messaging
+- wheel
+- navigation
+- entitlement logic
+- animations
+
+SCOPE
+Change ONLY the Discover Open / Close button styling so they visually match the Intention Wheel SPIN button colour treatment.
+
+TECHNICAL EXPECTATION
+Use one shared token / style source if possible, so Open / Close and SPIN stay visually consistent going forward.
+If a Lulou accent token already exists, reuse it instead of hardcoding a new colour.
+
+VERIFY
+On a real iPhone-sized layout confirm:
+1. Open and Close match the SPIN button colour treatment
+2. Both buttons are smaller and cleaner than before
+3. Text remains readable
+4. No layout shift or overlap is introduced
+5. Tap behavior remains unchanged
+
+After implementation report only:
+1. files changed
+2. exact colour token / style source used
+3. final button size
+4. whether Open and Close now match the SPIN button
+5. production commit

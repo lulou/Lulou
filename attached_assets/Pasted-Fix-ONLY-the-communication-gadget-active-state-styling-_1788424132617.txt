@@ -1,0 +1,251 @@
+Fix ONLY the communication gadget active-state styling in the active chat.
+
+The attached REAL iPhone screenshot shows the first audio call is now available.
+
+At this exact stage:
+
+- Audio call = ACTIVE
+- Video = LOCKED
+- Mic = LOCKED until the first valid call is completed
+
+The active audio gadget currently just looks like a dark wine icon/label.
+
+That is not enough.
+
+## REQUIRED ACTIVE STATE
+
+When a communication gadget is ACTIVE / AVAILABLE, it should glow GREEN.
+
+This is the visual rule we already established:
+
+ACTIVE = green glow
+LOCKED = muted taupe / warm grey
+USED / PAID = distinct non-green actionable state
+
+## AUDIO CALL — CURRENT SCREEN
+
+In the screenshot:
+
+“Call”
+
+is available.
+
+Therefore the phone icon should:
+
+- turn green
+- have a subtle green glow around the icon
+- feel clearly unlocked / ready
+- remain clean and premium
+- NOT have a giant box/background around it
+
+The label “Call” can also use the active green.
+
+Do NOT make the whole header green.
+
+Do NOT add a chunky green button.
+
+Use the icon itself plus a restrained glow.
+
+## GREEN STYLE
+
+Use a refined success green already present in Lulou if one exists.
+
+Avoid:
+
+- neon lime
+- fluorescent green
+- gaming-style glow
+- giant halo
+
+Target:
+
+- soft premium green
+- clear enough to instantly communicate “unlocked”
+- subtle blurred glow around the icon
+- restrained iOS-like treatment
+
+If there is already an existing green used for:
+
+“Call stage unlocked”
+
+reuse that colour family so the state system is consistent.
+
+## LOCKED STATE
+
+Video and mic remain locked at this stage.
+
+They should stay:
+
+- soft taupe / warm grey
+- no green
+- no glow
+- no background box
+
+Labels remain muted.
+
+## MIC RULE
+
+Do NOT make the mic green yet.
+
+Voice notes only unlock after the first valid included audio call is completed.
+
+Before that:
+
+Mic = locked.
+
+After valid Call 1 completion:
+
+Mic becomes:
+- green
+- subtle green glow
+- clearly active
+
+## VIDEO RULE
+
+Video should only become green/glowing when its correct stage is actually reached.
+
+Before then:
+
+- muted
+- locked
+- no glow
+
+## TOP + BOTTOM CONTROLS
+
+Apply this same state treatment consistently to all communication entry points:
+
+- top audio
+- top video
+- top mic
+- bottom audio
+- bottom video
+- bottom mic
+
+If a feature is active, every renderer for that same feature should visually agree.
+
+No situation where:
+
+top audio = green
+bottom audio = grey
+
+or vice versa.
+
+## IMPORTANT
+
+Keep the clean icon-only design.
+
+Do NOT bring back:
+
+- rounded square boxes
+- giant button surfaces
+- thick borders
+- oversized backgrounds
+
+The active state should come from:
+
+- icon colour
+- small label colour
+- subtle glow
+
+not from a large container.
+
+## TAP BEHAVIOUR
+
+Do not change behavior.
+
+Active audio:
+- tap starts/continues the normal call flow
+
+Locked video:
+- tap shows the existing Lulou locked explanation
+
+Locked mic:
+- tap shows:
+ “Voice notes unlock after your first call.”
+
+## STATE SYSTEM
+
+Use:
+
+### LOCKED
+- taupe / warm grey
+- no glow
+
+### ACTIVE / AVAILABLE
+- green
+- subtle green glow
+
+### USED / PAID
+- deep Lulou wine / muted burgundy or existing paid-state treatment
+- no green glow
+- still actionable
+
+This makes green mean one thing only:
+
+“This feature is currently unlocked and ready to use.”
+
+## TEST EXACTLY
+
+Current screenshot state:
+
+Audio:
+GREEN + subtle glow
+
+Video:
+GREY / LOCKED
+
+Mic:
+GREY / LOCKED
+
+After valid first audio call:
+
+Mic:
+GREEN + subtle glow
+
+At video stage:
+
+Video:
+GREEN + subtle glow
+
+After included call entitlement is consumed and moves to paid:
+
+Call:
+NO green glow
+use paid-state styling
+
+## DO NOT CHANGE
+
+Do not change:
+
+- gadget placement
+- gadget size
+- labels
+- call logic
+- stage progression
+- voice-note rule
+- WebRTC
+- scheduling
+- availability screen
+- chat layout
+
+This task is ACTIVE-STATE COLOUR/FEEDBACK ONLY.
+
+After implementation:
+
+- run production build
+- verify all communication renderers
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. files changed
+2. exact green token/hex used
+3. exact glow treatment
+4. locked colour treatment
+5. used/paid colour treatment
+6. confirmation audio is green in the current stage
+7. confirmation mic stays locked until valid Call 1 completion
+8. production commit
+9. live deployment verification

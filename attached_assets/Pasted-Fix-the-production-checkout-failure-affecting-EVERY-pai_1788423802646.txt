@@ -1,0 +1,375 @@
+Fix the production checkout failure affecting EVERY paid Lulou purchase.
+
+Current symptom:
+
+Anything that costs money is failing at checkout.
+
+This means the problem is likely shared infrastructure / payment-session creation / Stripe configuration, not one individual product.
+
+Audit the entire paid purchase path end-to-end.
+
+DO NOT redesign the payment UI.
+
+DO NOT change product pricing or entitlements unless the checkout bug proves a product is wired incorrectly.
+
+## PRIMARY GOAL
+
+Every paid Lulou purchase must successfully:
+
+1. start from the app
+2. create a valid Stripe Checkout session
+3. open Stripe Checkout
+4. complete payment
+5. return to Lulou correctly
+6. apply the purchased entitlement exactly once
+
+This must work for ALL current paid products, including any existing:
+
+- extra audio calls
+- extra video calls
+- extra messages
+- Intention Wheel spins
+- bundles
+- Elevate / boosts
+- subscriptions
+- any other paid Lulou Extras already implemented
+
+## 1. FIND THE SHARED FAILURE FIRST
+
+Because EVERYTHING paid is failing, do not patch products one by one initially.
+
+Trace the common checkout pipeline:
+
+client purchase button
+→ API checkout request
+→ Railway backend
+→ Stripe SDK
+→ Stripe Checkout Session creation
+→ returned session URL
+→ browser/PWA navigation
+→ Stripe payment
+→ success/cancel return URL
+→ webhook / entitlement application
+
+Identify the FIRST shared point of failure.
+
+## 2. CAPTURE THE REAL ERROR
+
+Do not hide the underlying error behind a generic:
+
+“Checkout failed”
+
+Inspect:
+
+- browser console
+- network response
+- Railway logs
+- Stripe API response
+- Stripe Dashboard logs if available
+- webhook logs if session creation succeeds but fulfillment fails
+
+Report the exact error category.
+
+Do NOT expose secret keys.
+
+## 3. STRIPE ENVIRONMENT VARIABLES
+
+Audit production Railway/Vercel environment configuration.
+
+Verify the backend has the correct:
+
+- STRIPE_SECRET_KEY
+- STRIPE_WEBHOOK_SECRET if used
+- any Stripe price IDs
+- any product IDs
+- frontend Stripe publishable key if the current implementation needs it
+- production app URL / success URL / cancel URL
+
+Check for:
+
+- missing env variables
+- old test keys
+- malformed keys
+- whitespace
+- wrong environment scope
+- Railway variable not deployed
+- Vercel variable only existing in Preview instead of Production
+- price IDs belonging to another Stripe mode/account
+
+Do not print secret values.
+
+Only report whether each required variable exists and whether its mode/configuration is consistent.
+
+## 4. TEST MODE VS LIVE MODE
+
+Explicitly verify Stripe mode consistency.
+
+A very common total-checkout failure is mixing:
+
+- live secret key + test price ID
+or
+- test secret key + live price ID
+
+Confirm:
+
+backend key mode
+and
+every referenced price/product mode
+
+match.
+
+Do not assume.
+
+## 5. PRICE CONFIGURATION
+
+Audit how Lulou maps internal purchases to Stripe prices.
+
+Check every existing paid SKU.
+
+Make sure:
+
+- price ID exists
+- price is active
+- correct currency
+- correct amount
+- correct recurring/one-time type
+- correct Stripe account
+- correct environment mode
+
+Lulou currently uses AUD, so make sure the intended production products are configured appropriately in AUD where expected.
+
+Do not silently create new prices if existing production prices are valid.
+
+## 6. CHECKOUT SESSION CREATION
+
+Audit the backend route that creates Stripe Checkout Sessions.
+
+Verify:
+
+- authenticated user is resolved
+- product/SKU is validated server-side
+- Stripe price ID is resolved correctly
+- quantity is valid
+- mode is correct:
+ - `payment` for one-time purchases
+ - `subscription` for subscriptions
+- success_url is valid
+- cancel_url is valid
+- metadata is attached correctly
+- user/match/purchase context does not contain invalid/null values
+- Stripe client is initialized once with the correct secret key
+
+Do not trust arbitrary price IDs supplied directly by the client.
+
+Use server-side SKU → price mapping.
+
+## 7. RETURN URLS
+
+Verify production success/cancel URLs.
+
+They should use the real production domain:
+
+https://www.luloudating.com/
+
+or the exact established production app route.
+
+Do not leave old:
+
+- Replit URLs
+- localhost URLs
+- stale Vercel preview URLs
+- incorrect non-www callback variants
+
+Make sure installed iPhone PWA users return to a valid route after Stripe Checkout.
+
+## 8. CORS / AUTH / X-SESSION-ID
+
+Audit the purchase request from the installed app.
+
+Verify:
+
+- Authorization header is present
+- X-Session-Id is present if required
+- Railway CORS allows the production origin
+- credentials settings are correct
+- OPTIONS/preflight succeeds
+- backend does not reject checkout because app session is stale
+
+If checkout API returns 401/403, distinguish auth failure from Stripe failure.
+
+## 9. CLIENT CHECKOUT HANDLER
+
+Audit all purchase buttons.
+
+Make sure they all call ONE reliable checkout helper if possible.
+
+The helper should:
+
+- prevent double taps
+- show loading state
+- call the backend
+- validate response
+- require a valid checkout URL/session
+- navigate to Stripe once
+- recover cleanly on failure
+
+Do not let multiple products have slightly different broken checkout implementations.
+
+## 10. IPHONE PWA NAVIGATION
+
+Test Stripe Checkout from the installed iPhone PWA.
+
+Make sure:
+
+- checkout URL actually opens
+- Safari/PWA navigation restrictions do not block it
+- `window.open` is not being called after an async delay if iOS blocks it
+- redirect is user-gesture safe
+- popup blockers are not the reason
+
+Prefer a direct same-window navigation to the Stripe Checkout URL if that is the most reliable existing pattern.
+
+Do not create a popup-dependent flow unless necessary.
+
+## 11. WEBHOOK / FULFILLMENT
+
+If Stripe Checkout opens successfully but purchases are not applied, audit webhooks.
+
+Verify:
+
+- webhook endpoint is reachable
+- Stripe webhook secret is correct
+- signature verification succeeds
+- relevant events are handled
+- completed checkout maps to the right Lulou purchase
+- entitlement is added exactly once
+- duplicate webhook delivery is idempotent
+
+Typical event to inspect:
+
+`checkout.session.completed`
+
+and subscription events if subscriptions exist.
+
+Do not grant entitlements from client-side success redirect alone.
+
+## 12. IDEMPOTENCY
+
+Prevent duplicate entitlements if:
+
+- user taps buy twice
+- Stripe retries webhook
+- browser returns twice
+- network drops after payment
+- success endpoint reloads
+
+One Stripe purchase must equal one Lulou entitlement grant.
+
+## 13. FAILURE UX
+
+If checkout creation genuinely fails:
+
+show a short useful Lulou message such as:
+
+“Checkout couldn’t start. Please try again.”
+
+Do not show raw Stripe/server errors to the user.
+
+But log safe diagnostic category server-side.
+
+## 14. TEST ALL PRODUCT TYPES
+
+After fixing the shared checkout pipeline, test every existing paid category.
+
+At minimum:
+
+1. extra audio call
+2. extra video call
+3. extra messages
+4. Intention Wheel spin
+5. Elevate / boost
+6. bundles
+7. subscription if currently active
+
+For each:
+
+- checkout session created
+- correct amount/currency
+- correct product name
+- Stripe opens
+- test payment completes in the appropriate Stripe environment
+- return route works
+- entitlement applies exactly once
+
+## 15. DO NOT CHANGE
+
+Do not change:
+
+- pricing
+- quotas
+- call stages
+- voice-note rules
+- Discover
+- Intention Wheel mechanics
+- chat layout
+- product names
+
+unless a checkout-specific configuration bug requires correcting an invalid Stripe mapping.
+
+## 16. SAFE DIAGNOSTICS
+
+Add safe logging around checkout.
+
+Useful:
+
+- internal SKU
+- authenticated user exists yes/no
+- Stripe mode category
+- resolved price ID suffix/redacted identifier
+- checkout session creation success/failure
+- HTTP status
+- Stripe error type/code
+- webhook event type
+- entitlement grant result
+- idempotency result
+
+Do NOT log:
+
+- Stripe secret key
+- webhook secret
+- card data
+- full auth tokens
+- passwords
+- sensitive customer data
+
+## 17. PRODUCTION VERIFICATION
+
+Do not stop at local build.
+
+After implementation:
+
+- run payment tests
+- run production build
+- inspect Railway logs
+- commit
+- push GitHub main
+- wait for Railway/Vercel
+- verify production checkout endpoint
+- verify Stripe session creation in production-configured environment
+- verify success/cancel return routes
+
+At the end report only:
+
+1. exact root cause
+2. first failing point in checkout pipeline
+3. files changed
+4. Stripe mode consistency result
+5. production env/config issues found
+6. checkout-session creation fix
+7. client checkout/navigation fix
+8. webhook/fulfillment result
+9. products tested
+10. tests/build result
+11. production commit
+12. Vercel/Railway verification
+13. any final real-card/test-payment validation still required
