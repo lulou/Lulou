@@ -1,0 +1,197 @@
+Refine ONLY the active Intention Wheel spin spacing.
+
+The new velocity/deceleration feels much better. Keep that exactly as it is.
+
+The remaining issue is visual overlap during the spin:
+
+- the moving profile cards are touching/overlapping almost constantly
+- this makes the orbit look cramped
+- the cards need sensible breathing room between them throughout the spin
+
+Do NOT change:
+
+- winner selection
+- randomness
+- spin duration
+- acceleration curve
+- deceleration curve
+- winner-centre alignment
+- preload/decode strategy
+- stable card DOM nodes
+- RAF ownership
+- result handoff
+- resting Wheel geometry
+- eligibility
+- purchases
+- streak logic
+- APIs
+
+## ACTIVE SPIN ONLY
+
+Keep the current premium motion, but adjust the orbit geometry so adjacent cards do not touch.
+
+The goal is:
+
+FAST SMOOTH ORBIT
++
+VISIBLE SPACING BETWEEN CARDS
++
+NO COLLISIONS
+
+## CARD SPACING
+
+During the entire active spin:
+
+- cards must remain visually separate
+- no card edge should sit directly against another
+- no constant overlap
+- no giant gaps either
+
+Target a minimum apparent horizontal gap of roughly 10–18px between adjacent visible cards at their closest normal passing positions.
+
+Use whichever exact value looks best on 390px iPhone width.
+
+## DO NOT SHRINK THE PHOTOS TOO MUCH
+
+Do not solve this by making the cards tiny.
+
+Keep the current active-card premium proportions as much as possible.
+
+Prefer adjusting:
+
+- orbit horizontal radius
+- orbit spacing / angular distribution
+- depth scaling range
+- side-position x offsets
+
+rather than dramatically reducing card dimensions.
+
+## WIDEN THE ACTIVE ORBIT
+
+The current orbit is too compressed.
+
+Increase the horizontal spread so:
+
+- left card has its own lane
+- centre card has its own lane
+- right card has its own lane
+
+Cards should still flow naturally through:
+
+LEFT → CENTRE → RIGHT → BACK
+
+but without visually colliding.
+
+Do not change the resting 3-card layout.
+
+This is SpinRoom only.
+
+## DEPTH / SCALE
+
+If cards still touch while moving:
+
+reduce the scale of non-centre cards slightly.
+
+For example:
+
+- centre/front card remains dominant
+- near-side cards around 0.82–0.90 scale
+- rear cards smaller again
+
+Keep the scale interpolation smooth.
+
+Do not introduce visible scale jumps.
+
+## ANGULAR DISTRIBUTION
+
+Inspect whether the five active cards are clustered too tightly around the front of the orbit.
+
+If so, spread them more evenly around the orbit so multiple cards are not trying to occupy the same visual area simultaneously.
+
+Keep the same selected winner and same timing.
+
+## Z-INDEX
+
+Keep natural front/back layering.
+
+However, spacing should do the main work.
+
+Do not rely on z-index to hide collisions.
+
+The user should actually see clear separation between the cards.
+
+## SMOOTHNESS MUST REMAIN
+
+Preserve everything that fixed the flicker:
+
+- no React card swapping
+- same stable mounted image nodes
+- no `src` changes during spin
+- `translate3d`
+- RAF timestamps
+- delta-time handling
+- compositor-friendly transforms
+- no competing CSS transitions
+
+This must remain as smooth as the current version.
+
+## WINNER SETTLE
+
+The final selected card should still:
+
+- gradually slow
+- arrive naturally into the exact centre
+- not collide with another card in the final approach
+- not snap
+- not jump
+- not flash
+
+As the orbit slows, the neighbouring cards should naturally move away from the winner rather than crowding it.
+
+## REAL IPHONE TARGET
+
+At 390×844, during one full spin verify:
+
+1. early fast motion has visible spacing
+2. cards do not touch during the fast orbit
+3. cards do not overlap excessively during slowdown
+4. centre card remains visually dominant
+5. side cards remain recognisable
+6. no horizontal clipping
+7. no flicker
+8. no popping
+9. no blank frames
+10. winner settles with clear breathing room around it
+
+Capture multiple frames from the SAME spin:
+
+- fast phase
+- mid spin
+- early slowdown
+- late slowdown
+- winner settled
+
+The gaps should remain intentional across all phases.
+
+## DEPLOYMENT
+
+After the change:
+
+- build
+- commit
+- push GitHub main
+- wait for Vercel
+- verify live `sw.js` commit
+- verify fresh bundle
+
+At the end report only:
+
+1. exact file changed
+2. old/new active orbit horizontal radius
+3. old/new active card scale range
+4. minimum visual gap achieved between adjacent cards
+5. confirmation spin timing/easing is unchanged
+6. confirmation stable-node/flicker protections remain
+7. confirmation winner settle remains unchanged
+8. production commit
+9. live-bundle verification
