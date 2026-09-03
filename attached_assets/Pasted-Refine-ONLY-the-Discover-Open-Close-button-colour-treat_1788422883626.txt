@@ -1,0 +1,119 @@
+Refine ONLY the Discover Open / Close button colour treatment shown in the attached REAL iPhone screenshot.
+
+The size and overall shape are now closer.
+
+The remaining problem is the COLOUR.
+
+The current Open / Close buttons are still too bright, too pink/red, and too generic for Lulou.
+
+They do not yet feel premium enough.
+
+## NEW COLOUR DIRECTION
+
+Change both:
+
+Open
+Close
+
+to a deeper, dustier, more sophisticated Lulou wine / burgundy tone.
+
+The target should feel:
+
+- deep muted wine
+- soft burgundy
+- dusty rose undertone
+- low saturation
+- warm
+- elegant
+- premium
+- restrained
+
+Avoid:
+
+- bright pink
+- cherry red
+- coral
+- bubblegum pink
+- neon
+- generic dating-app red
+
+## PREFERRED VISUAL TARGET
+
+Think more:
+
+luxury wine / muted claret / softened burgundy
+
+and less:
+
+Tinder/Hinge-style bright pink CTA.
+
+## IMPORTANT
+
+Use the SAME colour for both Open and Close.
+
+Do not make one brighter than the other.
+
+Use:
+
+- deep wine fill
+- warm ivory / cream text
+- subtle soft shadow
+- no thick border
+- no glow
+
+The buttons should sit naturally against the warm ivory Lulou interface.
+
+## TOKEN / IMPLEMENTATION
+
+First inspect the existing Lulou colour tokens/theme.
+
+If there is already a darker premium wine/burgundy token used elsewhere in Lulou, reuse it.
+
+Do NOT invent a random new colour if an appropriate existing token already exists.
+
+If the current button is still using the brighter rose token, replace it with the deeper wine token.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- button size
+- button shape
+- button placement
+- labels
+- Open behavior
+- Close behavior
+- matching
+- profile layout
+- photo layout
+- navigation
+- any other page
+
+This is a COLOUR-ONLY refinement.
+
+## VERIFY
+
+Confirm on the actual Discover screen:
+
+1. Open and Close are no longer bright rose/pink.
+2. Both use the same deep muted wine/burgundy.
+3. Warm ivory text remains clearly readable.
+4. The buttons feel more expensive and restrained.
+5. The new colour works against both dark and light profile photos.
+6. No other UI colour was accidentally changed.
+
+After implementation:
+
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify the live Vercel bundle contains the updated colour
+
+At the end report only:
+
+1. exact old colour/token
+2. exact new colour/token
+3. files changed
+4. production commit
+5. live deployment verification

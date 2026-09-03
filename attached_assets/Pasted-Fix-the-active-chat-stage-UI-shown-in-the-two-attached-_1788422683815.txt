@@ -1,0 +1,386 @@
+Fix the active chat stage UI shown in the two attached REAL iPhone screenshots.
+
+There are TWO separate bugs here.
+
+## BUG 1 — VOICE NOTES ARE STILL UNLOCKING AT 8 MESSAGES
+
+The first screenshot is wrong.
+
+It still shows:
+
+“Voice notes unlocked”
+“You've both sent 8 messages — voice notes are now open.”
+
+This old 8-message rule must be completely removed.
+
+We already changed the intended rule:
+
+Voice notes unlock ONLY after the first included audio call has been successfully completed.
+
+At the exact screen shown:
+
+- Stage 1 messaging is complete
+- “Call stage unlocked” is showing
+- first audio call has NOT been completed yet
+
+Therefore:
+
+- Audio call = ACTIVE
+- Video call = LOCKED
+- Mic / voice notes = LOCKED
+- NO “Voice notes unlocked” modal
+- NO 8-message copy anywhere
+
+Search the entire codebase for any remaining stale voice-note threshold logic or copy, including:
+
+- `8 messages`
+- `voice notes unlocked`
+- `voiceNoteUnlock`
+- old milestone modals
+- message-count unlock effects
+- duplicate chat renderers
+- localStorage/sessionStorage unlock flags
+- stale server responses
+- old client effects that trigger unlock modals
+
+Remove the OLD 8-message unlock path completely.
+
+Do not just hide the modal.
+
+Fix the underlying entitlement state.
+
+## REQUIRED VOICE-NOTE RULE
+
+Exact progression:
+
+Stage 1 messages complete
+→ first audio call becomes available
+→ mic stays locked
+→ valid first audio call completes
+→ mic unlocks permanently
+
+Failed/declined/unanswered/too-short calls must NOT unlock voice notes.
+
+Locked mic tap copy:
+
+“Voice notes unlock after your first call.”
+
+No other voice-note unlock rule should exist.
+
+---
+
+# BUG 2 — THE CALL / VIDEO / MIC GADGETS ARE VISUALLY BROKEN
+
+The second screenshot shows the top communication controls are badly broken.
+
+Current problems visible in the screenshot:
+
+- the audio-call control has become a giant dark wine square/blob
+- its phone icon / label is missing
+- the video control is a huge pale rounded square
+- “Locked” is oversized/misaligned
+- mic is visually inconsistent with both
+- the three controls do not look like one design system
+- spacing and sizing are wrong
+- the whole top action row looks corrupted
+
+Fix the TOP communication gadget row.
+
+Do not redesign the rest of chat.
+
+## REQUIRED TOP CONTROL DESIGN
+
+There should be three clean, consistent controls:
+
+1. Audio call
+2. Video call
+3. Mic / voice notes
+
+Use one consistent compact visual system.
+
+### SIZE
+
+Each gadget should use a compact iOS-sized touch area.
+
+Target visible control area:
+
+approximately 48–54px
+
+Minimum tappable area:
+
+44×44px
+
+Do NOT use giant 90px+ blocks.
+
+Do NOT allow any control to expand because of text or state labels.
+
+### SHAPE
+
+Use:
+
+- clean compact circle or soft rounded-square
+- same dimensions for audio/video/mic
+- same corner-radius family
+- same icon size
+- same vertical alignment
+
+They should look intentionally related.
+
+### AUDIO CALL — AVAILABLE STATE
+
+At the current call-unlocked stage:
+
+Audio call should be the ACTIVE control.
+
+Use the premium Lulou active colour:
+
+- deep muted wine / burgundy
+- not green
+- not bright dating-app pink
+
+Inside:
+
+- phone icon clearly visible
+- warm ivory icon
+- optional small “Call” label underneath if the existing layout uses labels
+
+Do NOT render a blank wine square.
+
+### VIDEO — LOCKED STATE
+
+Video should remain locked.
+
+Use:
+
+- soft taupe / warm grey
+- visible video-camera icon
+- subtle locked styling
+- no giant “Locked” text inside the button
+
+If the UI currently uses a text label underneath, use:
+
+“Locked”
+
+in small secondary text.
+
+Do not let “Locked” determine the size of the control.
+
+### MIC — LOCKED STATE
+
+Mic remains locked until first audio call is validly completed.
+
+Use:
+
+- same soft taupe / warm grey family
+- visible mic icon
+- same dimensions as call/video
+- same alignment
+
+If the current UI uses the label:
+
+“Mic”
+
+keep it small and aligned underneath.
+
+Do not make the mic look active at this stage.
+
+## STATE COLOUR SYSTEM
+
+Use this consistently:
+
+### LOCKED
+- soft taupe / warm grey
+- low emphasis
+- still tappable for explanation
+
+### AVAILABLE
+- deep Lulou wine / muted burgundy
+- warm ivory icon/text
+- clear but restrained
+
+### USED / PAID
+- distinct wine outline / tinted surface
+- still actionable
+- not visually identical to locked
+
+Do NOT use green for the actual active call gadget unless green is only used for a temporary success illustration elsewhere.
+
+The “Call stage unlocked” success illustration can remain green if that is intentionally a success state.
+
+But the communication gadget itself should use the approved Lulou wine palette.
+
+## DO NOT LET STATE COPY BREAK LAYOUT
+
+No dynamic state text should make the controls stretch into large boxes.
+
+Separate:
+
+- icon button
+from
+- state label
+
+Do not put long strings inside fixed controls.
+
+Avoid:
+
+- width:auto on state buttons
+- large padding caused by “Locked”
+- inherited button styles from CTA components
+- full-size button classes leaking into icon controls
+
+Audit whether a generic Button component/class was accidentally applied to these gadgets.
+
+The screenshot strongly suggests the active call control may be inheriting oversized CTA/button styles.
+
+Fix the specific source.
+
+## TOP AND BOTTOM CONTROLS MUST AGREE
+
+Audit all communication entry points:
+
+- top audio
+- top video
+- top mic
+- bottom audio
+- bottom video
+- bottom mic
+
+They must use the same shared communication entitlement resolver.
+
+At this exact stage:
+
+Top audio:
+AVAILABLE
+
+Bottom audio:
+AVAILABLE
+
+Top video:
+LOCKED
+
+Bottom video:
+LOCKED
+
+Top mic:
+LOCKED
+
+Bottom mic:
+LOCKED
+
+No disagreement between renderers.
+
+## TAP BEHAVIOUR
+
+Locked controls must still respond when tapped.
+
+Audio before unlock:
+“Audio call unlocks after you both complete this chat stage.”
+
+Video before unlock:
+“Video call unlocks later in your connection.”
+
+Mic before first valid call:
+“Voice notes unlock after your first call.”
+
+Do not use disabled HTML buttons if they suppress the explanatory tap.
+
+## CALL STAGE SCREEN
+
+The bottom section:
+
+“Call stage unlocked”
+
+is conceptually correct.
+
+Keep:
+
+“You've both reached the next step. Continue to arrange your first call, or end the match.”
+
+But make sure the communication controls ABOVE reflect this same state.
+
+When “Call stage unlocked” appears:
+
+- audio call must clearly be available
+- mic must clearly still be locked
+- voice-note modal must NOT appear
+
+## DO NOT CHANGE
+
+Do not change:
+
+- Stage 1 message quota
+- call durations
+- valid call completion threshold
+- Stage 2 message quota
+- video progression
+- paid-call rules
+- WebRTC
+- voice-note upload/playback
+- message bubbles
+- chat header
+- stage progress bar
+- bottom stage CTA behavior
+
+This task is ONLY:
+
+1. remove stale 8-message voice-note unlock
+2. restore correct stage entitlement mapping
+3. fix corrupted communication gadget styling
+
+## TEST EXACTLY
+
+### STAGE 1 NOT COMPLETE
+- audio locked
+- video locked
+- mic locked
+
+### STAGE 1 COMPLETE
+- audio active in deep Lulou wine
+- video locked
+- mic locked
+- no voice-note unlock modal
+
+### TAP MIC
+- shows “Voice notes unlock after your first call.”
+- no recording
+
+### VALID FIRST CALL COMPLETES
+- mic unlocks
+- voice notes work
+- unlock persists
+
+### UI
+- audio/video/mic all same compact size
+- no giant square
+- no missing icon
+- no oversized “Locked”
+- no state label stretching button
+- consistent on 375px and 390px iPhone widths
+
+## DEPLOYMENT
+
+After implementation:
+
+- search final codebase for all stale `8 messages` voice-note logic/copy
+- run entitlement tests
+- run chat UI regression tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- wait for Vercel/Railway
+- verify live production bundle/API
+
+At the end report only:
+
+1. exact stale 8-message unlock source removed
+2. exact root cause of the giant/broken gadget styling
+3. files changed
+4. final audio-call available styling
+5. final video locked styling
+6. final mic locked styling
+7. exact voice-note unlock rule
+8. exact locked mic copy
+9. tests
+10. production commit
+11. Vercel/Railway verification
