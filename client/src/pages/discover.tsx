@@ -66,14 +66,14 @@ function PhotoHaloAction({
   const disabled = isDisabled || isReacted || isPending;
   return (
     <button
-      className="flex h-[44px] w-[58px] shrink-0 items-center justify-center whitespace-nowrap rounded-[22px] bg-primary px-1 text-[11px] font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(58,11,31,0.22)] transition-transform active:scale-[0.96] disabled:cursor-default disabled:opacity-65"
+      className="flex h-[52px] w-[62px] shrink-0 items-center justify-center whitespace-nowrap rounded-[18px] bg-[#f8f1e8] px-1 text-[12px] font-medium text-[#3b2028] shadow-[0_2px_8px_rgba(40,24,20,0.12)] transition-[transform,box-shadow] active:scale-[0.97] active:shadow-[0_1px_4px_rgba(40,24,20,0.10)] disabled:cursor-default disabled:opacity-65"
       onClick={() => onOpen(photoUrl)}
       disabled={disabled}
       aria-pressed={isReacted}
       aria-label="Open profile"
       data-testid={`button-send-halo-${photoIndex}`}
     >
-      Open ❤️
+      Open
     </button>
   );
 }
@@ -1500,17 +1500,17 @@ export default function Discover() {
 
       <button
         type="button"
-        className="fixed z-40 flex h-[44px] w-[58px] items-center justify-center whitespace-nowrap rounded-[22px] bg-primary px-1 text-[11px] font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(58,11,31,0.22)] transition-transform active:scale-[0.96] disabled:opacity-50"
+        className="fixed z-40 flex h-[52px] w-[62px] items-center justify-center whitespace-nowrap rounded-[18px] bg-[#f8f1e8] px-1 text-[12px] font-medium text-[#3b2028] shadow-[0_2px_8px_rgba(40,24,20,0.12)] transition-[transform,box-shadow] active:scale-[0.97] active:shadow-[0_1px_4px_rgba(40,24,20,0.10)] disabled:opacity-50"
         style={{
           insetInlineStart: "max(1rem, env(safe-area-inset-left, 0px))",
-          bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)",
+        bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.5rem)",
         }}
         onClick={() => triggerInteract("close")}
         disabled={interact.isPending || isExiting}
         aria-label="Close profile"
         data-testid="button-close-profile-floating"
       >
-        Close 🌙
+        Close
       </button>
 
       <Sheet open={safetyMenuOpen} onOpenChange={setSafetyMenuOpen}>
