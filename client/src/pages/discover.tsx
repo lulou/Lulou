@@ -66,7 +66,7 @@ function PhotoHaloAction({
   const disabled = isDisabled || isReacted || isPending;
   return (
     <button
-      className="flex h-[58px] w-[72px] shrink-0 items-center justify-center whitespace-nowrap rounded-[24px] bg-primary px-2 text-xs font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(58,11,31,0.22)] transition-transform active:scale-[0.96] disabled:cursor-default disabled:opacity-65"
+      className="flex h-[44px] w-[58px] shrink-0 items-center justify-center whitespace-nowrap rounded-[22px] bg-primary px-1 text-[11px] font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(58,11,31,0.22)] transition-transform active:scale-[0.96] disabled:cursor-default disabled:opacity-65"
       onClick={() => onOpen(photoUrl)}
       disabled={disabled}
       aria-pressed={isReacted}
@@ -1500,7 +1500,7 @@ export default function Discover() {
 
       <button
         type="button"
-        className="fixed z-40 flex h-[58px] w-[72px] items-center justify-center whitespace-nowrap rounded-[24px] bg-primary px-2 text-xs font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(58,11,31,0.22)] transition-transform active:scale-[0.96] disabled:opacity-50"
+        className="fixed z-40 flex h-[44px] w-[58px] items-center justify-center whitespace-nowrap rounded-[22px] bg-primary px-1 text-[11px] font-semibold text-primary-foreground shadow-[0_4px_14px_rgba(58,11,31,0.22)] transition-transform active:scale-[0.96] disabled:opacity-50"
         style={{
           insetInlineStart: "max(1rem, env(safe-area-inset-left, 0px))",
           bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.25rem)",
