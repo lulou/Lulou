@@ -178,10 +178,10 @@ class IntentResultBoundary extends Component<
 // Cards rotate in the positive-angle direction (counter-clockwise in math coords,
 // visually left-to-right across the front).
 const ORBIT_N           = 5;
-const ORBIT_RX          = 108;
+const ORBIT_RX          = 156;
 const ORBIT_RY          = 12;
-const ORBIT_CARD_WIDTH  = 168;
-const ORBIT_CARD_HEIGHT = 224;
+const ORBIT_CARD_WIDTH  = 144;
+const ORBIT_CARD_HEIGHT = 192;
 const ORBIT_STAGE_HEIGHT = 286;
 
 async function decodeOrbitPhoto(url: string): Promise<string | null> {
@@ -2039,7 +2039,7 @@ export default function IntentPage() {
       const sinT   = Math.sin(theta);
       const cosT   = Math.cos(theta);
       const depth  = (sinT + 1) / 2;
-      const scale  = (0.80 + depth * 0.20).toFixed(3);
+      const scale  = (0.72 + depth * 0.28).toFixed(3);
       const x      = (cosT * ORBIT_RX).toFixed(1);
       const y      = ((1 - depth) * ORBIT_RY).toFixed(1);
       const rotate = (-cosT * 2.2).toFixed(2);
@@ -2157,7 +2157,7 @@ export default function IntentPage() {
           const sinT2  = Math.sin(theta2);
           const cosT2  = Math.cos(theta2);
           const depth2 = (sinT2 + 1) / 2;
-          const scale2 = (0.80 + depth2 * 0.20).toFixed(3);
+          const scale2 = (0.72 + depth2 * 0.28).toFixed(3);
           const x2     = (cosT2 * ORBIT_RX).toFixed(1);
           const y2     = ((1 - depth2) * ORBIT_RY).toFixed(1);
           const rotate2 = (-cosT2 * 2.2).toFixed(2);
@@ -2265,7 +2265,7 @@ export default function IntentPage() {
         const sinT  = Math.sin(theta);
         const cosT  = Math.cos(theta);
         const depth = (sinT + 1) / 2;
-        const scale = (0.80 + depth * 0.20).toFixed(3);
+        const scale = (0.72 + depth * 0.28).toFixed(3);
         const x     = (cosT * ORBIT_RX).toFixed(1);
         const y     = ((1 - depth) * ORBIT_RY).toFixed(1);
         const rotate = (-cosT * 2.2).toFixed(2);
