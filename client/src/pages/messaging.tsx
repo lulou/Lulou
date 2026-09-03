@@ -669,7 +669,7 @@ export default function Messaging() {
       ["/api/voice-notes/entitlement", matchId],
       (old: any) => old
         ? { ...old, firstCallUnlocked: true }
-        : { unlocked: true, popupSeen: true, firstCallUnlocked: true, firstCallPromptSeen: false },
+        : { unlocked: false, popupSeen: false, firstCallUnlocked: true, firstCallPromptSeen: false },
     );
     if (!localStorage.getItem(`fc_popup_${matchId}`)) {
       setPendingFirstCallCelebration(true);
@@ -898,10 +898,8 @@ export default function Messaging() {
     return () => vv.removeEventListener("resize", handleResize);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Recovery guard: shows VN popup via polling if the progressionEvent was missed
-  // (e.g. a different device sent the threshold message, or browser was briefly offline).
-  // The server entitlement endpoint backfills popupSeen=true for callStage > 0 conversations,
-  // so this useEffect naturally stays dormant for those — no redundant stage guard needed.
+  // Recovery guard: shows the VN popup only when the persisted post-call
+  // entitlement is observed after a missed realtime completion event.
   useEffect(() => {
     if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
       if (!localStorage.getItem(`vn_popup_${matchId}`)) {
@@ -1113,7 +1111,7 @@ export default function Messaging() {
 
       // ── Milestone progression events (server-authoritative) ───────────────
       // The server response includes a progressionEvent when this message crossed
-      // the 8-message VN threshold or the 15-message first-call threshold.
+      // the 15-message first-call threshold.
       // This fires the celebration immediately — no 60s polling cycle needed.
       const event = (data as any).progressionEvent as { type: string } | null | undefined;
       const prog2 = (data as any).progression;
@@ -1124,12 +1122,12 @@ export default function Messaging() {
         theirCount: prog2?.theirCount ?? null,
       });
       if (event?.type === "first_call_unlocked") {
-        // Update entitlement cache to reflect both milestones.
+        // This milestone makes Call 1 available; it does not complete the call.
         queryClient.setQueryData(
           ["/api/voice-notes/entitlement", matchId],
           (old: any) => old
-            ? { ...old, unlocked: true, firstCallUnlocked: true }
-            : { unlocked: true, popupSeen: true, firstCallUnlocked: true, firstCallPromptSeen: false },
+            ? { ...old, firstCallUnlocked: true }
+            : { unlocked: false, popupSeen: false, firstCallUnlocked: true, firstCallPromptSeen: false },
         );
         // Always route through pendingFirstCallCelebration so the 1.5s delay and
         // VN-open guard apply uniformly for the sender (same as the other user).

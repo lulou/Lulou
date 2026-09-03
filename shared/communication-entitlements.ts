@@ -32,7 +32,6 @@ type ResolveCommunicationEntitlementsInput = {
   messageCount1: number | null | undefined;
   messageCount2: number | null | undefined;
   voiceNotesUnlocked?: boolean;
-  firstCallReady?: boolean;
 };
 
 function stageProgress(
@@ -57,7 +56,6 @@ export function resolveCommunicationEntitlements({
   messageCount1,
   messageCount2,
   voiceNotesUnlocked = false,
-  firstCallReady = true,
 }: ResolveCommunicationEntitlementsInput): CommunicationEntitlements {
   const stage = Math.max(0, callStage ?? 0);
   const count1 = Math.max(0, messageCount1 ?? 0);
@@ -81,9 +79,7 @@ export function resolveCommunicationEntitlements({
             reason: firstCallProgress.reason,
             remainingMessages: firstCallProgress.remainingMessages,
           }
-        : !firstCallReady
-          ? { state: "locked", reason: "schedule", remainingMessages: 0 }
-          : { state: "available", remainingMessages: 0 }
+        : { state: "available", remainingMessages: 0 }
       : { state: "used_paid", reason: "used", remainingMessages: 0 };
 
   const video: CallGate =
@@ -103,14 +99,13 @@ export function resolveCommunicationEntitlements({
           : { state: "available", remainingMessages: 0 }
         : { state: "used_paid", reason: "used", remainingMessages: 0 };
 
-  const voiceNote: VoiceNoteGate =
-    voiceNotesUnlocked || stage > 0
-      ? { state: "available", remainingMessages: 0 }
-      : {
-          state: "locked",
-          reason: "complete_first_call",
-          remainingMessages: 0,
-        };
+  const voiceNote: VoiceNoteGate = voiceNotesUnlocked
+    ? { state: "available", remainingMessages: 0 }
+    : {
+        state: "locked",
+        reason: "complete_first_call",
+        remainingMessages: 0,
+      };
 
   return { audio, video, voiceNote };
 }

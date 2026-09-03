@@ -521,9 +521,8 @@ export const userMatchBadgeCounts = pgTable("user_match_badge_counts", {
 ]);
 
 // ── Voice-note engagement unlocks ─────────────────────────────────────────────
-// Persists voice-note unlock state per match so it survives call-stage count
-// resets. A row here means both users reached 8 sent messages in this match
-// and voice notes are permanently free for that conversation.
+// Persists voice-note unlock state per match so it survives reloads and later
+// stages. A row exists only after the first included audio call is validly completed.
 export const voiceNoteUnlocks = pgTable("voice_note_unlocks", {
   matchId:    text("match_id").primaryKey(),
   unlockedAt: timestamp("unlocked_at").defaultNow().notNull(),

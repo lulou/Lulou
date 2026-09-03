@@ -133,4 +133,18 @@ describe("chat composer regressions", () => {
     expect(matches).toContain('const WINE_CALL_COLOR = "hsl(350 45% 34%)"');
     expect(matches).toContain('const LOCKED_CALL_COLOR = "hsl(32 12% 54%)"');
   });
+
+  it("does not confuse first-call availability with voice-note completion", () => {
+    const messaging = readFileSync("client/src/pages/messaging.tsx", "utf8");
+    const routes = readFileSync("server/routes.ts", "utf8");
+    const resolver = readFileSync("shared/communication-entitlements.ts", "utf8");
+
+    expect(messaging).toContain('{ ...old, firstCallUnlocked: true }');
+    expect(messaging).not.toContain('{ ...old, unlocked: true, firstCallUnlocked: true }');
+    expect(resolver).toContain("const voiceNote: VoiceNoteGate = voiceNotesUnlocked");
+    expect(resolver).not.toContain("voiceNotesUnlocked || stage > 0");
+    expect(routes).toContain('result.counted && resolvedCallType === "phone"');
+    expect(routes).not.toContain("const shouldUnlockByStage");
+    expect(routes).not.toContain("return (meta.callStage ?? 0) > 0");
+  });
 });

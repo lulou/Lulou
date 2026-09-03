@@ -46,6 +46,26 @@ test("voice notes stay locked until the first valid included call completes", ()
   assert.equal(afterCall.voiceNote.state, "available");
 });
 
+test("call availability and call completion remain separate states", () => {
+  const callAvailable = resolveCommunicationEntitlements({
+    callStage: 0,
+    messageCount1: 15,
+    messageCount2: 15,
+    voiceNotesUnlocked: false,
+  });
+  const stageAdvancedWithoutPersistedCompletion = resolveCommunicationEntitlements({
+    callStage: 1,
+    messageCount1: 0,
+    messageCount2: 0,
+    voiceNotesUnlocked: false,
+  });
+
+  assert.equal(callAvailable.audio.state, "available");
+  assert.equal(callAvailable.video.state, "locked");
+  assert.equal(callAvailable.voiceNote.state, "locked");
+  assert.equal(stageAdvancedWithoutPersistedCompletion.voiceNote.state, "locked");
+});
+
 test("unlocks included video only after the post-call message stage", () => {
   const locked = resolveCommunicationEntitlements({
     callStage: 1,

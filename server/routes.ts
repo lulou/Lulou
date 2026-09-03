@@ -4776,20 +4776,15 @@ export async function registerRoutes(
       }
 
 
-      // ── Grant voice-note unlock after a genuine first call ────────────────────────────
-      // A genuine call = answered, connected, lasted ≥30 s. result.counted guards
-      // against double-granting (only the first completer wins counted=true).
-      if (
-        result.counted &&
-        typeof options.connectedDurationMs === "number" &&
-        options.connectedDurationMs >= 30_000
-      ) {
+      // ── Grant voice-note unlock after a genuine first included call ──────────
+      // completeCall owns the valid-call rule (answered + WebRTC connected +
+      // MIN_VALID_CALL_MS). result.counted is the authoritative, idempotent signal.
+      if (result.counted && resolvedCallType === "phone") {
         try {
           await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
           broadcastViaHttpApi(`chat:${matchId}`, "voice-note-post-call-unlock", { matchId }).catch(() => {});
           console.log("[CALL_COMPLETE] VN_UNLOCKED_POST_CALL", { matchId, connectedDurationMs: options.connectedDurationMs });
         } catch (vnErr: any) {
-          // Non-fatal — entitlement endpoint retroactively grants it since callStage > 0 after this call.
           console.error("[CALL_COMPLETE] VN_UNLOCK_ERROR", { matchId, error: vnErr?.message });
         }
       }
@@ -5203,10 +5198,9 @@ export async function registerRoutes(
 
       // ── First-call unlock (separate milestone from voice notes) ──────────────
       // Unlocked when both users have sent ≥ FIRST_CALL_MSG_THRESHOLD messages in
-      // stage 0, or retroactively when call_stage > 0 (first call already happened).
+      // stage 0. This is call availability only; it never grants voice notes.
       const firstCallUnlocked =
-        callStage > 0 ||
-        (count1 >= FIRST_CALL_MSG_THRESHOLD && count2 >= FIRST_CALL_MSG_THRESHOLD);
+        count1 >= FIRST_CALL_MSG_THRESHOLD && count2 >= FIRST_CALL_MSG_THRESHOLD;
 
       // Helper: get voice-note popup-seen status for this user+match
       const getPopupSeen = async (): Promise<boolean> => {
@@ -5234,46 +5228,10 @@ export async function registerRoutes(
       const [existing] = await db.select().from(voiceNoteUnlocks)
         .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
       if (existing) {
-        // Backfill: conversations that advanced to call_stage > 0 before the popup-seen
-        // system existed would show a late VN popup on their next entitlement poll.
-        // Silently mark it acknowledged so the popup never appears over call controls.
-        let effectivePopupSeen = popupSeen;
-        if (!popupSeen && callStage > 0) {
-          await db.insert(voiceNotePopupSeen).values({ matchId, userId }).onConflictDoNothing();
-          effectivePopupSeen = true;
-          console.log(`[PROGRESSION] VN_POPUP_BACKFILLED match=${matchId} userId=${userId.slice(0, 8)} callStage=${callStage}`);
-        }
         return res.json({
           unlocked: true,
-          popupSeen: effectivePopupSeen,
-          firstCallUnlocked,
-          firstCallPromptSeen: firstCallPromptSeenFlag,
-        });
-      }
-
-      // ── Voice-note unlock evaluation ──────────────────────────────────────────
-      // Retroactive: call_stage > 0 proves voice notes should have been unlocked
-      // earlier even if message counts were reset by the progression system.
-      const shouldUnlockByStage = callStage > 0;
-
-      if (shouldUnlockByStage) {
-        // Persist unlock so it survives future call-stage count resets.
-        await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
-        console.log(`[VOICE_NOTE_UNLOCK] match=${matchId} stage=${callStage} count1=${count1} count2=${count2} → unlocked (byStage=${shouldUnlockByStage})`);
-        // Broadcast realtime event so both connected clients update instantly.
-        broadcastViaHttpApi(`chat:${matchId}`, "voice-note-unlock", { matchId }).catch(() => {});
-        // Backfill: retroactive unlock via callStage means the popup was never shown
-        // at the right moment — silently acknowledge it to prevent a late overlay.
-        let effectivePopupSeen = popupSeen;
-        if (!popupSeen && shouldUnlockByStage) {
-          await db.insert(voiceNotePopupSeen).values({ matchId, userId }).onConflictDoNothing();
-          effectivePopupSeen = true;
-          console.log(`[PROGRESSION] VN_POPUP_BACKFILLED_BY_STAGE match=${matchId} userId=${userId.slice(0, 8)}`);
-        }
-        return res.json({
-          unlocked: true,
-          popupSeen: effectivePopupSeen,
-          firstCallUnlocked,
+          popupSeen,
+          firstCallUnlocked: true,
           firstCallPromptSeen: firstCallPromptSeenFlag,
         });
       }
@@ -5383,7 +5341,6 @@ export async function registerRoutes(
 
       // Cap counts at MAX_MESSAGES_PER_USER (15) per stage so a legacy match with
       // many messages never shows an inflated counter post-call.
-      const VN_T = 8;
       const FC_T = 15;
       const capped1 = Math.min(recounted.user1ValidCount, 15);
       const capped2 = Math.min(recounted.user2ValidCount, 15);
@@ -5395,17 +5352,11 @@ export async function registerRoutes(
         .where(eq(matches.id, matchId))
         .returning({ messageCount1: matches.messageCount1, messageCount2: matches.messageCount2 });
 
-      // Re-evaluate and persist milestone rows.
-      const vnEligible = capped1 >= VN_T && capped2 >= VN_T;
-      if (vnEligible) {
-        await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
-      }
-
       const after = {
         messageCount1: repaired?.messageCount1 ?? capped1,
         messageCount2: repaired?.messageCount2 ?? capped2,
         callStage: matchRow.callStage ?? 0,
-        vnMilestoneEligible: vnEligible,
+        vnMilestoneEligible: false,
         fcMilestoneEligible: capped1 >= FC_T && capped2 >= FC_T,
       };
 
@@ -5416,27 +5367,6 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message || "Failed to reconcile match progression" });
     }
   });
-
-  // Startup backfill: retroactively grant voice-note unlock to any match that
-  // already progressed past call_stage 0 (i.e. earned the unlock in the past).
-  // Safe to run on every startup — onConflictDoNothing is idempotent.
-  void (async () => {
-    try {
-      const { data: advanced } = await supabaseAdmin
-        .from("matches")
-        .select("id")
-        .gt("call_stage", 0)
-        .limit(2000);
-      if (advanced && advanced.length > 0) {
-        for (const m of advanced) {
-          await db.insert(voiceNoteUnlocks).values({ matchId: m.id }).onConflictDoNothing();
-        }
-        console.log(`[VOICE_NOTE_BACKFILL] Processed ${advanced.length} advanced matches`);
-      }
-    } catch (err: any) {
-      console.error(`[VOICE_NOTE_BACKFILL] Error: ${err?.message}`);
-    }
-  })();
 
   // Binary audio upload — client sends raw ArrayBuffer (no base64 overhead).
   // Dynamic body parser: multer for FormData multipart (iOS-compatible new path),
@@ -5535,11 +5465,7 @@ export async function registerRoutes(
             const [existing] = await db.select().from(voiceNoteUnlocks)
               .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
             if (existing) return true;
-            const meta = await storage.getMatchMeta(matchId, userId);
-            if (!meta) return false;
-            // Retroactive: call_stage > 0 means match already earned the unlock
-            // Voice notes unlock only after the first call (callStage > 0).
-            return (meta.callStage ?? 0) > 0;
+            return false;
           })(),
         ]);
       } catch (transcodeErr: any) {

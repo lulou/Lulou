@@ -3548,7 +3548,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     messageCount1: detail.messageCount1,
     messageCount2: detail.messageCount2,
     voiceNotesUnlocked,
-    firstCallReady: callStageState === "READY_TO_CALL",
   });
 
   const showCommunicationGate = (feature: "phone" | "video", gate: CallGate) => {
@@ -3583,6 +3582,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
     if (startCall.isPending || startPaidCall.isPending) return;
     if (gate.state === "available") {
+      if (!isVideo && callStage === 0 && callStageState !== "READY_TO_CALL") {
+        if (callStageState === "CALL_STAGE_UNLOCKED") {
+          confirmCallStage.mutate();
+        } else {
+          setShowAvailPicker(true);
+        }
+        return;
+      }
       startCall.mutate({ isVideo });
       return;
     }
