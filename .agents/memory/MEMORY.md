@@ -48,3 +48,4 @@
 - [Candidate-feed header metadata](candidate-feed-header-metadata.md) — non-enumerable feed metadata needs structuralSharing:false or React Query can retain stale headers after an empty-to-empty refetch.
 - [Discover async flex scroll](discover-async-flex-scroll.md) — WebKit can retain a skeleton-sized flex child after asynchronous Discover profile content mounts.
 - [GitHub push authentication](github-push-auth.md) — an attached GitHub connection can appear healthy while Git HTTPS rejects it; use an ephemeral askpass fallback without persisting credentials.
+- [Call availability vs voice-note completion](call-availability-vs-voice-notes.md) — reaching the message threshold activates audio, but only a persisted valid-call completion unlocks voice notes.
