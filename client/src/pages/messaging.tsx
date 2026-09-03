@@ -26,23 +26,16 @@ import { useLanguageContext } from "@/contexts/language-context";
 import { type TranslationKey } from "@/lib/i18n";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { resolveCommunicationEntitlements, type CallGate } from "@shared/communication-entitlements";
-import { CommunicationControl } from "@/components/communication-control";
+import {
+  CommunicationControl,
+  getCommunicationIconStyle,
+  getCommunicationStateStyle,
+  type CommunicationControlState,
+} from "@/components/communication-control";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
-const LOCKED_CALL_COLOR = "hsl(32 12% 54%)";
-const WINE_CALL_COLOR = "hsl(350 45% 34%)";
-const USED_CALL_COLOR = "hsl(350 35% 42%)";
-
-const callStateStyle = (gate: CallGate) => {
-  if (gate.state === "locked") {
-    return { color: LOCKED_CALL_COLOR, opacity: 0.78 };
-  }
-  if (gate.state === "available") {
-    return { color: WINE_CALL_COLOR };
-  }
-  return { color: USED_CALL_COLOR, opacity: 0.88 };
-};
+const callStateStyle = (gate: CallGate) => getCommunicationStateStyle(gate.state);
 
 const FALLBACK_STARTERS = [
   "What made you want to try a more intentional approach to dating?",
@@ -2129,11 +2122,18 @@ export default function Messaging() {
                   >
                     <Mic
                       className="h-[18px] w-[18px] transition-all duration-300"
-                      style={voicePhase === "recording"
-                        ? { color: "hsl(350 58% 45%)" }
-                        : voiceNotesUnlocked
-                        ? { color: WINE_CALL_COLOR }
-                        : { color: LOCKED_CALL_COLOR, opacity: 0.78 }}
+                       style={{
+                         ...getCommunicationStateStyle(
+                           (voicePhase === "recording"
+                             ? "recording"
+                             : voiceNotesUnlocked ? "available" : "locked") as CommunicationControlState,
+                         ),
+                         ...getCommunicationIconStyle(
+                           (voicePhase === "recording"
+                             ? "recording"
+                             : voiceNotesUnlocked ? "available" : "locked") as CommunicationControlState,
+                         ),
+                       }}
                     />
                   </button>
 
@@ -2156,14 +2156,14 @@ export default function Messaging() {
                       onClick={() => handleCallAction(false)}
                       aria-busy={startPaidCall.isPending}
                       aria-disabled={communicationEntitlements.audio.state === "locked"}
-                      style={callStateStyle(communicationEntitlements.audio)}
+                       style={getCommunicationIconStyle(communicationEntitlements.audio.state)}
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-muted-foreground transition-all active:scale-90 hover:bg-foreground/[0.06]"
                       data-testid="button-phone-composer"
                       title={communicationEntitlements.audio.state === "locked" ? "Audio call locked" : communicationEntitlements.audio.state === "available" ? t("start_voice_call") : t("unlock_voice_calling")}
                     >
                       <Phone
                         className="h-[18px] w-[18px] transition-all duration-300"
-                        style={callStateStyle(communicationEntitlements.audio)}
+                         style={getCommunicationIconStyle(communicationEntitlements.audio.state)}
                       />
                     </button>
                   )}
@@ -2174,14 +2174,14 @@ export default function Messaging() {
                       onClick={() => handleCallAction(true)}
                       aria-busy={startPaidCall.isPending}
                       aria-disabled={communicationEntitlements.video.state === "locked"}
-                      style={callStateStyle(communicationEntitlements.video)}
+                       style={getCommunicationIconStyle(communicationEntitlements.video.state)}
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-muted-foreground transition-all active:scale-90 hover:bg-foreground/[0.06]"
                       data-testid="button-video-composer"
                       title={communicationEntitlements.video.state === "locked" ? "Video call locked" : t("start_video_call")}
                     >
                       <Video
                         className="h-[18px] w-[18px] transition-all duration-300"
-                        style={callStateStyle(communicationEntitlements.video)}
+                         style={getCommunicationIconStyle(communicationEntitlements.video.state)}
                       />
                     </button>
                   )}

@@ -2,6 +2,9 @@ import type { CSSProperties, ReactNode } from "react";
 
 export type CommunicationControlState = "locked" | "available" | "used_paid" | "recording";
 
+export const COMMUNICATION_ACTIVE_GREEN = "#3B8F68";
+export const COMMUNICATION_ACTIVE_GLOW = "drop-shadow(0 0 5px rgba(59, 143, 104, 0.34))";
+
 type CommunicationControlProps = {
   icon: ReactNode;
   label: string;
@@ -12,22 +15,32 @@ type CommunicationControlProps = {
   busy?: boolean;
 };
 
-const ICON_STYLES: Record<CommunicationControlState, CSSProperties> = {
+export const COMMUNICATION_STATE_STYLES: Record<CommunicationControlState, CSSProperties> = {
   locked: {
     color: "hsl(32 12% 42%)",
     opacity: 0.82,
   },
   available: {
-    color: "hsl(350 45% 34%)",
+    color: COMMUNICATION_ACTIVE_GREEN,
   },
   used_paid: {
     color: "hsl(350 42% 36%)",
     opacity: 0.88,
   },
   recording: {
-    color: "hsl(350 58% 45%)",
+    color: COMMUNICATION_ACTIVE_GREEN,
   },
 };
+
+export function getCommunicationStateStyle(state: CommunicationControlState): CSSProperties {
+  return COMMUNICATION_STATE_STYLES[state];
+}
+
+export function getCommunicationIconStyle(state: CommunicationControlState): CSSProperties | undefined {
+  return state === "available" || state === "recording"
+    ? { filter: COMMUNICATION_ACTIVE_GLOW }
+    : undefined;
+}
 
 export function CommunicationControl({
   icon,
@@ -46,10 +59,13 @@ export function CommunicationControl({
       aria-busy={busy}
       aria-disabled={state === "locked"}
       className="flex min-h-11 w-[58px] shrink-0 flex-col items-center justify-center gap-1 border-0 bg-transparent p-0 transition-transform active:scale-90"
-      style={ICON_STYLES[state]}
+      style={getCommunicationStateStyle(state)}
       data-testid={testId}
     >
-      <span className="flex h-5 w-5 items-center justify-center [&>svg]:h-5 [&>svg]:w-5">
+      <span
+        className="flex h-5 w-5 items-center justify-center [&>svg]:h-5 [&>svg]:w-5"
+        style={getCommunicationIconStyle(state)}
+      >
         {icon}
       </span>
       <span

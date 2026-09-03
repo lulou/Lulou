@@ -130,8 +130,9 @@ describe("chat composer regressions", () => {
     expect((messaging.match(/onClick=\{\(\) => handleCallAction\(true\)\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((matches.match(/onClick=\{\(\) => handleCallAction\(false\)\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect((matches.match(/onClick=\{\(\) => handleCallAction\(true\)\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(matches).toContain('const WINE_CALL_COLOR = "hsl(350 45% 34%)"');
-    expect(matches).toContain('const LOCKED_CALL_COLOR = "hsl(32 12% 54%)"');
+    expect(matches).toContain("getCommunicationStateStyle(gate.state)");
+    expect(matches).not.toContain('const WINE_CALL_COLOR = "hsl(350 45% 34%)"');
+    expect(matches).not.toContain('const LOCKED_CALL_COLOR = "hsl(32 12% 54%)"');
   });
 
   it("does not confuse first-call availability with voice-note completion", () => {
@@ -161,6 +162,8 @@ describe("chat composer regressions", () => {
     expect(control).toContain("border-0 bg-transparent");
     expect(control).not.toContain("backgroundColor");
     expect(control).not.toContain("boxShadow");
+    expect(control).toContain('COMMUNICATION_ACTIVE_GREEN = "#3B8F68"');
+    expect(control).toContain("drop-shadow(0 0 5px rgba(59, 143, 104, 0.34))");
     expect(control).not.toContain("rounded-2xl");
     expect(control).toContain('aria-disabled={state === "locked"}');
     expect(control).not.toMatch(/\sdisabled=\{state/);
@@ -175,6 +178,7 @@ describe("chat composer regressions", () => {
     expect((matches.match(/showVoiceNoteGate\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(messaging).not.toContain('color: "rgb(239,68,68)"');
     expect(matches).not.toContain('color: "rgb(34,197,94)"');
+    expect(control).toContain('state === "available" || state === "recording"');
     expect(messaging).toContain('description: "Voice notes unlock after your first call."');
     expect(matches).toContain('description: "Voice notes unlock after your first call."');
     expect(matches).toContain('else if (voicePhase === "idle") startRecording();');

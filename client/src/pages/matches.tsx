@@ -35,23 +35,16 @@ import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prom
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 import { resolveCommunicationEntitlements, type CallGate } from "@shared/communication-entitlements";
-import { CommunicationControl } from "@/components/communication-control";
+import {
+  CommunicationControl,
+  getCommunicationIconStyle,
+  getCommunicationStateStyle,
+  type CommunicationControlState,
+} from "@/components/communication-control";
 
 const MAX_MESSAGES_PER_USER = 15;
 // Stage 1 (post-first-call) quota per spec: 12 messages each way.
-const LOCKED_CALL_COLOR = "hsl(32 12% 54%)";
-const WINE_CALL_COLOR = "hsl(350 45% 34%)";
-const USED_CALL_COLOR = "hsl(350 35% 42%)";
-
-const callStateStyle = (gate: CallGate) => {
-  if (gate.state === "locked") {
-    return { color: LOCKED_CALL_COLOR, opacity: 0.78 };
-  }
-  if (gate.state === "available") {
-    return { color: WINE_CALL_COLOR };
-  }
-  return { color: USED_CALL_COLOR, opacity: 0.88 };
-};
+const callStateStyle = (gate: CallGate) => getCommunicationStateStyle(gate.state);
 // This must stay in sync with POST_CALL_LIMIT in server/routes.ts.
 const POST_CALL_THRESHOLD = 12;
 const MAX_CHARS = 500;
@@ -5120,11 +5113,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   >
                     <Mic
                       className="w-[18px] h-[18px]"
-                      style={voicePhase === "recording"
-                        ? { color: "hsl(350 58% 45%)", transition: "all 200ms ease" }
-                        : voiceNotesUnlocked
-                          ? { color: WINE_CALL_COLOR, transition: "all 200ms ease" }
-                          : { color: LOCKED_CALL_COLOR, opacity: 0.78, transition: "all 200ms ease" }}
+                       style={{
+                         ...getCommunicationStateStyle(
+                           (voicePhase === "recording"
+                             ? "recording"
+                             : voiceNotesUnlocked ? "available" : "locked") as CommunicationControlState,
+                         ),
+                         ...getCommunicationIconStyle(
+                           (voicePhase === "recording"
+                             ? "recording"
+                             : voiceNotesUnlocked ? "available" : "locked") as CommunicationControlState,
+                         ),
+                         transition: "all 200ms ease",
+                       }}
                     />
                   </button>
                   {/* Pulsing halo ring around mic while recording — Lulou rose, no layout impact */}
@@ -5156,14 +5157,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     onClick={() => handleCallAction(false)}
                     aria-busy={startCall.isPending || startPaidCall.isPending}
                     aria-disabled={communicationEntitlements.audio.state === "locked"}
-                    style={callStateStyle(communicationEntitlements.audio)}
+                     style={getCommunicationIconStyle(communicationEntitlements.audio.state)}
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-muted-foreground transition-all active:scale-90 hover:bg-foreground/[0.06]"
                     data-testid={`button-phone-composer-${match.id}`}
                     title={communicationEntitlements.audio.state === "locked" ? "Audio call locked" : communicationEntitlements.audio.state === "available" ? t("start_voice_call") : t("unlock_voice_calling")}
                   >
                     <Phone
                       className="w-[18px] h-[18px] transition-all duration-300"
-                      style={callStateStyle(communicationEntitlements.audio)}
+                       style={getCommunicationIconStyle(communicationEntitlements.audio.state)}
                     />
                   </button>
                 )}
@@ -5175,14 +5176,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     onClick={() => handleCallAction(true)}
                     aria-busy={startCall.isPending || startPaidCall.isPending}
                     aria-disabled={communicationEntitlements.video.state === "locked"}
-                    style={callStateStyle(communicationEntitlements.video)}
+                     style={getCommunicationIconStyle(communicationEntitlements.video.state)}
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-muted-foreground transition-all active:scale-90 hover:bg-foreground/[0.06]"
                     data-testid={`button-video-composer-${match.id}`}
                     title={communicationEntitlements.video.state === "locked" ? "Video call locked" : t("start_video_call")}
                   >
                     <Video
                       className="w-[18px] h-[18px] transition-all duration-300"
-                      style={callStateStyle(communicationEntitlements.video)}
+                       style={getCommunicationIconStyle(communicationEntitlements.video.state)}
                     />
                   </button>
                 )}
