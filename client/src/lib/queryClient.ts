@@ -256,13 +256,15 @@ async function throwIfResNotOk(res: Response, url = "", sentSessionId = "") {
     // (another device logged in).
     if (res.status === 401 && parsed?.message === "session_replaced") {
       const currentSessionId = getAppSessionId();
-      if (!sentSessionId || sentSessionId === currentSessionId) {
+      if (sentSessionId && sentSessionId === currentSessionId) {
         console.warn("[SESSION] session_replaced in API response — dispatching forced-logout event", { url });
         if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+          window.dispatchEvent(new CustomEvent("lulou:session-replaced", {
+            detail: { reason: "session_replaced", sessionId: sentSessionId, source: "api" },
+          }));
         }
       } else {
-        console.warn("[SESSION] session_replaced on STALE apiRequest — ignored (bootstrap completed during flight)", {
+        console.warn("[SESSION] unattributed or stale session_replaced API response ignored", {
           url,
           sentPrefix: sentSessionId.slice(0, 8) + "…",
           currentPrefix: currentSessionId ? currentSessionId.slice(0, 8) + "…" : "(none)",
@@ -402,15 +404,17 @@ export const getQueryFn: <T>(options: {
         // was captured before the fetch).  A genuine cross-device replacement
         // leaves the local session ID unchanged (no bootstrap on this device).
         const currentSessionId = getAppSessionId();
-        if (!sessionId || sessionId === currentSessionId) {
+        if (sessionId && sessionId === currentSessionId) {
           // Session unchanged on this device → genuine replacement.
           console.warn(`[SESSION] session_replaced on query ${url} — dispatching forced-logout event`);
           if (typeof window !== "undefined") {
-            window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+            window.dispatchEvent(new CustomEvent("lulou:session-replaced", {
+              detail: { reason: "session_replaced", sessionId, source: "query" },
+            }));
           }
         } else {
           // Session changed → stale in-flight query; bootstrap already completed.
-          console.warn(`[SESSION] session_replaced on STALE query — ignored (bootstrap completed during flight)`, {
+          console.warn(`[SESSION] unattributed or stale session_replaced query ignored`, {
             url,
             sentPrefix: sessionId.slice(0, 8) + "…",
             currentPrefix: currentSessionId ? currentSessionId.slice(0, 8) + "…" : "(none)",

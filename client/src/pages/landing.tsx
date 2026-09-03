@@ -12,6 +12,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
 import { useLanguageContext } from "@/contexts/language-context";
+import { useAuth } from "@/hooks/use-auth";
 
 type AuthMode = "signin" | "signup";
 type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "delivery" | "auth";
@@ -184,6 +185,7 @@ interface RawAuthError {
 }
 
 export default function Landing() {
+  const { forcedLogoutNotice, dismissForcedLogoutNotice } = useAuth();
   const { t } = useLanguageContext();
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [email, setEmail] = useState("");
@@ -248,19 +250,18 @@ export default function Landing() {
     });
   });
 
-  // Show a one-time toast when the user was signed out because their account
-  // was accessed on another device (flag set by AuthProvider's session watcher).
+  // Show the current runtime's scoped notice once. It is intentionally not kept
+  // in browser storage, so it cannot survive a PWA restart or leak to another user.
   useEffect(() => {
-    const reason = sessionStorage.getItem("lulou_forced_logout");
-    if (reason) {
-      sessionStorage.removeItem("lulou_forced_logout");
+    if (forcedLogoutNotice?.reason === "session_replaced") {
       toast({
         title: "You've been signed out",
         description: "You were signed out because this account was opened on another device.",
         variant: "destructive",
       });
+      dismissForcedLogoutNotice();
     }
-  }, []);
+  }, [forcedLogoutNotice, dismissForcedLogoutNotice, toast]);
 
   // ── Supabase reachability test ────────────────────────────────────────────
   type ReachResult = {
@@ -426,6 +427,9 @@ export default function Landing() {
       return;
     }
     authInProgressRef.current = true;
+    // A deliberate new auth attempt starts a fresh UI lifecycle. The previous
+    // account's already-shown conflict notice must never accompany this attempt.
+    dismissForcedLogoutNotice();
     authCallCountRef.current  = 0;          // reset per-attempt call counter
     writeDebug({ authRequestInProgress: true, authCallsThisAttempt: 0 });
 

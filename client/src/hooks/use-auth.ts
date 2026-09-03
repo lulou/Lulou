@@ -6,6 +6,11 @@ import { stopAllCallSounds } from "@/lib/call-audio";
 import { clearAllArmedSessions, setLoginTime } from "@/lib/live-call-sessions";
 import { writeDebug } from "@/lib/debug-store";
 import type { User } from "@supabase/supabase-js";
+import {
+  isCurrentSessionReplacement,
+  type ForcedLogoutNotice,
+  type SessionReplacedEventDetail,
+} from "@/lib/session-conflict";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AuthContext
@@ -51,6 +56,8 @@ type AuthContextType = {
   // session-gated query should wait for this before firing to avoid sending
   // stale session IDs and triggering false invalid_session errors.
   isSessionReady: boolean;
+  forcedLogoutNotice: ForcedLogoutNotice | null;
+  dismissForcedLogoutNotice: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -115,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // True once the current auth event's verify/bootstrap has completed, meaning
   // the lulou_session_id in localStorage is fresh and protected queries may fire.
   const [isSessionReady, setIsSessionReady] = useState(false);
+  const [forcedLogoutNotice, setForcedLogoutNotice] = useState<ForcedLogoutNotice | null>(null);
   // When true, the query cache is being cleared after an account change.
   // AppContent must not start the profile-exists-check query until this is false,
   // otherwise queryClient.clear() fires mid-flight and resets the in-progress
@@ -163,6 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Updated by a sync useEffect below instead of manually at every setIsSessionReady
   // call site — React guarantees the effect runs before the next paint.
   const isSessionReadyRef = useRef(false);
+  const currentUserRef = useRef<User | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -240,6 +249,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       //   login attempt from a second device finds no row → returns "allowed" → both
       //   devices end up logged in simultaneously.
       if (event === "SIGNED_IN" && u && session?.access_token) {
+        // A confirmed fresh authentication owns a new lifecycle. Any visible
+        // conflict notice from the previous account/session must not cross into it.
+        setForcedLogoutNotice(null);
         const token = session.access_token;
 
         // ── Hard-reset call state on every sign-in ────────────────────────────
@@ -1139,7 +1151,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Only set when the reason is genuinely session_replaced — not for expired/missing
             // sessions which are handled above by bootstrapping.
             if (verifyFailReason === "session_replaced") {
-              sessionStorage.setItem("lulou_forced_logout", "session_replaced");
+              const rejectedSessionId = localStorage.getItem("lulou_session_id") ?? "";
+              if (rejectedSessionId) {
+                setForcedLogoutNotice({
+                  reason: "session_replaced",
+                  invalidatedUserId: u.id,
+                  invalidatedSessionId: rejectedSessionId,
+                });
+              }
             }
             setTimeout(() => {
               if (mounted) setClearingCache(true);
@@ -1220,6 +1239,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loggingOutRef.current = true;
     setIsLoggingOut(true);
     setIsSessionReady(false);
+    setForcedLogoutNotice(null);
     console.log("[AUTH_LOGOUT] logout_pressed");
 
     // ── Explicit logout guard — set SYNCHRONOUSLY, before any async work ─────
@@ -1391,11 +1411,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Only genuine cross-device replacements leave currentSessionId
             // unchanged (no bootstrap happened on this device).
             const currentSessionId = localStorage.getItem("lulou_session_id") ?? "";
-            if (!sessionId || sessionId === currentSessionId) {
+            if (sessionId && sessionId === currentSessionId) {
               console.warn("[AUTH] HEARTBEAT_SESSION_REPLACED — dispatching forced-logout event", {
                 sentPrefix: sessionId ? sessionId.slice(0, 8) + "…" : "(none)",
               });
-              window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+              window.dispatchEvent(new CustomEvent("lulou:session-replaced", {
+                detail: { reason: "session_replaced", sessionId, source: "heartbeat" },
+              }));
             } else {
               console.warn("[AUTH] HEARTBEAT_SESSION_REPLACED_STALE — ignoring (bootstrap completed during flight)", {
                 sentPrefix: sessionId.slice(0, 8) + "…",
@@ -1453,7 +1475,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         console.log("[AUTH] SESSION_REPLACED_BROADCAST received on session channel", { sessionId: mySessionId.slice(0, 8) + "…", payload });
-        window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+        window.dispatchEvent(new CustomEvent("lulou:session-replaced", {
+          detail: { reason: "session_replaced", sessionId: mySessionId, source: "realtime" },
+        }));
       })
       .subscribe((status) => {
         console.log(`[AUTH] SESSION_CHANNEL_STATUS ${channelName} → ${status}`);
@@ -1475,8 +1499,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const handleSessionReplaced = () => {
+    const handleSessionReplaced = (event: Event) => {
       if (!mounted) return;
+      const detail = (event as CustomEvent<SessionReplacedEventDetail>).detail;
+      const currentSessionId = localStorage.getItem("lulou_session_id") ?? "";
+      const currentUser = currentUserRef.current;
+      if (!isCurrentSessionReplacement(detail, currentUser?.id, currentSessionId)) {
+        console.warn("[AUTH] SESSION_REPLACED_IGNORED — event does not own current user/session", {
+          hasCurrentUser: !!currentUser,
+          hasCurrentSessionId: !!currentSessionId,
+          eventHasSessionId: !!detail?.sessionId,
+          source: detail?.source ?? "unknown",
+        });
+        return;
+      }
       console.log("[AUTH] SESSION_REPLACED_FORCED_LOGOUT — clearing state and returning to login page");
       // 1. Stop all call audio and clear call arming state immediately.
       stopAllCallSounds("[AUTH] SESSION_REPLACED forced logout");
@@ -1485,8 +1521,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCachedToken(null);
       // 3. Clear application session key so INITIAL_SESSION won't try to verify it.
       localStorage.removeItem("lulou_session_id");
-      // 4. Set the flag that landing.tsx reads to show the "signed out on another device" toast.
-      sessionStorage.setItem("lulou_forced_logout", "session_replaced");
+      // 4. Keep the notice in AuthProvider memory, scoped to the exact invalidated
+      // user/session. It cannot survive an app restart or leak into another login.
+      setForcedLogoutNotice({
+        reason: "session_replaced",
+        invalidatedUserId: currentUser.id,
+        invalidatedSessionId: currentSessionId,
+      });
       // 5. Clear query cache FIRST — before setUser(null) — so Account B can never
       //    see Account A's cached data, even briefly during the React render caused
       //    by setUser(null).  Clearing after setUser(null) leaves a window where a
@@ -1680,6 +1721,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isSessionReadyRef.current = isSessionReady;
   }, [isSessionReady]);
 
+  useLayoutEffect(() => {
+    currentUserRef.current = user;
+  }, [user]);
+
+  const dismissForcedLogoutNotice = useCallback(() => {
+    setForcedLogoutNotice(null);
+  }, []);
+
   // ── Session bootstrap needed event (from queryClient belt-and-suspenders) ──
   // Fires when a protected query unexpectedly returns 401 invalid_session.
   // Queries should never reach this state if the boot flow is working, but this
@@ -1714,6 +1763,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionBootstrapFailed,
     retrySessionBootstrap,
     isSessionReady,
+    forcedLogoutNotice,
+    dismissForcedLogoutNotice,
   };
 
   return createElement(AuthContext.Provider, { value }, children);

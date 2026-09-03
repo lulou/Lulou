@@ -3004,7 +3004,6 @@ function AppContent() {
         `failureBranch=${_lg("lulou_diag_failure_branch")}`,
         `[SESSION_STATE]`,
         `currentSidPrefix=${_sidNow}`,
-        `forcedLogout=${_ss("lulou_forced_logout")}`,
         `[RETRY_ATTEMPT]`,
         `retryStart=${_lg("lulou_diag_retry_start")}`,
         `retryJwtExp=${_lg("lulou_diag_retry_jwt_exp")}`,

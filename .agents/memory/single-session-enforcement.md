@@ -23,12 +23,13 @@ The spec requires a REVOKE model, not a BLOCK model. When a new device logs in, 
 
 ## Client (use-auth.ts)
 
-- `INITIAL_SESSION` with valid session: async verify via `session-verify`; on failure: clear local Supabase session, remove `lulou_session_id`, set `lulou_forced_logout`, show login.
+- `INITIAL_SESSION` with valid session: async verify via `session-verify`; only an explicit replacement creates a runtime-scoped notice for that user/session before local sign-out.
 - Devices with no `lulou_session_id` (legacy): call `session-check` to register; always gets `allowed:true` (REVOKE model never blocks).
 - `SIGNED_IN` handler: no `deviceBlocked` state or `isBlocked` flag — session-check always grants the login.
 - **`private-session:{mySessionId}`** realtime channel (SESSION-SCOPED): subscribes to OWN session ID so only this device receives its forced-logout broadcast. The new device subscribes to its own different session ID — it never sees the old device's broadcast.
 - Broadcast handler: defense-in-depth check `payload.newSessionId !== mySessionId` to prevent acting on stale broadcasts.
-- `lulou:session-replaced` event: `queryClient.clear()` FIRST, THEN `setUser(null)` — prevents Account B from briefly seeing Account A's cached data. Then stopAllCallSounds, clearAllArmedSessions, setCachedToken(null), signOut({scope:"local"}).
+- `lulou:session-replaced` events include the exact sent session ID. AuthProvider handles them only when that ID still owns the current authenticated user, then clears cache before user state.
+- The forced-logout notice lives only in AuthProvider memory as the invalidated user/session pair. It is consumed once by Landing and cleared on fresh login/manual logout; it never uses browser storage.
 - Heartbeat: sends `X-Session-Id` header, handles 401 `session_replaced` → dispatches event.
 - `deviceBlocked` state REMOVED — REVOKE model makes it impossible to be blocked.
 
@@ -42,7 +43,7 @@ The spec requires a REVOKE model, not a BLOCK model. When a new device logs in, 
 - `handlePasswordReset`: pre-checks `supabase.auth.getSession()` first. If a stored session exists, shows `fpSignOutPrompt` dialog: "You're currently signed in as [email]. Sign out first?" with "Keep me signed in" / "Sign out and send reset" buttons.
 - `handlePasswordResetConfirmed`: called when user confirms sign-out — clears session + calls `_sendPasswordReset()`.
 - `_sendPasswordReset()`: the actual reset email sender — always clears local session first as guard.
-- Toast: "You were signed out because this account was opened on another device."
+- Toast: "You were signed out because this account was opened on another device." It appears only for the exact invalidated runtime session and cannot survive a PWA restart.
 
 ## Fail-open policy
 Network errors / 5xx on session-verify → `verified = true` (user stays in app). Only explicit `{valid:false}` or 401 triggers sign-out.
