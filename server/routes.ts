@@ -4168,19 +4168,8 @@ export async function registerRoutes(
             });
           }
 
-          // Gate 1: voice-note milestone must be acknowledged
-          if (myCount >= 8 && theirCount >= 8) {
-            const [vnRow] = await db.select({ m: voiceNotePopupSeen.matchId })
-              .from(voiceNotePopupSeen)
-              .where(and(eq(voiceNotePopupSeen.matchId, matchId), eq(voiceNotePopupSeen.userId, userId)))
-              .limit(1);
-            if (!vnRow) {
-              console.log("[CALL_START] BLOCKED_VN_MILESTONE_PENDING", { matchId, userId: userId.slice(0, 8) });
-              return res.status(403).json({ message: "milestone_pending", milestone: "voice_notes_unlocked" });
-            }
-          }
-
-          // Gate 2: first-call milestone must be acknowledged
+          // The only pre-call acknowledgement is the first-call milestone.
+          // Voice notes have no message-count milestone and never block call start.
           if (myCount >= 15 && theirCount >= 15) {
             const [fcRow] = await db.select({ m: firstCallPromptSeen.matchId })
               .from(firstCallPromptSeen)
@@ -4781,7 +4770,12 @@ export async function registerRoutes(
       // MIN_VALID_CALL_MS). result.counted is the authoritative, idempotent signal.
       if (result.counted && resolvedCallType === "phone") {
         try {
-          await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
+          await db.insert(voiceNoteUnlocks)
+            .values({ matchId, unlockSource: "post_call" })
+            .onConflictDoUpdate({
+              target: voiceNoteUnlocks.matchId,
+              set: { unlockSource: "post_call", unlockedAt: new Date() },
+            });
           broadcastViaHttpApi(`chat:${matchId}`, "voice-note-post-call-unlock", { matchId }).catch(() => {});
           console.log("[CALL_COMPLETE] VN_UNLOCKED_POST_CALL", { matchId, connectedDurationMs: options.connectedDurationMs });
         } catch (vnErr: any) {
@@ -5224,10 +5218,11 @@ export async function registerRoutes(
         getFirstCallPromptSeen(),
       ]);
 
-      // Fast path: already permanently unlocked — skip re-evaluation of threshold.
+      // Only provenance from a valid counted audio call grants permanent access.
+      // Rows created by the retired message threshold remain "legacy" and are ignored.
       const [existing] = await db.select().from(voiceNoteUnlocks)
         .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
-      if (existing) {
+      if (existing?.unlockSource === "post_call") {
         return res.json({
           unlocked: true,
           popupSeen,
@@ -5464,7 +5459,7 @@ export async function registerRoutes(
           (async () => {
             const [existing] = await db.select().from(voiceNoteUnlocks)
               .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
-            if (existing) return true;
+            if (existing?.unlockSource === "post_call") return true;
             return false;
           })(),
         ]);

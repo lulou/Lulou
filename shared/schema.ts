@@ -526,6 +526,9 @@ export const userMatchBadgeCounts = pgTable("user_match_badge_counts", {
 export const voiceNoteUnlocks = pgTable("voice_note_unlocks", {
   matchId:    text("match_id").primaryKey(),
   unlockedAt: timestamp("unlocked_at").defaultNow().notNull(),
+  // Existing rows created by the retired message-threshold rule migrate as
+  // "legacy" and do not grant access. Only valid call completion writes post_call.
+  unlockSource: text("unlock_source").default("legacy").notNull(),
 });
 
 // ── Voice-note popup-seen state ────────────────────────────────────────────────

@@ -136,6 +136,7 @@ describe("chat composer regressions", () => {
 
   it("does not confuse first-call availability with voice-note completion", () => {
     const messaging = readFileSync("client/src/pages/messaging.tsx", "utf8");
+    const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
     const routes = readFileSync("server/routes.ts", "utf8");
     const resolver = readFileSync("shared/communication-entitlements.ts", "utf8");
 
@@ -146,5 +147,25 @@ describe("chat composer regressions", () => {
     expect(routes).toContain('result.counted && resolvedCallType === "phone"');
     expect(routes).not.toContain("const shouldUnlockByStage");
     expect(routes).not.toContain("return (meta.callStage ?? 0) > 0");
+    expect(routes).toContain('unlockSource: "post_call"');
+    expect(routes).toContain('existing?.unlockSource === "post_call"');
+    expect(matches).not.toContain("You've both sent 8 messages");
+  });
+
+  it("keeps the top communication gadgets fixed-size with labels outside the surface", () => {
+    const control = readFileSync("client/src/components/communication-control.tsx", "utf8");
+    const messaging = readFileSync("client/src/pages/messaging.tsx", "utf8");
+    const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
+
+    expect(control).toContain('h-[50px] w-[50px]');
+    expect(control).toContain("rounded-2xl border");
+    expect(control).toContain('backgroundColor: "hsl(350 45% 34%)"');
+    expect(control).toContain('backgroundColor: "hsl(32 15% 88%)"');
+    expect(control).toContain('aria-disabled={state === "locked"}');
+    expect(control).not.toMatch(/\sdisabled=\{state/);
+    expect(messaging).toContain('data-ui-version="communication-controls-105"');
+    expect(matches).toContain('data-ui-version="communication-controls-105"');
+    expect(messaging).toContain('description: "Voice notes unlock after your first call."');
+    expect(matches).toContain('description: "Voice notes unlock after your first call."');
   });
 });

@@ -362,8 +362,15 @@ async function initLocalDb() {
 
       CREATE TABLE IF NOT EXISTS voice_note_unlocks (
         match_id    TEXT PRIMARY KEY,
-        unlocked_at TIMESTAMP NOT NULL DEFAULT NOW()
+        unlocked_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        unlock_source TEXT NOT NULL DEFAULT 'legacy'
       );
+      ALTER TABLE voice_note_unlocks
+        ADD COLUMN IF NOT EXISTS unlock_source TEXT NOT NULL DEFAULT 'legacy';
+      UPDATE voice_note_unlocks
+        SET unlock_source = 'post_call'
+        WHERE unlock_source = 'legacy'
+          AND unlocked_at >= TIMESTAMPTZ '2026-09-03T07:51:42.797Z';
 
       CREATE TABLE IF NOT EXISTS voice_note_popup_seen (
         match_id TEXT NOT NULL,

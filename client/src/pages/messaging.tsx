@@ -26,6 +26,7 @@ import { useLanguageContext } from "@/contexts/language-context";
 import { type TranslationKey } from "@/lib/i18n";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { resolveCommunicationEntitlements, type CallGate } from "@shared/communication-entitlements";
+import { CommunicationControl } from "@/components/communication-control";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -1706,84 +1707,54 @@ export default function Messaging() {
           )}
         </div>
 
-        {/* ── Action tray: phone / video / mic with credit counts ── */}
+        {/* ── Fixed-size communication controls; labels never resize surfaces. ── */}
         {(!allCallsDone || voiceNotesUnlocked) && (
-          <div className="flex items-center justify-center gap-6 pb-2.5 border-t border-border/30">
+          <div className="flex items-start justify-center gap-4 border-t border-border/30 pb-2.5 pt-2" data-ui-version="communication-controls-105">
             {!allCallsDone && (
-              <button
+              <CommunicationControl
                 onClick={() => handleCallAction(false)}
-                aria-busy={startPaidCall.isPending}
-                aria-disabled={communicationEntitlements.audio.state === "locked"}
-                style={callStateStyle(communicationEntitlements.audio, true)}
-                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
-                data-testid="button-phone-tray"
-              >
-                <Phone
-                  className="w-[18px] h-[18px] transition-all duration-300"
-                    style={callStateStyle(communicationEntitlements.audio)}
-                />
-                <span
-                  className="text-[10px] font-semibold leading-none"
-                    style={callStateStyle(communicationEntitlements.audio)}
-                >
-                  {communicationEntitlements.audio.state === "locked"
+                busy={startPaidCall.isPending}
+                state={communicationEntitlements.audio.state}
+                testId="button-phone-tray"
+                ariaLabel="Audio call"
+                icon={<Phone />}
+                label={communicationEntitlements.audio.state === "locked"
                     ? "Locked"
                     : communicationEntitlements.audio.state === "available"
                       ? "Call"
                       : phoneCredits > 0 ? "Use 1" : "Unlock"}
-                </span>
-              </button>
+              />
             )}
             {!allCallsDone && (
-              <button
+              <CommunicationControl
                 onClick={() => handleCallAction(true)}
-                aria-busy={startPaidCall.isPending}
-                aria-disabled={communicationEntitlements.video.state === "locked"}
-                style={callStateStyle(communicationEntitlements.video, true)}
-                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
-                data-testid="button-video-tray"
-              >
-                <Video
-                  className="w-[18px] h-[18px] transition-all duration-300"
-                    style={callStateStyle(communicationEntitlements.video)}
-                />
-                <span
-                  className="text-[10px] font-semibold leading-none"
-                    style={callStateStyle(communicationEntitlements.video)}
-                >
-                  {communicationEntitlements.video.state === "locked"
+                busy={startPaidCall.isPending}
+                state={communicationEntitlements.video.state}
+                testId="button-video-tray"
+                ariaLabel="Video call"
+                icon={<Video />}
+                label={communicationEntitlements.video.state === "locked"
                     ? "Locked"
                     : communicationEntitlements.video.state === "available"
                       ? "Video"
                       : videoCredits > 0 ? "Use 1" : "Unlock"}
-                </span>
-              </button>
+              />
             )}
-            <button
+            <CommunicationControl
               onClick={() => {
-                       if (communicationEntitlements.voiceNote.state === "locked") {
-                         toast({ title: "Voice notes locked", description: "Voice notes unlock after your first call." });
+                if (communicationEntitlements.voiceNote.state === "locked") {
+                  toast({ title: "Voice notes locked", description: "Voice notes unlock after your first call." });
                   return;
                 }
                 if (voicePhase === "idle") startRecording();
                 else if (voicePhase === "recording") stopRecording();
               }}
-              className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
-              data-testid="button-mic-tray"
-            >
-              <Mic
-                className="w-[18px] h-[18px] transition-all duration-300"
-                style={voiceNotesUnlocked
-                  ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: voicePhase === "recording" ? "drop-shadow(0 0 5px rgba(239,68,68,0.7))" : "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                  : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-              />
-              <span
-                className="text-[10px] font-semibold leading-none"
-                style={voiceNotesUnlocked ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
-              >
-                {voiceNotesUnlocked ? (voicePhase === "recording" ? "Stop" : "Mic") : "Mic"}
-              </span>
-            </button>
+              state={voicePhase === "recording" ? "recording" : communicationEntitlements.voiceNote.state}
+              testId="button-mic-tray"
+              ariaLabel="Voice notes"
+              icon={<Mic />}
+              label={voicePhase === "recording" ? "Stop" : "Mic"}
+            />
           </div>
         )}
 

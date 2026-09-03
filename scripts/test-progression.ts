@@ -2,7 +2,7 @@
  * Progression system tests — Task #64
  *
  * Covers:
- *   1. Threshold tests   — >= 8 (VN) and >= 15 (FC) fire on crossing, not only on ===
+ *   1. Threshold tests   — >= 15 (first call) fires on crossing, not only on ===
  *   2. Concurrency tests — two concurrent atomic increments never lose a count
  *   3. Reconciliation    — the repair logic recounts from messages and caps at 15
  *   4. Exclusion         — __ prefixed system payloads are not counted
@@ -16,7 +16,7 @@ import { Pool } from "pg";
 import { eq, and, sql as sqlExpr } from "drizzle-orm";
 import * as schema from "../shared/schema";
 
-const { matches, messages, voiceNoteUnlocks } = schema;
+const { matches, messages } = schema;
 
 if (!process.env.DATABASE_URL && !process.env.NEON_DATABASE_URL) {
   console.error("DATABASE_URL or NEON_DATABASE_URL must be set");
@@ -89,15 +89,11 @@ async function getCounts(matchId: string): Promise<{ c1: number; c2: number }> {
 
 // ── Milestone detection logic (mirrors routes.ts) ─────────────────────────────
 
-const VN_THRESHOLD = 8;
 const FC_THRESHOLD = 15;
 
 function detectMilestone(pre1: number, pre2: number, post1: number, post2: number): string | null {
-  const vnWas = pre1 >= VN_THRESHOLD && pre2 >= VN_THRESHOLD;
-  const vnNow = post1 >= VN_THRESHOLD && post2 >= VN_THRESHOLD;
   const fcWas = pre1 >= FC_THRESHOLD && pre2 >= FC_THRESHOLD;
   const fcNow = post1 >= FC_THRESHOLD && post2 >= FC_THRESHOLD;
-  if (vnNow && !vnWas) return "voice_notes_unlocked";
   if (fcNow && !fcWas) return "first_call_unlocked";
   return null;
 }
@@ -109,66 +105,7 @@ function detectMilestone(pre1: number, pre2: number, post1: number, post2: numbe
 async function runThresholdTests() {
   console.log("\n── Threshold tests ─────────────────────────────────────────");
 
-  // 1a. VN fires exactly on the crossing message (7+7 → 8+8 in one step each)
-  {
-    const matchId = await createTestMatch();
-    try {
-      // Set both to 7 directly
-      await db.update(matches)
-        .set({ messageCount1: 7, messageCount2: 7 } as any)
-        .where(eq(matches.id, matchId));
-      const pre = await getCounts(matchId);
-
-      // User1 sends 8th message — only user1 crosses, VN not yet eligible
-      const { c1: c1a, c2: c2a } = await atomicIncrement(matchId, true);
-      const m1 = detectMilestone(pre.c1, pre.c2, c1a, c2a);
-      assert(m1 === null, "VN not unlocked when only user1 is at 8 (user2 still 7)");
-
-      // User2 sends 8th message — both cross, VN unlocks
-      const { c1: c1b, c2: c2b } = await atomicIncrement(matchId, false);
-      const m2 = detectMilestone(c1a, c2a, c1b, c2b);
-      assert(m2 === "voice_notes_unlocked", "VN unlocked when both reach 8 (7+7→8+8 exact crossing)");
-    } finally {
-      await cleanupMatch(matchId);
-    }
-  }
-
-  // 1b. >= self-healing: if prior race left count at 9, milestone still fires on next message
-  {
-    const matchId = await createTestMatch();
-    try {
-      // Simulate skipped crossing: user1=9, user2=7 (race lost an increment on user2 at 7→8)
-      await db.update(matches)
-        .set({ messageCount1: 9, messageCount2: 7 } as any)
-        .where(eq(matches.id, matchId));
-      const pre = await getCounts(matchId);
-
-      // User2 sends next message — goes from 7 to 8, both >=8 now — VN fires
-      const { c1, c2 } = await atomicIncrement(matchId, false);
-      const m = detectMilestone(pre.c1, pre.c2, c1, c2);
-      assert(m === "voice_notes_unlocked", ">= self-healing: VN fires when user2 crosses 8 even though user1 is at 9");
-    } finally {
-      await cleanupMatch(matchId);
-    }
-  }
-
-  // 1c. No double-fire: VN already eligible, next message does not re-emit
-  {
-    const matchId = await createTestMatch();
-    try {
-      await db.update(matches)
-        .set({ messageCount1: 8, messageCount2: 9 } as any)
-        .where(eq(matches.id, matchId));
-      const pre = await getCounts(matchId);
-      const { c1, c2 } = await atomicIncrement(matchId, true); // user1: 8→9
-      const m = detectMilestone(pre.c1, pre.c2, c1, c2);
-      assert(m === null, "VN does not re-fire when both already >= 8 before the send");
-    } finally {
-      await cleanupMatch(matchId);
-    }
-  }
-
-  // 1d. FC fires when both reach 15
+  // 1a. First-call availability fires when both reach 15.
   {
     const matchId = await createTestMatch();
     try {
@@ -184,7 +121,7 @@ async function runThresholdTests() {
     }
   }
 
-  // 1e. FC self-healing: user1=16, user2=14 (race skipped 14→15 for user2)
+  // 1b. First-call self-healing: user1=16, user2=14.
   {
     const matchId = await createTestMatch();
     try {
@@ -200,7 +137,7 @@ async function runThresholdTests() {
     }
   }
 
-  // 1f. System message (__ prefix) does not count
+  // 1c. System message (__ prefix) does not count.
   {
     const isSystemPayload = (content: string) => content.trim().startsWith("__");
     assert(isSystemPayload("__VOICE__:abc"), "__ prefix detected as system message");
@@ -274,7 +211,6 @@ async function runConcurrencyTests() {
 async function runReconciliationTests() {
   console.log("\n── Reconciliation tests ────────────────────────────────────");
 
-  const VN_T = 8;
   const FC_T = 15;
 
   // Simulate reconciliation logic (mirrors the admin endpoint)
@@ -282,7 +218,6 @@ async function runReconciliationTests() {
     before: { c1: number; c2: number };
     recount: { c1: number; c2: number };
     after: { c1: number; c2: number };
-    vnEligible: boolean;
     fcEligible: boolean;
   }> {
     const before = await getCounts(matchId);
@@ -305,16 +240,10 @@ async function runReconciliationTests() {
       .where(eq(matches.id, matchId))
       .returning({ messageCount1: matches.messageCount1, messageCount2: matches.messageCount2 });
 
-    const vnEligible = capped1 >= VN_T && capped2 >= VN_T;
-    if (vnEligible) {
-      await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
-    }
-
     return {
       before,
       recount: { c1: raw1, c2: raw2 },
       after: { c1: repaired?.messageCount1 ?? capped1, c2: repaired?.messageCount2 ?? capped2 },
-      vnEligible,
       fcEligible: capped1 >= FC_T && capped2 >= FC_T,
     };
   }
@@ -347,11 +276,7 @@ async function runReconciliationTests() {
 
       assert(result.after.c1 === 8, `Reconcile corrects user1 count from 5 to 8`, `got ${result.after.c1}`);
       assert(result.after.c2 === 8, `Reconcile corrects user2 count from 5 to 8`, `got ${result.after.c2}`);
-      assert(result.vnEligible, "Reconcile detects VN eligible after recount (both >= 8)");
-
-      // Check voiceNoteUnlocks row was inserted
-      const [vnRow] = await db.select().from(voiceNoteUnlocks).where(eq(voiceNoteUnlocks.matchId, matchId));
-      assert(!!vnRow, "Reconcile inserts voiceNoteUnlocks row when VN threshold met");
+      assert(!result.fcEligible, "Reconcile does not grant first-call availability below 15 messages each");
     } finally {
       await cleanupMatch(matchId);
     }
