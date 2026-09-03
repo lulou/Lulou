@@ -40,6 +40,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+// Keep Discover's Open and Close actions on the same restrained premium wine
+// treatment. This reuses the darker burgundy already used by communication UI.
+const DISCOVER_ACTION_COLOR = "hsl(350 45% 34%)";
+const DISCOVER_ACTION_TEXT_COLOR = "hsl(38 38% 94%)";
+
 // Full-width draggable photo card.
 // Uses ProfilePhotoViewer (shared): photos follow finger, spring-settle on release, gap between slides.
 // Gallery photos fetch on card mount; carousel lazy-loads ±1 from current.
@@ -64,7 +69,8 @@ function PhotoHaloAction({
   const disabled = isDisabled || isReacted || isPending;
   return (
     <button
-      className="flex h-[45px] w-[56px] shrink-0 items-center justify-center whitespace-nowrap rounded-[21px] bg-primary px-1 text-[12px] font-medium text-primary-foreground shadow-[0_2px_8px_rgba(40,24,20,0.16)] transition-[transform,box-shadow] active:scale-[0.97] active:shadow-[0_1px_4px_rgba(40,24,20,0.12)] disabled:cursor-default disabled:opacity-65"
+      className="flex h-[45px] w-[56px] shrink-0 items-center justify-center whitespace-nowrap rounded-[21px] px-1 text-[12px] font-medium shadow-[0_2px_8px_rgba(40,24,20,0.16)] transition-[transform,box-shadow] active:scale-[0.97] active:shadow-[0_1px_4px_rgba(40,24,20,0.12)] disabled:cursor-default disabled:opacity-65"
+      style={{ backgroundColor: DISCOVER_ACTION_COLOR, color: DISCOVER_ACTION_TEXT_COLOR }}
       onClick={() => onOpen(photoUrl)}
       disabled={disabled}
       aria-pressed={isReacted}
@@ -1490,10 +1496,12 @@ export default function Discover() {
 
       <button
         type="button"
-        className="fixed z-40 flex h-[45px] w-[56px] items-center justify-center whitespace-nowrap rounded-[21px] bg-primary px-1 text-[12px] font-medium text-primary-foreground shadow-[0_2px_8px_rgba(40,24,20,0.16)] transition-[transform,box-shadow] active:scale-[0.97] active:shadow-[0_1px_4px_rgba(40,24,20,0.12)] disabled:opacity-50"
+        className="fixed z-40 flex h-[45px] w-[56px] items-center justify-center whitespace-nowrap rounded-[21px] px-1 text-[12px] font-medium shadow-[0_2px_8px_rgba(40,24,20,0.16)] transition-[transform,box-shadow] active:scale-[0.97] active:shadow-[0_1px_4px_rgba(40,24,20,0.12)] disabled:opacity-50"
         style={{
           insetInlineStart: "max(1rem, env(safe-area-inset-left, 0px))",
-        bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.5rem)",
+          bottom: "calc(env(safe-area-inset-bottom, 0px) + 5.5rem)",
+          backgroundColor: DISCOVER_ACTION_COLOR,
+          color: DISCOVER_ACTION_TEXT_COLOR,
         }}
         onClick={() => triggerInteract("close")}
         disabled={interact.isPending || isExiting}
