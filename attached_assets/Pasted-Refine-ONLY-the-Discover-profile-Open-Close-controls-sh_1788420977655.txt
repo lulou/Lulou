@@ -1,0 +1,176 @@
+Refine ONLY the Discover profile Open / Close controls shown in the attached REAL iPhone screenshot.
+
+The current version is still wrong in two ways:
+
+1. The buttons are too large.
+2. The ivory/white colour is not the correct Lulou treatment.
+
+Do not redesign Discover.
+Do not change any behaviour.
+
+## CHANGE ONLY THESE TWO CONTROLS
+
+Keep the labels:
+
+Open
+Close
+
+Words only.
+
+No emojis.
+
+## SIZE
+
+Make both controls visibly smaller than they are now.
+
+Target visible size:
+
+- approximately 54–58px wide
+- approximately 44–46px high
+- compact rounded shape
+- border radius around 20–22px
+
+Do NOT return to a chunky pill.
+
+The visible control should feel refined and understated.
+
+Maintain at least a 44×44px interactive hit area for usability.
+
+## COLOUR
+
+Remove the current ivory / cream fill.
+
+Use the proper Lulou rose / wine colour family already used throughout the app.
+
+The colour should feel like:
+
+- muted dusty rose
+- sophisticated wine-pink
+- premium and restrained
+- not bright red
+- not neon
+- not bubblegum pink
+
+Use an existing Lulou design token / colour already present in the app if possible rather than inventing a new random shade.
+
+Text:
+
+- warm white / ivory text
+- strong enough contrast for accessibility
+
+Do not use dark text on a pale cream button like the current screenshot.
+
+## STYLE
+
+Both buttons should use the exact same design system:
+
+- same height
+- same corner radius
+- same fill
+- same typography
+- same shadow treatment
+- same visual weight
+
+Use:
+
+- subtle soft shadow
+- no thick outline
+- no glow
+- no heavy elevation
+
+They should look premium and iOS-like.
+
+## TYPOGRAPHY
+
+Keep:
+
+Open
+Close
+
+single-line and centred.
+
+Use clean medium-weight text.
+
+If needed, reduce font size slightly rather than making the button wider.
+
+## POSITIONING
+
+Preserve the current action locations:
+
+Open:
+- lower-right over the profile photo
+
+Close:
+- lower-left floating near the lower profile section
+
+Do not move them into a completely new layout.
+
+However, once the controls are smaller, refine their exact offsets so they look intentional and balanced.
+
+Ensure:
+
+- Open stays fully inside the rounded photo boundary
+- Open does not collide with the pagination dots
+- Close does not cover the profile name unnecessarily
+- Close remains safely above the bottom navigation
+- neither control is clipped on narrow iPhones
+
+## IMPORTANT
+
+Do not change:
+
+- Open action
+- Close/pass action
+- matching logic
+- undo
+- three-dot menu
+- block/remove
+- pagination
+- profile card sizing
+- photo sizing
+- candidate sourcing
+- bottom navigation
+- Intention Wheel
+- any other page
+
+This is a visual refinement only.
+
+## RESPONSIVE VERIFICATION
+
+Verify on:
+
+- 375px iPhone width
+- 390px iPhone width
+- larger iPhones
+
+Acceptance:
+
+1. Open is clearly smaller than the current screenshot.
+2. Close is clearly smaller than the current screenshot.
+3. Neither button uses ivory/cream anymore.
+4. Both use the correct muted Lulou rose/wine colour.
+5. Both use words only.
+6. Both remain at least 44×44px tappable.
+7. Labels stay single-line.
+8. Open does not overlap pagination.
+9. Close does not awkwardly cover the profile content.
+10. No behaviour changed.
+
+Only edit the minimum source needed for this refinement.
+
+After implementation:
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify the live Vercel bundle contains the updated button styling
+
+At the end report only:
+1. files changed
+2. old size
+3. new size
+4. exact existing Lulou colour/token used
+5. final Open positioning
+6. final Close positioning
+7. production commit
+8. live deployment verification
