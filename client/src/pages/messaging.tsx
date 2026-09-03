@@ -25,6 +25,7 @@ import type { Message, Match, Profile } from "@shared/schema";
 import { useLanguageContext } from "@/contexts/language-context";
 import { type TranslationKey } from "@/lib/i18n";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
+import { resolveCommunicationEntitlements, type CallGate } from "@shared/communication-entitlements";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -1378,6 +1379,38 @@ export default function Messaging() {
   //   Stage 0 → BOTH must be complete (database counts are the source of truth).
   //   Stage ≥ 1 → server already advanced call_stage; use own isLimitReached as before.
   const effectiveIsLimitReached = callStage === 0 ? bothStageComplete : isLimitReached;
+  const communicationEntitlements = resolveCommunicationEntitlements({
+    callStage,
+    messageCount1: matchDetail?.messageCount1,
+    messageCount2: matchDetail?.messageCount2,
+    voiceNotesUnlocked,
+  });
+
+  const showCommunicationGate = (feature: "phone" | "video", gate: CallGate) => {
+    const label = feature === "phone" ? "Voice call" : "Video call";
+    if (gate.reason === "complete_first_call") {
+      toast({ title: `${label} locked`, description: "Complete your first call to unlock video calling." });
+    } else if (gate.reason === "waiting_for_partner") {
+      toast({ title: `${label} locked`, description: `Waiting for your match to finish ${gate.remainingMessages} more message${gate.remainingMessages === 1 ? "" : "s"}.` });
+    } else {
+      toast({ title: `${label} locked`, description: `${gate.remainingMessages} more message${gate.remainingMessages === 1 ? "" : "s"} until this call unlocks.` });
+    }
+  };
+
+  const handleCallAction = (isVideo: boolean) => {
+    if (startPaidCall.isPending) return;
+    const feature = isVideo ? "video" : "phone";
+    const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
+    if (gate.state === "locked") return showCommunicationGate(feature, gate);
+    if (gate.state === "available") {
+      navigate("/matches");
+      return;
+    }
+    const credits = isVideo ? videoCredits : phoneCredits;
+    if (credits > 0) return startPaidCall.mutate({ isVideo });
+    toast({ title: `${isVideo ? "Video" : "Voice"} call used`, description: "Your included call has been used. Additional calls are available through Lulou Extras." });
+    setPurchasePromptFeature(feature);
+  };
 
   // Guard the call CTA card when a call is live (ringing or active).
   // messaging.tsx reads matchDetail from ["/api/matches", matchId]; the ring
@@ -1687,8 +1720,9 @@ export default function Messaging() {
             )}
             <button
               onClick={() => {
-                if (!voiceNotesUnlocked) {
-                  toast({ description: "Voice notes unlock after your first call." });
+                       if (communicationEntitlements.voiceNote.state === "locked") {
+                         const remaining = communicationEntitlements.voiceNote.remainingMessages;
+                         toast({ title: "Voice notes locked", description: `${remaining} more message${remaining === 1 ? "" : "s"} until voice notes unlock.` });
                   return;
                 }
                 if (voicePhase === "idle") startRecording();
@@ -2110,10 +2144,7 @@ export default function Messaging() {
                   {/* Voice call shortcut */}
                    {!allCallsDone && voicePhase === "idle" && (
                     <button
-                      onClick={() => {
-                        if (phoneCredits > 0) startPaidCall.mutate({ isVideo: false });
-                        else setPurchasePromptFeature("phone");
-                      }}
+                       onClick={() => handleCallAction(false)}
                       disabled={startPaidCall.isPending}
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                       data-testid="button-phone-composer"
@@ -2133,10 +2164,7 @@ export default function Messaging() {
                   {/* Video call shortcut */}
                    {!allCallsDone && voicePhase === "idle" && (
                     <button
-                      onClick={() => {
-                        if (videoCredits > 0) startPaidCall.mutate({ isVideo: true });
-                        else setPurchasePromptFeature("video");
-                      }}
+                       onClick={() => handleCallAction(true)}
                       disabled={startPaidCall.isPending}
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                       data-testid="button-video-composer"

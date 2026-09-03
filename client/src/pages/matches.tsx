@@ -30,12 +30,13 @@ import { formatLastActive } from "@/lib/last-active";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
-import { armCallSession, markSessionAsPaid } from "@/lib/live-call-sessions";
+import { armCallSession, markSessionAsPaid, markSessionAsVideo } from "@/lib/live-call-sessions";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
+import { resolveCommunicationEntitlements, type CallGate } from "@shared/communication-entitlements";
 
 const MAX_MESSAGES_PER_USER = 15;
 // Stage 1 (post-first-call) quota per spec: 12 messages each way.
@@ -2237,12 +2238,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   };
 
   const startCall = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ isVideo }: { isVideo: boolean }) => {
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callerId: user?.id, callStage, role: "caller" });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
-      return await res.json();
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, { isVideo });
+      return { data: await res.json(), isVideo };
     },
-    onSuccess: (data: any) => {
+    onSuccess: ({ data, isVideo }: { data: any; isVideo: boolean }) => {
       const m = data?.match ?? data;
       console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callSessionId: m?.callSessionId });
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callSessionId: m?.callSessionId, role: "caller" });
@@ -2255,6 +2256,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // server DB hasn't been cleared yet.
       if (callSessionId) {
         armCallSession(callSessionId);
+        if (isVideo) markSessionAsVideo(callSessionId);
         console.log("[LIVE_CALL] caller session armed via startCall", { callSessionId: callSessionId.slice(0, 8) });
       }
       if (callSessionId && user?.id) {
@@ -2264,6 +2266,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           callerId: user.id,
           callerName: "",
           callSessionId,
+          isVideo,
         });
         console.log("[CALL_UI] CALL_RING_CLIENT_BROADCAST", { matchId: match.id, callSessionId, callerId: user.id });
       }
@@ -3538,6 +3541,48 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     !agreedCallReady      ? 'CALL_SCHEDULED'             as const :
                             'READY_TO_CALL'              as const;
 
+  const communicationEntitlements = resolveCommunicationEntitlements({
+    callStage,
+    messageCount1: detail.messageCount1,
+    messageCount2: detail.messageCount2,
+    voiceNotesUnlocked,
+    firstCallReady: callStageState === "READY_TO_CALL",
+  });
+
+  const showCommunicationGate = (feature: "phone" | "video", gate: CallGate) => {
+    const label = feature === "phone" ? "Voice call" : "Video call";
+    if (gate.reason === "complete_first_call") {
+      toast({ title: `${label} locked`, description: "Complete your first call to unlock video calling." });
+    } else if (gate.reason === "schedule") {
+      toast({ title: `${label} not ready`, description: "Choose a matching call time together below before starting." });
+    } else if (gate.reason === "waiting_for_partner") {
+      toast({ title: `${label} locked`, description: `Waiting for your match to finish ${gate.remainingMessages} more message${gate.remainingMessages === 1 ? "" : "s"}.` });
+    } else {
+      toast({ title: `${label} locked`, description: `${gate.remainingMessages} more message${gate.remainingMessages === 1 ? "" : "s"} until this call unlocks.` });
+    }
+  };
+
+  const handleCallAction = (isVideo: boolean) => {
+    if (startCall.isPending || startPaidCall.isPending) return;
+    const feature = isVideo ? "video" : "phone";
+    const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
+    if (gate.state === "locked") {
+      showCommunicationGate(feature, gate);
+      return;
+    }
+    if (gate.state === "available") {
+      startCall.mutate({ isVideo });
+      return;
+    }
+    const credits = isVideo ? (videoCredits ?? 0) : (phoneCredits ?? 0);
+    if (credits > 0) {
+      startPaidCall.mutate({ isVideo });
+      return;
+    }
+    toast({ title: `${isVideo ? "Video" : "Voice"} call used`, description: "Your included call has been used. Additional calls are available through Lulou Extras." });
+    setPurchasePromptFeature(feature);
+  };
+
   // Auto-show AI starters when chat first opens and has no real user messages yet.
   useEffect(() => {
     if (!expanded || !aiStartersEnabled || hasAutoShownStartersRef.current) return;
@@ -3871,14 +3916,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         <div className={"flex items-center justify-center gap-6 px-4 pb-2.5 border-t border-border/30" + (inputFocused ? " hidden" : "")}>
             {!allCallsDone && (
               <button
-                onClick={() => {
-                  if ((phoneCredits ?? 0) > 0) {
-                    startPaidCall.mutate({ isVideo: false });
-                  } else {
-                    setPurchasePromptFeature("phone");
-                  }
-                }}
-                disabled={startPaidCall.isPending}
+                onClick={() => handleCallAction(false)}
+                disabled={startCall.isPending || startPaidCall.isPending}
                 className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
                 data-testid={`button-phone-tray-${match.id}`}
               >
@@ -3900,14 +3939,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             )}
             {!allCallsDone && (
               <button
-                onClick={() => {
-                  if ((videoCredits ?? 0) > 0) {
-                    startPaidCall.mutate({ isVideo: true });
-                  } else {
-                    setPurchasePromptFeature("video");
-                  }
-                }}
-                disabled={startPaidCall.isPending}
+                onClick={() => handleCallAction(true)}
+                disabled={startCall.isPending || startPaidCall.isPending}
                 className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
                 data-testid={`button-video-tray-${match.id}`}
               >
@@ -4757,7 +4790,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     className="w-full bg-green-600 hover:bg-green-700 text-white"
                     onClick={() => {
                       console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
-                      startCall.mutate();
+                      startCall.mutate({ isVideo: false });
                     }}
                     disabled={startCall.isPending}
                     data-testid={`button-start-call-ready-${match.id}`}
@@ -5139,11 +5172,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <button
                     tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}
-                    onClick={() => {
-                      if ((phoneCredits ?? 0) > 0) startPaidCall.mutate({ isVideo: false });
-                      else setPurchasePromptFeature("phone");
-                    }}
-                    disabled={startPaidCall.isPending}
+                    onClick={() => handleCallAction(false)}
+                    disabled={startCall.isPending || startPaidCall.isPending}
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                     data-testid={`button-phone-composer-${match.id}`}
                     title={(phoneCredits ?? 0) > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
@@ -5163,11 +5193,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <button
                     tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}
-                    onClick={() => {
-                      if ((videoCredits ?? 0) > 0) startPaidCall.mutate({ isVideo: true });
-                      else setPurchasePromptFeature("video");
-                    }}
-                    disabled={startPaidCall.isPending}
+                    onClick={() => handleCallAction(true)}
+                    disabled={startCall.isPending || startPaidCall.isPending}
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all active:scale-90 disabled:opacity-50 hover:bg-foreground/[0.06]"
                     data-testid={`button-video-composer-${match.id}`}
                     title={t("start_video_call")}

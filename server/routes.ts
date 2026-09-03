@@ -42,6 +42,10 @@ import { sendEmail, getEmailLog } from "./emailService";
 import { welcomeEmail } from "./emailTemplates";
 import { registerAdminSimulatorRoutes } from "./adminSimulator";
 import { isLegacyEstablishedProfile } from "@shared/onboarding-compatibility";
+import {
+  isIncludedCallTypeAllowed,
+  resolveCommunicationEntitlements,
+} from "@shared/communication-entitlements";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -4102,10 +4106,11 @@ export async function registerRoutes(
       const serverStorage = getCallStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
+      const { isPaidCredit, isVideo } = req.body || {};
       console.log("[CALL_START] CALL_REQUEST_STARTED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
       console.log("[CALL_START] CALL_SESSION_CHECKED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
 
-      // ── Server-side milestone acknowledgement gate ─────────────────────────
+      // ── Server-side entitlement and milestone acknowledgement gate ─────────
       // Blocks call start until the user has acknowledged all pending milestones.
       // Cannot be bypassed by refreshing, a second device, or an altered frontend.
       // Only applies to the FIRST call (callStage === 0); later calls skip this.
@@ -4114,7 +4119,36 @@ export async function registerRoutes(
         const gateMeta = await gateStorage.getMatchMeta(matchId, userId);
         if (!gateMeta) return res.status(404).json({ message: "Match not found" });
 
-        if ((gateMeta.callStage ?? 0) === 0) {
+        const stage = gateMeta.callStage ?? 0;
+        const includedEntitlements = resolveCommunicationEntitlements({
+          callStage: stage,
+          messageCount1: gateMeta.messageCount1,
+          messageCount2: gateMeta.messageCount2,
+          firstCallReady: true,
+        });
+
+        if (isPaidCredit) {
+          const credits = await serverStorage.getCallCredits(userId);
+          const balance = isVideo ? credits.videoCredits : credits.phoneCredits;
+          if (balance <= 0) {
+            return res.status(403).json({
+              message: "paid_call_credit_required",
+              feature: isVideo ? "video" : "phone",
+            });
+          }
+        }
+
+        if (!isPaidCredit && !isIncludedCallTypeAllowed(includedEntitlements, !!isVideo)) {
+          const gate = isVideo ? includedEntitlements.video : includedEntitlements.audio;
+          return res.status(403).json({
+            message: "call_entitlement_locked",
+            feature: isVideo ? "video" : "phone",
+            reason: gate.reason,
+            remainingMessages: gate.remainingMessages,
+          });
+        }
+
+        if (stage === 0) {
           const isUser1 = gateMeta.user1Id === userId;
           const myCount    = isUser1 ? (gateMeta.messageCount1 ?? 0) : (gateMeta.messageCount2 ?? 0);
           const theirCount = isUser1 ? (gateMeta.messageCount2 ?? 0) : (gateMeta.messageCount1 ?? 0);
@@ -4195,7 +4229,6 @@ export async function registerRoutes(
         }
       }
 
-      const { isPaidCredit } = req.body;
       const result = await serverStorage.startCall(matchId, userId, !!isPaidCredit);
       if (!result) {
         console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
@@ -4239,6 +4272,7 @@ export async function registerRoutes(
         callerId: userId,
         callerName,
         callSessionId: match.callSessionId,
+        isVideo: !!isVideo,
       };
       broadcastCallEvent(matchId, ringPayload);
 
