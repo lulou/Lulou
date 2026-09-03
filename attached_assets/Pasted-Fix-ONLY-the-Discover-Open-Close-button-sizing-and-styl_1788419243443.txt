@@ -1,0 +1,130 @@
+Fix ONLY the Discover Open / Close button sizing and styling shown in the attached REAL iPhone screenshot.
+
+Do not redesign Discover.
+Do not change any behavior.
+
+The current Open ❤️ and Close 🌙 buttons are still too chunky and bulky.
+
+I want them smaller, lighter, and more refined while remaining easy to tap.
+
+## CHANGE ONLY THESE TWO CONTROLS
+
+Keep labels exactly:
+
+Open ❤️
+Close 🌙
+
+Keep placement concept:
+
+Open = lower-right on the profile photo
+Close = lower-left floating action
+
+Do NOT change their actions.
+
+## NEW SIZE
+
+Target visible button size:
+
+- approximately 58px wide
+- approximately 44px high
+- border radius around 22px
+
+The result should feel like a compact premium pill / near-round control.
+
+Do NOT keep the current large chunky shape.
+
+## TYPOGRAPHY
+
+Keep the text on ONE line.
+
+If necessary:
+- slightly reduce font size
+- reduce horizontal padding
+- tighten icon/text spacing
+
+before making the button wider again.
+
+Do not allow:
+- wrapping
+- clipping
+- cramped emoji placement
+
+## TAP TARGET
+
+Even though the visible control becomes smaller, preserve a minimum 44×44px interactive hit area.
+
+Do not reduce usability.
+
+## MATERIAL
+
+Keep the current Lulou rose/wine styling.
+
+Use:
+- restrained rose fill
+- clean white/ivory text
+- subtle premium shadow
+- no thick outline
+- no giant glow
+- no Android-style heavy elevation
+
+Pressed state can use a subtle scale/compression response only.
+
+## POSITIONING
+
+Keep the existing positions broadly the same.
+
+Open:
+- lower-right inside the photo
+- fully inside the rounded image boundary
+
+Close:
+- lower-left floating area
+- fully visible above the bottom navigation
+
+Ensure both:
+- stay inside the viewport
+- do not touch screen edges
+- do not overlap pagination dots
+- do not cover important profile information
+- remain correctly positioned on narrow iPhones
+
+## RESPONSIVE CHECK
+
+Verify on:
+
+- 390px wide iPhone
+- 375px wide iPhone
+- larger iPhones
+
+The buttons must not grow back into large pills on narrower screens.
+
+## DO NOT CHANGE
+
+Do not touch:
+
+- Open logic
+- Close logic
+- matching
+- pass behavior
+- undo
+- block/remove
+- pagination
+- profile layout
+- Discover candidate sourcing
+- bottom navigation
+- Intention Wheel
+
+## ACCEPTANCE
+
+Confirm:
+
+1. Open is visibly smaller than current screenshot.
+2. Close is visibly smaller than current screenshot.
+3. Both use the same visual weight.
+4. Both remain single-line.
+5. Both retain at least 44×44px hit targets.
+6. Neither overlaps pagination.
+7. Neither is clipped by the photo or viewport.
+8. No behavior changed.
+
+Only edit the minimum source needed for this refinement.
