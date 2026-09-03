@@ -1,0 +1,299 @@
+Remove ALL remaining in-app Lulou guide / tutorial / coach-mark popups that appear after the user has already entered the main app.
+
+The attached REAL iPhone screenshot shows one that is still appearing in chat:
+
+“Hold to record a voice note”
+“Release to send automatically. Slide left to cancel.”
+“Got it”
+
+This is exactly the kind of popup that should NOT appear anymore.
+
+We now have one proper required “How to use Lulou” guide at the start of onboarding, before Connection DNA.
+
+That onboarding guide should be the ONLY guide/tutorial experience.
+
+## FINAL PRODUCT RULE
+
+All instructional content should be taught in the required onboarding guide:
+
+Sign up
+→ verify email
+→ profile setup
+→ required “How to use Lulou” guide
+→ Connection DNA
+→ main app
+
+Once the user reaches the main app:
+
+NO tutorial popups
+NO “Got it” coach marks
+NO feature-introduction modals
+NO first-use teaching cards
+NO delayed tips
+NO guide overlays
+
+The main app should feel clean and finished.
+
+## REMOVE THE VOICE-NOTE GUIDE SHOWN IN THE SCREENSHOT
+
+Find the exact trigger/component that displays:
+
+“Hold to record a voice note”
+
+and remove it from the live chat experience.
+
+Do NOT remove voice-note functionality.
+
+Do NOT remove:
+- press-and-hold recording
+- release-to-send
+- slide-to-cancel
+- voice-note gating
+- voice-note playback
+- upload/retry
+- mic permissions
+
+Remove ONLY the instructional popup.
+
+## AUDIT THE WHOLE APP
+
+Do not stop after removing this one popup.
+
+Search the entire client for any remaining old guide/tutorial/tip systems.
+
+Look for:
+
+- “Got it”
+- coach marks
+- first-use modals
+- tutorial popups
+- feature education overlays
+- onboarding tips
+- helper sheets
+- guide cards
+- delayed tips
+- first-time flags
+- localStorage tutorial keys
+- sessionStorage tutorial keys
+- “seen” flags
+- “hasSeen”
+- “showGuide”
+- “showTip”
+- “showTutorial”
+- “showCoachmark”
+- “firstUse”
+- “intro”
+- feature walkthroughs
+- mic tutorial
+- call tutorial
+- discover tutorial
+- intention tutorial
+- likes tutorial
+- connections tutorial
+
+Trace every live render path.
+
+Do not remove normal functional feedback such as:
+- locked-state explanations
+- errors
+- payment explanations
+- permission errors
+- success/failure toasts
+
+Those are functional UI, not tutorials.
+
+## KEEP THE NEWEST REQUIRED ONBOARDING GUIDE
+
+Do NOT remove or weaken the proper six-step onboarding guide that appears before Connection DNA.
+
+Preserve:
+
+- all six slides
+- required mode
+- no Skip option
+- swipe/tap navigation
+- completion persistence
+- onboarding_tutorial_completed
+- centralized onboarding resolver
+- guide → Connection DNA transition
+- direct-route blocking
+- reload persistence
+- logout/re-login persistence
+- legacy-user grandfathering
+
+## IMPORTANT DISTINCTION
+
+REMOVE:
+- teaching popups inside the live app
+- “here’s how this feature works” overlays
+- first-use coach marks
+- “Got it” educational modals
+
+KEEP:
+- locked feature feedback
+- “Voice notes unlock after your first call.”
+- “Your included call has been used.”
+- payment sheets
+- microphone permission warnings
+- network/upload failure feedback
+- destructive-action confirmations
+
+## IF SOME IN-APP TIPS CONTAIN USEFUL CONTENT
+
+Do not keep the popup just because the information is useful.
+
+Instead:
+
+1. identify the useful instruction
+2. confirm whether it is already represented in the newest onboarding guide
+3. if missing, add a concise version to the relevant onboarding slide
+4. remove the live-app popup
+
+For example, the voice-note slide/instruction in onboarding should teach:
+
+- voice notes unlock after the first valid audio call
+- hold mic to record
+- release to send
+- slide left to cancel
+
+Then the live chat itself should not need a tutorial popup.
+
+## DO NOT CREATE MORE ONBOARDING SLIDES UNLESS NEEDED
+
+Prefer improving the existing six slides rather than turning onboarding into a long tutorial.
+
+Keep it premium, concise, and visual.
+
+If voice-note behavior belongs naturally in the messaging/call progression slide, add it there.
+
+## NEW USER EXPERIENCE
+
+Fresh user should see:
+
+1. account setup
+2. newest required Lulou guide
+3. Connection DNA
+4. main app
+
+After that:
+
+- no voice-note tutorial popup
+- no call tutorial popup
+- no Discover tutorial popup
+- no duplicate Lulou guide
+- no feature coach marks
+
+## EXISTING USER EXPERIENCE
+
+Existing users should:
+
+- enter normally
+- not suddenly receive old tutorials
+- not receive the removed mic popup
+- keep normal functional messages only
+
+## CLEAN UP OLD PERSISTENCE SAFELY
+
+If these tutorials use obsolete keys such as:
+
+- localStorage
+- sessionStorage
+- settings fields
+- timers
+- component state
+
+remove the obsolete trigger/path safely.
+
+Do NOT delete or repurpose:
+
+onboarding_tutorial_completed
+
+That remains the authoritative completion state for the newest onboarding guide.
+
+Do not run destructive migrations unless absolutely required.
+
+## TEST
+
+Verify:
+
+1. Fresh account:
+  - required onboarding guide appears
+  - Connection DNA follows
+  - main app opens
+  - no extra tutorials appear
+
+2. Chat:
+  - tap/hold mic after unlock
+  - NO “Hold to record a voice note” popup
+  - recording still works normally
+
+3. Reload chat:
+  - no tutorial popup
+
+4. Logout/re-login:
+  - no tutorial popup
+
+5. Discover:
+  - no old guide overlays
+
+6. Intent:
+  - no old guide overlays
+
+7. Likes:
+  - no old guide overlays
+
+8. Connections:
+  - no old guide overlays
+
+9. Calls:
+  - functional locked/used/payment feedback still works
+
+10. Voice notes:
+  - locked feedback still works before first call
+  - recording works after unlock
+  - no educational coach mark appears
+
+## DO NOT CHANGE
+
+Do not alter:
+
+- matching
+- message quotas
+- call progression
+- voice-note entitlement
+- voice-note upload
+- call timers
+- payments
+- Discover layout
+- Intention Wheel
+- bottom navigation
+- Connection DNA logic
+
+This task is ONLY:
+
+1. remove all remaining post-onboarding tutorial/guide popups
+2. make the required initial “How to use Lulou” guide the single place where feature education happens
+
+## DEPLOYMENT
+
+After implementation:
+
+- run production build
+- search final codebase for remaining old guide triggers
+- inspect diff
+- commit
+- push GitHub main
+- wait for Vercel
+- verify live production bundle no longer contains the removed mic tutorial path
+
+At the end report only:
+
+1. all tutorial/guide components or triggers removed
+2. exact mic tutorial trigger removed
+3. any content moved into the required onboarding guide
+4. newest onboarding guide retained
+5. obsolete persistence keys removed or left safely unused
+6. files changed
+7. regression tests
+8. production commit
+9. live deployment verification

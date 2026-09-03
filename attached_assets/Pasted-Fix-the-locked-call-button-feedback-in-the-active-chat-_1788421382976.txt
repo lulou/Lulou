@@ -1,0 +1,295 @@
+Fix the locked call-button feedback in the active chat AND refine the call-control colour treatment so it matches the more premium Lulou palette we just discussed.
+
+The attached REAL iPhone screenshot proves the current implementation is still wrong:
+
+- the bottom call icon is visibly in a locked/unavailable state
+- I tapped it
+- NOTHING appeared
+- no explanation
+- no toast
+- no sheet
+- no message
+
+This must be fixed.
+
+At the same time, use the refined Lulou palette:
+
+- warm ivory background
+- deep charcoal/brown text
+- dusty rose accents
+- important active actions in a deeper muted wine / burgundy
+- soft taupe / warm grey for inactive states
+
+Do not use bright generic dating-app pink.
+
+## REQUIRED BEHAVIOUR
+
+Any call control that is visible but not currently available must still be tappable for explanation.
+
+When the user taps a locked audio-call control, show a short premium message explaining WHY it is unavailable.
+
+For the current stage shown in the screenshot, use copy like:
+
+“Audio call unlocks after you both complete this chat stage.”
+
+If the app can calculate the real remaining progress, optionally show:
+
+“7 messages left until your first call unlocks.”
+
+Use the REAL current state only.
+
+Do not hardcode fake numbers.
+
+## IMPORTANT
+
+Do NOT disable pointer interaction on the locked control.
+
+A disabled HTML button can prevent the tap handler from firing.
+
+If the current implementation uses:
+
+disabled
+pointer-events-none
+opacity + disabled
+aria-disabled incorrectly
+or another state that suppresses the click/touch event,
+
+change it so the control LOOKS locked but still receives taps.
+
+Use something like:
+
+- visually muted
+- aria-disabled=true if appropriate
+- but preserve onClick/onPointerUp/touch handling for explanation
+
+The tap should NOT start a call while locked.
+
+It should ONLY show the explanation.
+
+## AUDIT EVERY CALL ENTRY POINT
+
+The screenshot shows multiple call/video icons:
+
+- top audio call
+- top video call
+- bottom composer audio call
+- bottom composer video call
+
+Audit all of them.
+
+Each one must use the same shared entitlement state and feedback handler.
+
+No situation where:
+
+- top icon explains the lock but bottom icon does nothing
+- one renderer uses disabled=true and suppresses taps
+- one route uses the shared resolver and another bypasses it
+
+## LOCKED AUDIO COPY
+
+Before first call unlocks:
+
+“Audio call unlocks after you both complete this chat stage.”
+
+If useful, append dynamic remaining progress.
+
+## LOCKED VIDEO COPY
+
+Before video stage:
+
+“Video call unlocks later in your connection.”
+
+Or, if the first call is complete but the second message stage is not:
+
+“Complete this chat stage to unlock video.”
+
+Use the actual stage state.
+
+## USED CALL STATE
+
+If the included call has already been consumed, do NOT show the locked-stage message.
+
+Show:
+
+“Your included audio call has been used.”
+
+Then:
+
+“Unlock another call to keep talking.”
+
+Route to the existing paid call flow.
+
+Equivalent behaviour for video.
+
+## COLOUR / VISUAL STATE SYSTEM
+
+Refine the call and video controls so their colour clearly communicates state and matches the premium Lulou palette.
+
+### LOCKED
+
+Use:
+
+- soft taupe / warm grey icon
+- very subtle warm-grey background if the control has a circular surface
+- no bright pink
+- no harsh disabled grey
+- restrained opacity
+
+It should look unavailable but still intentionally tappable.
+
+### AVAILABLE
+
+Use a deeper premium Lulou wine / muted burgundy.
+
+Think:
+
+- deep dusty wine
+- muted burgundy
+- elegant rose-wine
+- not bright red
+- not neon
+- not bubblegum pink
+
+Use warm ivory icon/text on the active wine surface if needed.
+
+If an existing Lulou deep-wine design token already exists, use that instead of inventing a new random hex.
+
+### USED / PAID
+
+Make this state distinct from both locked and available.
+
+Use:
+
+- deep wine outline or subtle wine-tinted surface
+- premium but not fully “active free call”
+- enough distinction that the user understands it is still actionable
+
+Do not make used/paid calls look disabled.
+
+### TOAST / SHEET COLOUR
+
+Any locked/used explanation toast or bottom sheet should match the same palette:
+
+- warm ivory / cream surface
+- deep charcoal-brown text
+- dusty rose / deep wine accent
+- soft shadow
+- no bright red error styling
+
+## PRESENTATION
+
+Use the existing premium Lulou toast / compact bottom sheet / inline notice system.
+
+Do NOT use:
+
+- browser alert()
+- giant modal
+- ugly red error banner
+
+The message should appear immediately after the tap.
+
+## TOUCH / IPHONE SAFETY
+
+This must work reliably in the installed iPhone PWA.
+
+Support the same interaction pattern already used elsewhere in chat:
+
+- onClick
+- onPointerUp if needed
+- iPhone touch-end fallback if the existing app uses one
+
+Avoid double firing.
+
+Use the existing single-flight / debounce protection.
+
+## SERVER SAFETY
+
+Do not weaken the existing server-side eligibility checks.
+
+The UI explanation is only UX.
+
+Actual call creation must still revalidate eligibility authoritatively before ringing.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- message quotas
+- call stages
+- call durations
+- voice-note unlock rule
+- WebRTC
+- payment rules
+- chat layout
+- stage progress UI
+
+Do not redesign the icons.
+
+Only refine their state colours and interaction feedback.
+
+## TEST EXACTLY
+
+1. Before audio call unlock:
+  - tap top audio icon
+  - explanation appears
+  - no ringing
+  - locked colour = soft taupe/warm grey
+
+2. Before audio call unlock:
+  - tap bottom audio icon
+  - explanation appears
+  - no ringing
+  - same locked styling
+
+3. Before video unlock:
+  - tap top video icon
+  - explanation appears
+
+4. Before video unlock:
+  - tap bottom video icon
+  - explanation appears
+
+5. At exact audio unlock:
+  - audio control changes to deep muted Lulou wine
+  - tap audio
+  - real call starts
+
+6. After included audio call has been consumed:
+  - tap audio
+  - paid-call explanation appears
+  - not the locked-stage message
+  - used/paid colour is distinct from locked and available
+
+7. Same used-state test for video.
+
+8. Verify no duplicate popups from one tap.
+
+9. Verify on installed iPhone PWA.
+
+10. Confirm no bright generic pink remains on these call-state controls.
+
+## DEPLOYMENT
+
+After implementation:
+
+- run focused interaction tests
+- run production build
+- commit
+- push GitHub main
+- wait for Vercel/Railway
+- verify live production bundle contains the updated tap handling and colour states
+
+At the end report only:
+
+1. exact cause of the dead tap
+2. files changed
+3. locked-state interaction fix
+4. exact audio copy
+5. exact video copy
+6. used-call copy
+7. exact Lulou colour token/hex used for available state
+8. exact locked colour token/hex
+9. exact used/paid colour treatment
+10. iPhone touch handling
+11. production commit
+12. live deployment verification

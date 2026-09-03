@@ -1,0 +1,331 @@
+Fix the multi-device sign-out/session-conflict bug shown in the attached REAL iPhone screenshot.
+
+What happened:
+
+- I was already signed into one Lulou account on my phone.
+- I then signed into the SAME account on my laptop.
+- Lulou correctly signed the phone out and showed:
+
+“You’ve been signed out”
+“You were signed out because this account was opened on another device.”
+
+That part is expected.
+
+The bug is what happens AFTERWARD:
+
+Now that same “signed out because this account was opened on another device” message keeps appearing even when:
+
+- I try signing into a different account
+- that different account is NOT open anywhere else
+- I am clearly starting a fresh sign-in
+
+So the forced-sign-out reason is being persisted too broadly and is leaking into later login sessions/accounts.
+
+## ROOT PROBLEM
+
+The “signed out because account opened on another device” reason/state must belong ONLY to the specific session/account that was actually invalidated.
+
+It must NOT persist globally across:
+
+- different users
+- different login attempts
+- fresh sessions
+- sign-out/sign-in cycles
+- app restarts
+
+## REQUIRED BEHAVIOUR
+
+### REAL SAME-ACCOUNT CONFLICT
+
+Example:
+
+Phone signed into Account A
+→ Laptop signs into Account A
+→ Account A on phone is invalidated
+→ phone shows:
+
+“You’ve been signed out”
+“You were signed out because this account was opened on another device.”
+
+Correct.
+
+### AFTER THAT
+
+If the phone then signs into Account B:
+
+- Account B should sign in normally
+- NO “opened on another device” banner
+- NO inherited session-conflict reason from Account A
+
+If Account B has no real session conflict, it must not be treated as conflicted.
+
+## FIND THE EXACT PERSISTENCE BUG
+
+Trace exactly where the forced-sign-out reason is stored.
+
+Audit:
+
+- localStorage
+- sessionStorage
+- cookies
+- React state
+- auth context
+- global app state
+- Supabase auth listeners
+- `X-Session-Id`
+- device/session IDs
+- any “signedOutReason”
+- “forcedLogout”
+- “sessionConflict”
+- “anotherDevice”
+- “duplicateSession”
+- “logoutReason”
+- route state/query params
+
+Find the exact reason it survives into another account.
+
+Do not just hide the banner.
+
+Fix the ownership/lifecycle of that state.
+
+## STATE MUST BE SCOPED CORRECTLY
+
+The session-conflict reason should be tied to something specific, such as:
+
+- the invalidated user ID
+- invalidated app session ID
+- invalidated device session
+
+It must not be one global boolean like:
+
+`wasSignedOutByAnotherDevice = true`
+
+that survives after another user signs in.
+
+## CLEAR THE REASON AT THE RIGHT TIMES
+
+The previous account’s conflict reason must be cleared when appropriate.
+
+At minimum audit clearing on:
+
+- fresh login attempt
+- successful login to a different user
+- normal sign out
+- switching accounts
+- auth session replacement
+- app session creation
+- explicit dismissal if banner has an X
+- invalidated session no longer being current
+
+Do not clear it so early that the genuine Account A conflict message never appears.
+
+Correct lifecycle:
+
+Account A forced out
+→ show Account A conflict message
+→ user proceeds to login
+→ new successful account/session established
+→ stale Account A conflict state cleared
+→ never shown for Account B
+
+## VERY IMPORTANT: IDENTIFY THE CURRENT AUTH USER BEFORE SHOWING THE BANNER
+
+Do not render the “opened on another device” message simply because a stale flag exists.
+
+Before showing it, verify the sign-out event actually belongs to the account/session that was invalidated.
+
+If there is currently a new authenticated user/session, stale conflict state from the previous session must be ignored/cleared.
+
+## MULTI-DEVICE POLICY
+
+Preserve the intended single-active-session behavior if that is Lulou’s existing rule.
+
+Do NOT remove same-account conflict enforcement.
+
+We still want:
+
+Account A on Phone
+→ Account A logs in on Laptop
+→ previous Account A session is invalidated
+
+But this must affect ONLY Account A.
+
+It must NOT contaminate Account B.
+
+## `X-SESSION-ID` / DEVICE SESSION AUDIT
+
+Because Lulou uses app session identifiers, verify:
+
+- each successful login gets/uses the correct session identity
+- old invalidated session IDs do not survive into a new user
+- `X-Session-Id` is refreshed/re-established after account switch
+- a session ID from Account A is never reused for Account B
+- backend session validation is user-scoped
+- session-conflict responses include enough identity/context to avoid global state leakage
+
+## BACKEND RESPONSE AUDIT
+
+If Railway/backend returns a special status/code for duplicate session or another-device login:
+
+make sure the client only maps THAT exact response for THAT exact session to the conflict banner.
+
+Do not convert generic:
+
+- 401
+- 403
+- invalid session
+- expired token
+- stale session ID
+
+into “opened on another device” unless the backend explicitly says that is the reason.
+
+This is important.
+
+A generic auth failure must NOT show the other-device message.
+
+## DIFFERENT FAILURE TYPES MUST STAY DISTINCT
+
+### Another-device conflict
+Show:
+
+“You’ve been signed out”
+“You were signed out because this account was opened on another device.”
+
+### Expired/invalid auth
+Use normal sign-in/session-expired handling.
+
+### Network/API failure
+Use normal reconnect/retry handling.
+
+### Manual sign out
+Do not show forced-sign-out messaging.
+
+Do not collapse every 401 into the same reason.
+
+## BANNER DISMISSAL
+
+The X on the red banner should dismiss the visible banner.
+
+If dismissed:
+
+- do not keep forcing it back on every render
+- do not bring it back for another account
+- dismissal should not alter actual auth/session security
+
+## FRESH LOGIN MUST RESET STALE CONFLICT UI
+
+When login form is submitted for a new account:
+
+do not preload/show the previous account’s forced-logout reason.
+
+After successful authentication:
+
+- compare authenticated user/session
+- clear any stale forced-logout reason from a different user/session
+- initialize the new app session cleanly
+
+## TEST EXACTLY
+
+### TEST 1 — SAME ACCOUNT CONFLICT
+1. Sign Account A into phone.
+2. Sign Account A into laptop.
+3. Phone is invalidated.
+4. Phone shows correct another-device message.
+
+### TEST 2 — DIFFERENT ACCOUNT AFTER CONFLICT
+5. On phone, sign into Account B.
+6. Account B is not open anywhere else.
+7. Account B loads normally.
+8. NO another-device banner appears.
+
+### TEST 3 — ANOTHER DIFFERENT ACCOUNT
+9. Sign out Account B normally.
+10. Sign into Account C.
+11. NO conflict banner.
+
+### TEST 4 — APP RESTART
+12. Trigger Account A conflict.
+13. Return to login.
+14. Close/reopen installed iPhone PWA.
+15. Sign into Account B.
+16. NO stale banner.
+
+### TEST 5 — MANUAL SIGN OUT
+17. Sign into Account B.
+18. Manually sign out.
+19. Return to login.
+20. NO another-device message.
+
+### TEST 6 — GENERIC 401
+21. Force a generic expired-session 401.
+22. App must NOT say “opened on another device” unless backend explicitly returned that reason.
+
+### TEST 7 — TRUE CONFLICT AGAIN
+23. Sign Account B into phone.
+24. Sign Account B into laptop.
+25. Phone correctly gets the conflict message for Account B.
+
+## DO NOT CHANGE
+
+Do not remove:
+
+- same-account single-session enforcement
+- auth security
+- Supabase auth
+- session invalidation
+- login UI
+- banner visual design
+
+Do not redesign the login screen.
+
+This task is specifically:
+
+1. correctly scope the forced-sign-out reason
+2. clear stale conflict state between accounts/sessions
+3. stop generic auth failures being mislabeled as another-device conflicts
+
+## SAFE LOGGING
+
+Add safe diagnostics if needed:
+
+- invalidated user/session category
+- current authenticated user exists yes/no
+- current app session ID exists yes/no
+- forced logout reason
+- backend response category
+- whether stale reason was cleared because account changed
+
+Do NOT log:
+
+- access tokens
+- refresh tokens
+- passwords
+- full auth headers
+- secrets
+
+## DEPLOYMENT
+
+After fixing:
+
+- run auth/session regression tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify Railway session-conflict response handling
+- verify Vercel live bundle
+- test with Account A → Account B sequence
+
+At the end report only:
+
+1. exact root cause
+2. where stale conflict state was stored
+3. how it is now scoped
+4. when it is cleared
+5. backend response distinction implemented
+6. `X-Session-Id` handling changes
+7. files changed
+8. tests
+9. production commit
+10. Vercel/Railway verification
+11. whether physical iPhone Account A → Account B validation is still required

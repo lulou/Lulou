@@ -1,0 +1,264 @@
+Fix the communication-stage state shown in the attached REAL screenshot.
+
+The current behavior is wrong:
+
+- The app says “Call stage unlocked”
+- the first included audio call has NOT been completed yet
+- but the MIC / voice-note control has already turned green/available
+
+That is incorrect.
+
+At this exact point in the progression, the CALL control should be the one that becomes active/green.
+
+Voice notes must remain locked until AFTER the first valid audio call is successfully completed.
+
+## REQUIRED STATE ORDER
+
+Use this exact progression:
+
+Stage 1 messaging complete
+→ first audio call becomes AVAILABLE
+→ audio call control turns active/green
+→ mic remains locked
+→ user completes the first valid audio call
+→ only THEN voice notes unlock
+→ mic becomes active
+→ voice notes remain permanently unlocked for that connection
+
+## IMPORTANT CURRENT SCREEN STATE
+
+When the app displays:
+
+“Call stage unlocked”
+
+the UI should show:
+
+- Audio call = AVAILABLE / active
+- Video call = locked unless its own stage is reached
+- Mic / voice notes = LOCKED
+
+The mic must NOT become active just because `callStage` advanced to the call-available state.
+
+## ROOT CAUSE TO CHECK
+
+The previous voice-note implementation may be incorrectly treating:
+
+`callStage > 0`
+
+or
+
+“call stage unlocked”
+
+as proof that Call 1 has been completed.
+
+That is wrong.
+
+Distinguish clearly between:
+
+1. CALL AVAILABLE
+2. CALL ACTUALLY COMPLETED
+
+Voice-note entitlement must depend only on the second condition.
+
+## AUTHORITATIVE VOICE-NOTE RULE
+
+Voice notes unlock ONLY after the first included audio call has met the existing valid completion rule.
+
+Use the actual persisted Call 1 completion/entitlement state.
+
+Do not infer completion from:
+
+- message quota completion
+- entering the call stage
+- the call button becoming available
+- `callStage` merely changing to the call stage
+- a ringing call
+- an accepted but too-short call
+
+## CALL CONTROL STATE
+
+As soon as Stage 1 messaging is completed properly:
+
+Audio call should become visually active.
+
+Use the premium active Lulou state:
+
+- deep muted wine / burgundy
+- or the current approved active-state token
+- clear active icon
+- obviously tappable
+
+If the current implementation uses green as a temporary generic success colour, replace that with the approved Lulou active colour unless green is intentionally part of the stage-progress system.
+
+Do not make the mic the active control here.
+
+## MIC STATE BEFORE CALL COMPLETION
+
+Before the valid first audio call finishes:
+
+Mic should remain:
+
+- soft taupe / warm grey
+- visually locked
+- not green
+- not active
+
+It must still be tappable for explanation.
+
+Tap copy:
+
+“Voice notes unlock after your first call.”
+
+Do not begin recording.
+
+## AFTER VALID CALL 1 COMPLETION
+
+Immediately after the existing valid Call 1 completion event:
+
+- mic becomes active
+- voice-note entitlement persists
+- audio recording works
+- reload preserves it
+- logout/re-login preserves it
+
+The audio-call control should then transition according to the existing next-stage / used-call rules.
+
+## FAILED CALLS
+
+These must NOT unlock the mic:
+
+- declined
+- unanswered
+- cancelled
+- failed connection
+- call error
+- call shorter than the existing valid completion threshold
+
+The mic remains locked until the authoritative completion condition is met.
+
+## SERVER + CLIENT MUST AGREE
+
+Audit the shared communication resolver AND the server voice-note entitlement.
+
+There must be no path where:
+
+- client mic becomes green before Call 1 completes
+- server accepts a voice note before Call 1 completes
+- one chat renderer unlocks mic while another does not
+
+Use one shared rule.
+
+## CALL BUTTON MUST BE THE ACTIVE ONE AT THIS STAGE
+
+Specifically test the state from the attached screenshot:
+
+Both users finish Stage 1 messages.
+
+Expected:
+
+Top audio call:
+ACTIVE
+
+Bottom audio call:
+ACTIVE
+
+Top video:
+LOCKED
+
+Bottom video:
+LOCKED
+
+Mic:
+LOCKED
+
+Voice-note recording:
+BLOCKED
+
+Mic tap:
+“Voice notes unlock after your first call.”
+
+## AFTER FIRST VALID AUDIO CALL
+
+Expected:
+
+Mic:
+ACTIVE
+
+Voice-note recording:
+WORKING
+
+Call 1:
+consumed / transitions according to existing progression
+
+## DO NOT CHANGE
+
+Do not alter:
+
+- Stage 1 = 15 messages each
+- Call 1 duration
+- Call 1 completion threshold
+- Stage 2 = 12 messages each
+- video-call stage
+- paid-call rules
+- WebRTC
+- voice-note upload/playback implementation
+- message quotas
+- chat layout
+
+This task is ONLY correcting the stage-to-control entitlement mapping.
+
+## TEST EXACTLY
+
+1. 14 messages each:
+  - audio locked
+  - mic locked
+
+2. Stage 1 completed:
+  - audio becomes active
+  - mic stays locked
+
+3. Tap mic:
+  - shows “Voice notes unlock after your first call.”
+  - no recording starts
+
+4. Start Call 1 but decline:
+  - mic stays locked
+
+5. Start Call 1 but fail:
+  - mic stays locked
+
+6. Call connects but does not meet valid completion threshold:
+  - mic stays locked
+
+7. Valid Call 1 completes:
+  - mic unlocks immediately
+
+8. Reload:
+  - mic remains unlocked
+
+9. Logout/re-login:
+  - mic remains unlocked
+
+10. Confirm no message-count or call-stage-available state can unlock voice notes.
+
+## DEPLOYMENT
+
+After fixing:
+
+- run focused communication entitlement tests
+- run production build
+- commit
+- push GitHub main
+- verify Vercel and Railway production behavior
+
+At the end report only:
+
+1. exact root cause
+2. files changed
+3. call-available state logic
+4. authoritative Call 1 completion state used
+5. mic locked-state logic
+6. exact mic locked copy
+7. tests
+8. production commit
+9. live deployment verification
