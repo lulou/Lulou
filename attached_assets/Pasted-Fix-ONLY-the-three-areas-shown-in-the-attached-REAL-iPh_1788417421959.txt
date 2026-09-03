@@ -1,0 +1,619 @@
+Fix ONLY the three areas shown in the attached REAL iPhone screenshots:
+
+1. Intention Wheel header spacing
+2. Intention Wheel spin motion
+3. Discover Open / Close button proportions
+
+I want this implemented carefully in ONE pass.
+
+Before editing, inspect the exact active renderers/styles controlling these three areas so we do not repeat the previous problem of changing inactive or overridden code.
+
+Do NOT redesign unrelated parts of Lulou.
+
+Do NOT change:
+- Wheel candidate selection
+- Wheel randomness
+- winner result
+- eligibility
+- streak calculations
+- purchases
+- matching
+- Discover Open/Close behaviour
+- undo
+- remove/block
+- profile navigation
+- APIs
+- authentication
+- bottom navigation behaviour
+
+This is presentation + Wheel motion only.
+
+==================================================
+1. INTENTION WHEEL HEADER — BALANCE TOP AND BOTTOM SPACE
+==================================================
+
+Look at the REAL iPhone screenshot.
+
+The dark header containing:
+
+“Intention Wheel”
+sound control
+0/10
+
+does not have balanced vertical spacing.
+
+There is noticeably more room above/below the content than feels intentional.
+
+I want the title/control row vertically centred inside that dark header.
+
+Specifically:
+
+- measure the visible top padding from the safe-area/header boundary to the title
+- measure the visible bottom padding from the title/control row to the bottom edge of the darker header block
+- make those spaces visually equal
+
+Do not guess by adding another arbitrary margin.
+
+The header should feel like a premium native iOS navigation/header region.
+
+Keep:
+- current serif “Intention Wheel” typography
+- sound icon
+- 0/10
+- dark wine/plum material
+- no Lulou logo header
+
+The title should remain fully clear of the iPhone status bar.
+
+### Important responsive scenario
+
+Do not hardcode around only one status-bar height.
+
+Use `env(safe-area-inset-top)` correctly so:
+
+- normal iPhone
+- Dynamic Island iPhone
+- installed PWA
+- Safari
+
+all preserve the same balanced visual result.
+
+The SAFE AREA itself does not count as intentional visual padding.
+
+The content padding AFTER the safe area should be balanced with the bottom padding of the dark header.
+
+Target roughly:
+
+safe area
++
+12–16px intentional top space
+[ title / controls ]
+12–16px intentional bottom space
++
+end of dark header
+
+Adjust based on the actual font metrics.
+
+==================================================
+2. INTENTION WHEEL SPIN — FAST START → NATURAL DECELERATION
+==================================================
+
+The spin now physically rotates, which is good, but it feels too much like a fixed-speed mechanical spin.
+
+I want it to feel premium and tactile:
+
+PRESS SPIN
+→ rapidly accelerates / reaches fast motion
+→ spins fast
+→ gradually and continuously slows down
+→ naturally settles onto the selected profile
+
+Think high-end iOS inertial motion rather than a slot machine abruptly switching speeds.
+
+### IMPORTANT
+
+DO NOT change how the winner is selected.
+
+The winner can still be decided using the existing hidden selection logic.
+
+Only change the VISUAL velocity curve used to arrive at that already-selected winner.
+
+The outcome must remain governed by the existing selection/randomness rules.
+
+==================================================
+3. DESIRED SPIN VELOCITY CURVE
+==================================================
+
+Use a continuous motion curve rather than discrete speed phases that are visibly obvious.
+
+A good conceptual timeline is:
+
+0.00s
+User taps SPIN
+
+0.00–0.25s
+Quick smooth acceleration
+
+0.25–approximately 1.8s
+Fast fluid orbit
+
+approximately 1.8s onward
+Begin gradual deceleration
+
+final approximately 1.0–1.5s
+Progressively slower movement with increasing visual anticipation
+
+final moment
+Winner glides naturally into exact centre and stops
+
+Do NOT treat those times as sacred constants.
+
+Tune the final duration to look premium on a real iPhone.
+
+Total spin should probably feel roughly 3.5–5 seconds, depending on the existing winner-lock timing.
+
+It must not feel:
+- instant
+- painfully slow
+- game-like
+- mechanically constant
+
+==================================================
+4. USE CONTINUOUS DECELERATION
+==================================================
+
+Do NOT implement:
+
+FAST
+then
+MEDIUM
+then
+SLOW
+
+as three obvious fixed speed states.
+
+Instead calculate angular velocity continuously.
+
+Something conceptually like:
+
+velocity = easingFunction(progress)
+
+with:
+
+- fast initial velocity
+- gradual easing toward the final target
+- deterministic final centre alignment
+
+Use an ease-out / exponential / quartic-style deceleration or equivalent custom physics that visually feels natural.
+
+The final few cards should visibly move progressively slower.
+
+The user should subconsciously feel:
+
+“it’s slowing… it’s slowing… that’s my connection.”
+
+==================================================
+5. PRESERVE THE EXISTING FLICKER FIX
+==================================================
+
+Do NOT undo the previous animation improvements.
+
+Preserve:
+
+- stable mounted card nodes
+- preloaded/decoded profile images
+- no per-frame React card swapping
+- RAF ownership of movement
+- `translate3d`
+- compositor-friendly transforms
+- `will-change`
+- `backface-visibility`
+- no competing CSS transform transitions during RAF motion
+
+The spin must remain smooth.
+
+Do not introduce new React state updates inside the animation loop.
+
+==================================================
+6. NO FLICKER DURING SPEED CHANGES
+==================================================
+
+Changing the velocity curve must NOT cause:
+
+- photo flashing
+- image replacement
+- skipped frames
+- cards teleporting
+- sudden opacity changes
+- geometry changes
+- card remounts
+
+Only the SPEED OF THE SAME PHYSICAL CARD MOVEMENT should change.
+
+==================================================
+7. FINAL WINNER SETTLE
+==================================================
+
+The chosen card must naturally land in the exact centre position.
+
+There must be no:
+
+- snap to centre
+- second correction movement
+- vertical jump
+- scale jump
+- photo swap
+- flash
+- brief wrong winner
+
+Calculate the deceleration so the existing winning card reaches the centre naturally.
+
+If necessary:
+
+1. determine the winning card ahead of slowdown
+2. calculate remaining angular distance to centre
+3. progressively reduce velocity across that distance
+4. stop at exact centre
+
+Do not alter the winner itself.
+
+==================================================
+8. FRAME-RATE / LOW-END DEVICE SCENARIOS
+==================================================
+
+Make the motion time-based, not frame-count based.
+
+Use RAF timestamps / delta time.
+
+The result must remain consistent if the device renders:
+
+- 120Hz
+- 60Hz
+- temporarily drops frames
+
+Do not make final distance depend on how many animation frames happened.
+
+Clamp unusually large frame deltas after backgrounding/resuming so reopening the app cannot cause the carousel to jump violently.
+
+==================================================
+9. USER LEAVES / INTERRUPTS DURING SPIN
+==================================================
+
+Protect against:
+
+- user navigating away during the spin
+- closing SpinRoom
+- app backgrounding
+- component unmounting
+- route changing
+
+All RAF/timers must cleanly cancel.
+
+No animation may continue modifying detached elements.
+
+Do not leave stale transforms when the user returns.
+
+==================================================
+10. DOUBLE TAP / MULTIPLE SPIN REQUESTS
+==================================================
+
+While a spin is active:
+
+- prevent a second spin starting
+- do not create multiple RAF loops
+- do not consume eligibility twice
+- do not issue duplicate purchase/use actions
+
+Preserve existing single-spin safeguards if they already exist.
+
+Do not change the actual eligibility logic.
+
+==================================================
+11. REDUCED MOTION
+==================================================
+
+Check the existing accessibility handling.
+
+For `prefers-reduced-motion`, do not force a long high-speed orbit.
+
+Use an appropriately shorter/subtler transition while preserving the same selected result.
+
+Do not remove the feature entirely.
+
+==================================================
+12. DISCOVER OPEN / CLOSE BUTTONS — TOO LARGE
+==================================================
+
+In the second REAL iPhone screenshot, Open ❤️ and Close 🌙 are too large and pill-shaped.
+
+They dominate the profile photo.
+
+I want them significantly more compact and more circular.
+
+Current direction:
+large elongated pills
+
+Desired direction:
+compact round / near-round floating action buttons
+
+Think premium dating-app action controls.
+
+==================================================
+13. NEW OPEN / CLOSE SHAPE
+==================================================
+
+Change both buttons consistently.
+
+Target approximately:
+
+56–64px height
+
+and either:
+
+Option A — near-circle:
+64×64px
+
+OR
+
+Option B — compact rounded control:
+approximately 72×58px
+
+Choose whichever keeps the labels readable while making them feel substantially less bulky.
+
+Do NOT retain the current long pill shape.
+
+==================================================
+14. LABELS MUST REMAIN CLEAR
+==================================================
+
+Keep:
+
+Open ❤️
+Close 🌙
+
+Do not change their actions.
+
+If making them fully circular makes the wording cramped, use a compact near-circular capsule rather than forcing bad typography.
+
+The priority is:
+
+- much smaller
+- lightweight
+- premium
+- easy to tap
+- does not dominate the photo
+
+==================================================
+15. OPEN / CLOSE POSITIONING
+==================================================
+
+Preserve the established action concept:
+
+- Close lower-left
+- Open lower-right
+
+But refine their inset from the photo edges so they feel intentionally floating.
+
+They must:
+
+- not touch the screen edges
+- not cover important profile information
+- not overlap pagination dots
+- not get clipped by rounded photo corners
+- remain fully visible while scrolling the profile
+
+Keep their stacking layer above the photo.
+
+==================================================
+16. BUTTON TAP TARGETS
+==================================================
+
+Even if the visual button becomes smaller, maintain at least a 44×44px interactive hit area.
+
+Do not sacrifice usability.
+
+The visible control and hit target do not have to be identical if necessary.
+
+==================================================
+17. OPEN / CLOSE VISUAL MATERIAL
+==================================================
+
+Keep the existing Lulou rose direction but refine it.
+
+Use:
+- restrained rose/wine fill
+- clean white/ivory text
+- subtle premium shadow
+- no thick outlines
+- no giant glow
+- no Android Material-style elevation
+
+Pressed state should have a subtle scale/compression response.
+
+Do not add bouncing or arcade effects.
+
+==================================================
+18. DO NOT AFFECT OTHER DISCOVER CONTROLS
+==================================================
+
+Do not move/change:
+
+- Undo
+- three-dot menu
+- Remove
+- Block
+- photo pagination
+- profile scroll
+- profile information
+- conversation starters
+- Discover candidate logic
+
+Only Open and Close sizing/shape/placement.
+
+==================================================
+19. RESPONSIVE DISCOVER SCENARIOS
+==================================================
+
+Verify the smaller controls on:
+
+- 390×844
+- narrow iPhones around 375px
+- larger iPhones
+
+Ensure:
+
+- both buttons remain fully inside photo
+- they never collide
+- they do not get pushed outside the viewport
+- labels never wrap onto two lines
+- safe-area does not affect their photo-relative placement
+
+==================================================
+20. INTENTION WHEEL RESTING PAGE — DO NOT BREAK IT
+==================================================
+
+The current Wheel resting composition has undergone multiple fixes.
+
+Do NOT casually alter:
+
+- three-card geometry
+- current card widths
+- current card gaps
+- thumbnail row
+- SPIN positioning
+- progress
+- streak explanation
+- bottom navigation
+
+The ONLY resting-page change requested now is the balanced dark-header spacing.
+
+Do not reintroduce earlier layout regressions while editing SpinRoom.
+
+==================================================
+21. ACTIVE SPIN AND RESTING CARDS MUST REMAIN SEPARATE
+==================================================
+
+Be careful because previous work revealed shared card nodes/styles between resting and active modes.
+
+Any geometry changes needed for SpinRoom MUST be gated to active SpinRoom only.
+
+Do not accidentally change the resting profile card dimensions.
+
+Conversely, header changes must not affect the SpinRoom full-screen result header.
+
+==================================================
+22. TEST THE COMPLETE WHEEL STATE MACHINE
+==================================================
+
+Test:
+
+RESTING
+→ tap SPIN
+→ acceleration
+→ fast rotation
+→ smooth continuous slowdown
+→ exact winner centre
+→ result
+→ close result
+→ clean resting state
+
+Confirm:
+
+- no residual transform
+- no stale opacity
+- no incorrect z-index
+- no shifted cards
+- no duplicate RAF
+- no flicker
+- no blank image
+- next spin can start correctly when eligible
+
+==================================================
+23. REAL IPHONE ACCEPTANCE — HEADER
+==================================================
+
+At 390×844 verify:
+
+- Intention Wheel title clears status bar
+- intentional space ABOVE title/control row approximately equals intentional space BELOW it
+- header is not too tall
+- header is not cramped
+- sound and 0/10 remain vertically centred with title
+
+==================================================
+24. REAL IPHONE ACCEPTANCE — SPIN
+==================================================
+
+Capture multiple points from ONE spin:
+
+A. immediately after start
+B. fast motion
+C. beginning slowdown
+D. late slowdown
+E. winner settled
+
+Verify visually:
+
+- speed noticeably changes continuously
+- early motion is fast
+- later motion progressively slows
+- no discrete speed jump
+- no flicker
+- no photo popping
+- winner settles naturally
+- no final snap
+
+If possible use performance timestamps/frame positions rather than judging only from screenshots.
+
+==================================================
+25. REAL IPHONE ACCEPTANCE — OPEN / CLOSE
+==================================================
+
+Verify on the Discover profile shown in the screenshot:
+
+- Open is substantially smaller
+- Close is substantially smaller
+- both feel round/near-round
+- neither dominates the image
+- labels remain readable
+- neither overlaps photo pagination
+- both remain ≥44px tap targets
+- actions still work correctly
+
+==================================================
+26. DEPLOYMENT — DO NOT REPEAT THE LOCAL-ONLY PROBLEM
+==================================================
+
+After implementation:
+
+1. run production build
+2. run relevant regression tests
+3. inspect diff for unrelated changes
+4. commit
+5. push GitHub main
+6. wait for Vercel
+7. verify live `sw.js` commit
+8. verify the fresh production bundle contains the new implementation
+
+Do NOT report the task completed from local source alone.
+
+==================================================
+27. FINAL REPORT
+
+Report only:
+
+1. exact files changed
+2. Intention Wheel header old/new vertical padding
+3. exact spin velocity/easing strategy implemented
+4. total visual spin duration/range
+5. how exact winner-centre alignment is guaranteed
+6. confirmation stable-node/preload flicker protections remain
+7. Open/Close old/new dimensions
+8. Open/Close final offsets
+9. 44px tap-target confirmation
+10. regression tests/build result
+11. production commit
+12. live service-worker/bundle verification
+13. real-iPhone header validation result
+14. real-iPhone multi-phase spin smoothness result
+15. real-iPhone Open/Close validation result
