@@ -6187,6 +6187,24 @@ export async function registerRoutes(
 
   // EXTRAS_ITEMS, ELEVATE_PACKS, ExtrasItemId, ElevatePackId imported from ./purchaseItems
 
+  const resolveStripeReturnBaseUrl = (req: any): string => {
+    const requestOrigin = typeof req.headers.origin === "string"
+      ? req.headers.origin.trim().replace(/\/$/, "")
+      : "";
+    const trustedOrigins = new Set([
+      "https://www.luloudating.com",
+      "https://luloudating.com",
+      "https://lulouapp.vercel.app",
+    ]);
+    const isTrustedDevOrigin = /^https:\/\/[a-z0-9-]+\.replit\.(dev|app)$/i.test(requestOrigin);
+    if (trustedOrigins.has(requestOrigin) || isTrustedDevOrigin) {
+      return requestOrigin;
+    }
+
+    const configured = process.env.FRONTEND_URL?.trim().replace(/\/$/, "");
+    return configured || "https://www.luloudating.com";
+  };
+
   app.post("/api/stripe/extras-checkout", isAuthenticated, paymentLimiter, async (req: any, res) => {
     const userId = req.user.id;
     const { itemId, returnPath } = req.body;
@@ -6199,8 +6217,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Invalid item. Must be one of: ${Object.keys(EXTRAS_ITEMS).join(", ")}` });
       }
       const stripe = getUncachableStripeClient();
-      const baseUrl = process.env.FRONTEND_URL ??
-        `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
+      const baseUrl = resolveStripeReturnBaseUrl(req);
 
       // Build a safe cancel URL from the caller-supplied returnPath.
       // Only allow relative paths starting with "/" to prevent open-redirect attacks.
@@ -6586,9 +6603,7 @@ export async function registerRoutes(
       }
 
       const stripe = getUncachableStripeClient();
-      const baseUrl =
-        process.env.FRONTEND_URL ??
-        `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
+      const baseUrl = resolveStripeReturnBaseUrl(req);
 
       const session = await (stripe.billingPortal.sessions.create as Function)({
         customer: sub.stripeCustomerId,
@@ -6638,8 +6653,7 @@ export async function registerRoutes(
       const safeCancelPath = allowedCancelPaths.includes(cancelPath ?? "") ? (cancelPath ?? "/likes") : "/likes";
 
       const stripe = getUncachableStripeClient();
-      const baseUrl = process.env.FRONTEND_URL ??
-        `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
+      const baseUrl = resolveStripeReturnBaseUrl(req);
 
       const isSuper = pack.type === "super_elevate";
       const description = isSuper

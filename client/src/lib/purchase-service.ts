@@ -1,5 +1,4 @@
-import { supabase } from "./supabase";
-import { API_BASE } from "./queryClient";
+import { API_BASE, getAuthHeaders } from "./queryClient";
 
 // ── Debug state (module-level singleton) ──────────────────────────────────────
 // Consumed by PurchaseDebugPanel (dev-only) and available to any component.
@@ -59,7 +58,16 @@ export interface StartPurchaseOpts {
   onError?: (msg: string) => void;
 }
 
+let checkoutInFlight = false;
+const CHECKOUT_FAILURE_MESSAGE = "Checkout couldn’t start. Please try again.";
+
 export async function startPurchase(opts: StartPurchaseOpts): Promise<void> {
+  if (checkoutInFlight) {
+    console.warn(`[PURCHASE] DUPLICATE_CLICK_IGNORED product=${opts.productId}`);
+    return;
+  }
+  checkoutInFlight = true;
+
   const endpoint = opts.endpoint ?? "/api/stripe/extras-checkout";
   const fullUrl = `${API_BASE}${endpoint}`;
   const apiBase = API_BASE || "(empty=same-origin)";
@@ -69,31 +77,26 @@ export async function startPurchase(opts: StartPurchaseOpts): Promise<void> {
   console.log(`[PURCHASE] API_BASE "${apiBase}"`);
   console.log(`[PURCHASE] REQUEST_URL "${fullUrl}"`);
 
-  let token: string | null = null;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    token = session?.access_token ?? null;
-  } catch {}
+    const authHeaders = await getAuthHeaders();
+    _emit({
+      product: opts.productId,
+      apiBase,
+      endpoint,
+      hasToken: !!authHeaders.Authorization,
+      status: null,
+      body: "",
+      sessionId: "",
+      redirectUrl: "",
+      error: "",
+      ts: Date.now(),
+    });
 
-  _emit({
-    product: opts.productId,
-    apiBase,
-    endpoint,
-    hasToken: !!token,
-    status: null,
-    body: "",
-    sessionId: "",
-    redirectUrl: "",
-    error: "",
-    ts: Date.now(),
-  });
-
-  try {
     const res = await fetch(fullUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...authHeaders,
       },
       body: JSON.stringify(opts.body),
       credentials: "include",
@@ -123,13 +126,15 @@ export async function startPurchase(opts: StartPurchaseOpts): Promise<void> {
       const errMsg = parsed?.message ?? `HTTP ${res.status}: ${bodyPreview.slice(0, 120)}`;
       console.error(`[PURCHASE] ERROR ${errMsg}`);
       _emit({ error: errMsg });
-      opts.onError?.(errMsg);
+      opts.onError?.(CHECKOUT_FAILURE_MESSAGE);
     }
   } catch (err: any) {
     const errMsg = err?.message ?? "Network error";
     console.error(`[PURCHASE] ERROR ${errMsg}`);
     _emit({ error: errMsg });
-    opts.onError?.(errMsg);
+    opts.onError?.(CHECKOUT_FAILURE_MESSAGE);
+  } finally {
+    checkoutInFlight = false;
   }
 }
 
@@ -146,18 +151,13 @@ export async function restorePurchases(opts: RestorePurchasesOpts): Promise<void
   console.log("[PURCHASE] RESTORE_STARTED");
   opts.onLoading?.(true);
 
-  let token: string | null = null;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    token = session?.access_token ?? null;
-  } catch {}
-
-  try {
+    const authHeaders = await getAuthHeaders();
     const res = await fetch(`${API_BASE}/api/stripe/restore-purchases`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...authHeaders,
       },
       body: JSON.stringify({}),
       credentials: "include",
