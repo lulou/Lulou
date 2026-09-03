@@ -1,0 +1,486 @@
+Change ONLY the voice-note unlock rule AND make the voice-note experience fully reliable end-to-end so it behaves like a polished modern social/messaging app.
+
+Do not redesign the chat UI.
+
+The current implementation unlocks voice notes when both users reach 8 messages OR after a valid completed call.
+
+I want to remove the 8-message unlock completely.
+
+## NEW VOICE-NOTE RULE
+
+Voice notes should unlock ONLY after the first included audio call has been successfully completed.
+
+The intended progression is:
+
+Stage 1 text messaging
+→ both users complete the required 15-message stage
+→ first included audio call becomes available
+→ first audio call is successfully completed
+→ voice notes unlock permanently for that connection
+
+Do not unlock voice notes before that first valid completed call.
+
+## IMPORTANT
+
+A failed call must NOT unlock voice notes.
+
+Do not unlock voice notes if the call is:
+
+- declined
+- unanswered
+- cancelled
+- fails to connect
+- errors before valid connection
+- ends before the existing valid-completion threshold
+
+Use the existing authoritative “valid completed call” state already used for stage progression.
+
+Do not invent a second completion rule.
+
+## AFTER UNLOCK
+
+Once the first valid audio call is completed:
+
+- voice notes remain unlocked permanently for that match
+- reload must preserve the unlocked state
+- logout/re-login must preserve it
+- later stage changes must not lock voice notes again
+- later paid calls must not affect voice-note access
+
+## LOCKED FEEDBACK
+
+Before the first valid audio call is completed, tapping the microphone should show:
+
+“Voice notes unlock after your first call.”
+
+Do not show a fake remaining-message count anymore because voice notes no longer unlock from a message threshold.
+
+## SINGLE SOURCE OF TRUTH
+
+Update the shared communication entitlement resolver so voice-note state is based ONLY on the authoritative completed-first-call state.
+
+Remove the old 8-message condition everywhere.
+
+Audit:
+
+- active chat renderer
+- any duplicate/legacy chat renderer
+- mic UI state
+- recording entry point
+- server-side voice-note upload entitlement
+- retry path
+
+There must be no path where:
+
+- one mic shows unlocked while another is locked
+- client allows recording but server rejects it
+- server accepts a recording before Call 1 completion
+- stale threshold logic still unlocks at 8 messages
+
+## NOW FIX THE ACTUAL VOICE-NOTE EXPERIENCE END-TO-END
+
+I want voice notes to work like they do in polished social/messaging apps such as WhatsApp, Instagram, iMessage, Messenger, etc.
+
+Do not copy their branding.
+
+Use them only as a benchmark for reliability and expected user behaviour.
+
+The voice-note flow must be:
+
+press/hold mic
+→ recording starts immediately
+→ clear active recording state
+→ release to send
+→ recording processes quickly
+→ playable voice-note bubble appears
+→ recipient receives it in realtime
+→ recipient can tap play
+→ progress moves smoothly
+→ sender and recipient both see the same message state
+
+## 1. RECORDING UX
+
+When the mic is unlocked:
+
+- press/hold starts recording
+- recording indicator appears immediately
+- show elapsed duration
+- mic only shows active while genuinely recording
+- releasing ends recording and starts send
+- cancelling should cleanly discard the recording
+- all microphone tracks must stop after finish/cancel/error
+
+Do not leave the mic green/stuck after recording.
+
+## 2. IOS / SAFARI / PWA COMPATIBILITY
+
+This must work correctly on iPhone PWA/Safari.
+
+Use runtime MIME detection:
+
+`MediaRecorder.isTypeSupported(...)`
+
+Choose the best supported format dynamically.
+
+Support appropriate iPhone formats such as:
+
+- audio/mp4
+- audio/x-m4a
+- AAC variants
+
+and other supported formats such as:
+
+- audio/webm
+- audio/ogg
+
+Do not hardcode WebM if the device does not support it.
+
+The filename extension must match the actual Blob MIME type.
+
+Examples:
+- audio/mp4 → .m4a or compatible MP4 audio extension
+- audio/webm → .webm
+- audio/ogg → .ogg
+
+## 3. VALIDATE THE RECORDED BLOB
+
+Before upload:
+
+- Blob must exist
+- Blob size must be greater than zero
+- Blob MIME type must be known/supported
+- duration should be sensible
+- invalid/empty recordings should fail gracefully
+
+Do not create a broken voice-note message from an empty Blob.
+
+## 4. UPLOAD RELIABLY
+
+Trace and harden the full upload pipeline:
+
+- FormData
+- correct field names
+- Authorization
+- X-Session-Id
+- credentials
+- Railway endpoint
+- multipart parsing
+- MIME validation
+- file-size limits
+- Supabase Storage / current storage provider
+- correct Content-Type
+- returned playable audio URL
+- message creation
+- realtime insertion
+
+Make sure the server accepts the same MIME types the iPhone client can actually produce.
+
+## 5. SEND STATE
+
+A newly recorded voice note should transition through clean states:
+
+recording
+→ processing
+→ sending
+→ sent
+
+Do not show a failed bubble while a valid upload is still in progress.
+
+The sender should see the pending voice note immediately, then it should become sent once the backend confirms success.
+
+## 6. RECIPIENT DELIVERY
+
+After successful upload/message creation:
+
+- recipient should receive the voice note via the existing realtime messaging path
+- no refresh should be required
+- no duplicate voice-note message should appear
+- the voice-note bubble should be immediately playable once the URL is available
+
+Test sender and recipient views.
+
+## 7. PLAYBACK UI
+
+Implement/verify a proper voice-note bubble like a modern messaging app.
+
+At minimum include:
+
+- play / pause control
+- waveform or clean progress bar
+- elapsed/current playback position
+- total duration if available
+- smooth progress updates
+- clear sent/failed state
+- appropriate sender/recipient bubble styling
+
+Do not use a raw browser `<audio controls>` UI unless there is already a deliberate custom wrapper around it.
+
+The bubble should feel native to the existing Lulou chat design.
+
+## 8. ONE AUDIO PLAYING AT A TIME
+
+If one voice note is playing and the user starts another:
+
+- pause/stop the previous one
+- play the newly selected one
+
+Do not allow multiple voice notes to play over each other.
+
+## 9. PLAYBACK FAILURE
+
+If the audio URL fails to load:
+
+- show a small retry state
+- do not crash the chat
+- do not permanently lock the bubble
+
+## 10. RETRY FAILED SENDS
+
+If upload/message creation fails:
+
+show:
+
+“Failed — tap to retry”
+
+But make that retry actually work.
+
+Each failed local voice note must retain:
+
+- its Blob for the current session
+- MIME type
+- duration if available
+- stable clientRequestId
+
+When tapped:
+
+- retry the SAME recorded Blob
+- do not start a new recording
+- do not create a duplicate upload
+- show a sending/retrying state
+- prevent repeated rapid taps
+- on success replace/update the failed bubble
+- on failure remain retryable
+
+## 11. IDEMPOTENCY / DUPLICATE PROTECTION
+
+Use the existing stable `clientRequestId` / idempotency path.
+
+A retry after:
+
+- network drop
+- lost response
+- app timeout
+
+must not create two server-side voice-note messages.
+
+One recording = one final message.
+
+## 12. NETWORK INTERRUPTIONS
+
+Test:
+
+- network goes offline during upload
+- network returns
+- user taps retry
+- one voice note eventually sends
+- no duplicate
+- mic stays idle after recording ended
+
+If the app already has reconnect behaviour, integrate with it rather than creating a parallel system.
+
+## 13. RECORDING CANCEL
+
+Provide a clean cancellation path if already supported.
+
+On cancel:
+
+- recorder stops
+- tracks stop
+- chunks cleared
+- no upload begins
+- no failed bubble remains
+
+Do not accidentally send cancelled audio.
+
+## 14. MIN/MAX RECORDING LENGTH
+
+Use sensible existing product limits.
+
+If none exist, add reasonable safeguards without changing the product unnecessarily:
+
+- reject extremely tiny accidental taps if the recording is effectively empty
+- cap overly long recordings if required for storage/performance
+
+Do not invent aggressive limits unless needed.
+
+## 15. PERMISSION DENIED
+
+If microphone permission is denied:
+
+show a short user-friendly message such as:
+
+“Microphone access is needed to send a voice note.”
+
+Do not leave the mic in an active state.
+
+Do not repeatedly prompt in a loop.
+
+## 16. APP BACKGROUND / UNMOUNT
+
+If the user:
+
+- leaves the chat
+- backgrounds the PWA
+- navigates away
+- component unmounts
+
+while recording:
+
+clean up safely.
+
+Stop:
+
+- MediaRecorder
+- microphone tracks
+- timers
+- listeners
+
+Do not leave the iPhone microphone indicator active.
+
+## 17. MAXIMUM RELIABILITY
+
+Add safe diagnostics around failures.
+
+Log only safe metadata such as:
+
+- stage reached
+- selected MIME type
+- Blob size
+- upload HTTP status
+- storage stage
+- message-insert stage
+- clientRequestId
+- high-level failure category
+
+Do NOT log:
+
+- audio bytes
+- auth tokens
+- private message content
+- full playback URLs if sensitive
+- secrets
+
+## 18. PRESERVE CURRENT CHAT DESIGN
+
+Do not redesign:
+
+- composer
+- message layout
+- stage progress UI
+- chat header
+- call icons
+- conversation starters
+
+Only make the voice-note bubble as polished as needed to support reliable recording/playback.
+
+## 19. DO NOT CHANGE OTHER PRODUCT RULES
+
+Do not change:
+
+- Stage 1 = 15 messages each
+- Call 1 eligibility
+- Call 1 duration
+- Stage 2 = 12 messages each
+- video-call eligibility
+- later message stages
+- paid-call rules
+- matching
+- WebRTC
+- text message quotas
+
+This task is specifically:
+
+1. voice notes unlock only after valid Call 1
+2. voice notes work end-to-end reliably
+
+## 20. TEST THE FULL FLOW
+
+### LOCKING
+1. 0–14 Stage 1 messages → mic locked.
+2. 15 messages each but Call 1 not completed → mic still locked.
+3. Call declined → mic locked.
+4. Call unanswered → mic locked.
+5. Call failure → mic locked.
+6. Too-short/invalid call → mic locked.
+7. Valid Call 1 completes → mic unlocks immediately.
+
+### PERSISTENCE
+8. Reload → mic still unlocked.
+9. Logout/re-login → mic still unlocked.
+10. Later stages → mic remains unlocked.
+
+### RECORDING
+11. Hold mic → recording begins.
+12. Duration updates.
+13. Release → recording stops.
+14. iPhone mic indicator clears.
+15. Blob is non-zero and valid.
+16. Correct MIME/extension selected.
+
+### SENDING
+17. Upload succeeds.
+18. One pending bubble becomes one sent bubble.
+19. Recipient receives it without refresh.
+20. Recipient can play it.
+
+### PLAYBACK
+21. Play/pause works.
+22. Progress updates.
+23. Duration displays correctly.
+24. Starting another voice note stops the previous one.
+25. Audio still works after chat reload.
+
+### FAILURE / RETRY
+26. Force network failure during upload.
+27. Failed bubble appears.
+28. Mic remains idle.
+29. Tap retry.
+30. Existing Blob is reused.
+31. Retry succeeds.
+32. Only one server message exists.
+
+### IOS
+33. Run the full flow on the installed iPhone PWA using the MIME format actually supported by that device.
+
+## 21. DEPLOYMENT
+
+After implementation:
+
+- run focused voice-note tests
+- run entitlement tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- wait for Vercel and Railway
+- verify live service-worker/build
+- verify backend route is deployed
+
+Do not report completion from local source alone.
+
+At the end report only:
+
+1. files changed
+2. old voice-note unlock rule
+3. new voice-note unlock rule
+4. authoritative Call 1 completion state used
+5. exact iPhone MIME selection strategy
+6. recording lifecycle implemented
+7. upload/storage/message-delivery flow
+8. playback UX implemented
+9. retry/idempotency behavior
+10. locked user-facing copy
+11. regression tests
+12. production commit
+13. Vercel/Railway deployment verification
+14. any final physical-iPhone-only validation still required
