@@ -5183,8 +5183,8 @@ export async function registerRoutes(
   });
 
   // ── Voice Notes entitlement & upload ─────────────────────────────────────
-  // Voice notes unlock threshold — both users must reach this count before voice notes open.
-  // First-call unlock threshold — both users must reach this count before the first call is possible.
+  // Voice notes unlock only after the first valid included call completes.
+  // First-call eligibility still requires both users to reach the message threshold.
   const FIRST_CALL_MSG_THRESHOLD = 15;
 
   app.get("/api/voice-notes/entitlement/:matchId", isAuthenticated, async (req: any, res) => {
@@ -5552,7 +5552,7 @@ export async function registerRoutes(
       console.log(`[VOICE_NOTE_SPEED] upload complete — transcodeMs=${processMs}ms size=${audioBuffer.length}B→${outputBuffer.length}B`);
 
       if (!isVoiceNoteUnlocked) {
-        return res.status(403).json({ message: "Voice notes unlock after you've both sent 10 messages." });
+        return res.status(403).json({ message: "Voice notes unlock after your first call." });
       }
 
       // A retry keeps the original client request ID, making the object path and

@@ -2767,7 +2767,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const phoneCredits = callCreditsData?.phoneCredits;
   const videoCredits = callCreditsData?.videoCredits;
 
-  // Voice notes entitlement — unlocks when both users have sent ≥8 messages (or call_stage > 0).
+  // Voice notes unlock only after the first valid included call completes.
   // First call unlocks at ≥15 messages each way (separate milestone).
   // All popup-seen flags are server-persisted so modals only show once across all devices.
   const { data: voiceNoteData } = useQuery<{
@@ -3994,7 +3994,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             <button
               onClick={() => {
                 if (!voiceNotesUnlocked) {
-                  toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                  toast({ description: "Voice notes unlock after your first call." });
                   return;
                 }
                 if (voicePhase === "recording") stopRecording();
@@ -5028,7 +5028,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       // Prevent focus transfer and iOS keyboard dismissal — MUST be first
                       e.preventDefault();
                       if (!voiceNotesUnlocked) {
-                        toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                        toast({ description: "Voice notes unlock after your first call." });
                         return;
                       }
                       if (isRecordingRef.current || voicePhase !== "idle") return;

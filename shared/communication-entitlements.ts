@@ -1,4 +1,3 @@
-export const VOICE_NOTE_MESSAGE_THRESHOLD = 8;
 export const FIRST_CALL_MESSAGE_THRESHOLD = 15;
 export const SECOND_CALL_MESSAGE_THRESHOLD = 12;
 
@@ -18,7 +17,7 @@ export type CallGate = {
 
 export type VoiceNoteGate = {
   state: "locked" | "available";
-  reason?: "messages";
+  reason?: "complete_first_call";
   remainingMessages: number;
 };
 
@@ -74,12 +73,6 @@ export function resolveCommunicationEntitlements({
     count2,
     SECOND_CALL_MESSAGE_THRESHOLD,
   );
-  const voiceProgress = stageProgress(
-    count1,
-    count2,
-    VOICE_NOTE_MESSAGE_THRESHOLD,
-  );
-
   const audio: CallGate =
     stage === 0
       ? !firstCallProgress.complete
@@ -111,12 +104,12 @@ export function resolveCommunicationEntitlements({
         : { state: "used_paid", reason: "used", remainingMessages: 0 };
 
   const voiceNote: VoiceNoteGate =
-    voiceNotesUnlocked || stage > 0 || voiceProgress.complete
+    voiceNotesUnlocked || stage > 0
       ? { state: "available", remainingMessages: 0 }
       : {
           state: "locked",
-          reason: "messages",
-          remainingMessages: voiceProgress.remainingMessages,
+          reason: "complete_first_call",
+          remainingMessages: 0,
         };
 
   return { audio, video, voiceNote };

@@ -562,7 +562,7 @@ export default function Messaging() {
   const phoneCredits = callCreditsData?.phoneCredits ?? 0;
   const videoCredits = callCreditsData?.videoCredits ?? 0;
 
-  // Voice notes entitlement — unlocks when both users have sent ≥8 messages (or call_stage > 0).
+  // Voice notes unlock only after the first valid included call completes.
   // First call unlocks at ≥15 messages each way (separate milestone).
   // All popup-seen flags are server-persisted so modals only show once across all devices.
   const { data: voiceNoteData } = useQuery<{
@@ -758,7 +758,10 @@ export default function Messaging() {
       setMicPermState("granted");
       console.log("[VOICE_NOTE_MIC] recording started");
 
-      const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      const preferredTypes = isIOS
+        ? ["audio/mp4", "audio/x-m4a", "audio/aac", "audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"]
+        : ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"];
       const mimeType = preferredTypes.find(t => {
         try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
       }) ?? "";
@@ -767,9 +770,11 @@ export default function Messaging() {
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        // Do NOT stop stream tracks — module keeps the stream alive for the next recording.
-        const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
+        const capturedMimeType = audioChunksRef.current.find(chunk => chunk.type)?.type || actualMimeType || (isIOS ? "audio/mp4" : "audio/webm");
+        const blob = new Blob(audioChunksRef.current, { type: capturedMimeType });
+        releaseMicStream("recording-stopped");
+        micStreamRef.current = null;
+        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: capturedMimeType });
         else setVoicePhase("idle");
       };
       recorder.start(100);
@@ -784,6 +789,10 @@ export default function Messaging() {
         });
       }, 1000);
     } catch (err: any) {
+      releaseMicStream("recording-start-failed");
+      micStreamRef.current = null;
+      setVoicePhase("idle");
+      setRecordingTime(0);
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
       if (isPermission) {
@@ -825,10 +834,11 @@ export default function Messaging() {
     if (mr && mr.state !== "inactive") {
       mr.ondataavailable = null;
       mr.onstop = null;
-      // Do NOT stop the stream tracks — keep micStreamRef alive for the next recording.
       try { mr.stop(); } catch { /* ignore */ }
     }
     audioChunksRef.current = [];
+    releaseMicStream("recording-cancelled");
+    micStreamRef.current = null;
     setVoicePhase("idle");
     setRecordingTime(0);
   };
@@ -913,8 +923,6 @@ export default function Messaging() {
   }, [pendingFirstCallCelebration, voiceNotePopupOpen, matchId]);
 
   // Clean up the MediaRecorder on unmount.
-  // Do NOT stop the module-level mic stream — it must survive component remounts
-  // so iOS never re-prompts and recording starts instantly on the next chat.
   useEffect(() => {
     return () => {
       stopRecordingTimer();
@@ -924,8 +932,7 @@ export default function Messaging() {
         mr.onstop = null;
         try { mr.stop(); } catch {}
       }
-      // micStreamRef is a local alias — do NOT stop its tracks.
-      // The module-level stream in mic-permission.ts stays alive.
+      releaseMicStream("chat-unmount");
       micStreamRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -934,15 +941,23 @@ export default function Messaging() {
     mutationFn: async ({ blob, mimeType }: { blob: Blob; mimeType: string }) => {
       // Client-side guard: reject before encoding to avoid unnecessary work.
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
-      // FileReader is the safest cross-browser way to convert a Blob to base64 —
-      // avoids the O(n) string-concatenation loop that freezes on low-end devices.
-      const audioBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
-        reader.onerror = () => reject(new Error("Failed to encode audio"));
-        reader.readAsDataURL(blob);
+      const normalizedMime = mimeType.toLowerCase();
+      const filename = /mp4|m4a|aac/.test(normalizedMime) ? "voice.m4a" : normalizedMime.includes("ogg") ? "voice.ogg" : "voice.webm";
+      const clientRequestId = `voice-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const formData = new FormData();
+      formData.append("audio", blob, filename);
+      formData.append("mimeType", mimeType);
+      formData.append("durationMs", String(Math.max(0, Date.now() - recordingStartMsRef.current)));
+      formData.append("clientRequestId", clientRequestId);
+      const { getAuthHeaders, getAppSessionId, API_BASE } = await import("@/lib/queryClient");
+      const authHeaders = await getAuthHeaders();
+      const appSessionId = getAppSessionId();
+      const res = await fetch(`${API_BASE}/api/voice-notes/send/${matchId}`, {
+        method: "POST",
+        headers: { ...authHeaders, ...(appSessionId ? { "X-Session-Id": appSessionId } : {}) },
+        body: formData,
+        credentials: "include",
       });
-      const res = await apiRequest("POST", `/api/voice-notes/send/${matchId}`, { audioBase64, mimeType });
       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.message || "Failed to send"); }
       return res.json();
     },
@@ -1721,8 +1736,7 @@ export default function Messaging() {
             <button
               onClick={() => {
                        if (communicationEntitlements.voiceNote.state === "locked") {
-                         const remaining = communicationEntitlements.voiceNote.remainingMessages;
-                         toast({ title: "Voice notes locked", description: `${remaining} more message${remaining === 1 ? "" : "s"} until voice notes unlock.` });
+                         toast({ title: "Voice notes locked", description: "Voice notes unlock after your first call." });
                   return;
                 }
                 if (voicePhase === "idle") startRecording();

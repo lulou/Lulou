@@ -24,7 +24,26 @@ test("unlocks the included audio call exactly at the first threshold", () => {
 
   assert.equal(state.audio.state, "available");
   assert.equal(state.video.state, "locked");
-  assert.equal(state.voiceNote.state, "available");
+  assert.equal(state.voiceNote.state, "locked");
+  assert.equal(state.voiceNote.reason, "complete_first_call");
+});
+
+test("voice notes stay locked until the first valid included call completes", () => {
+  const beforeCall = resolveCommunicationEntitlements({
+    callStage: 0,
+    messageCount1: 99,
+    messageCount2: 99,
+  });
+  const afterCall = resolveCommunicationEntitlements({
+    callStage: 1,
+    messageCount1: 0,
+    messageCount2: 0,
+    voiceNotesUnlocked: true,
+  });
+
+  assert.equal(beforeCall.voiceNote.state, "locked");
+  assert.equal(beforeCall.voiceNote.remainingMessages, 0);
+  assert.equal(afterCall.voiceNote.state, "available");
 });
 
 test("unlocks included video only after the post-call message stage", () => {
