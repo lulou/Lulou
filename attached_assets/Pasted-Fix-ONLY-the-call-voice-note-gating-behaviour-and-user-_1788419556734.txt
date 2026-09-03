@@ -1,0 +1,399 @@
+Fix ONLY the call/voice-note gating behaviour and user feedback in the active chat screen shown in the attached REAL iPhone screenshot.
+
+Do not redesign the chat UI.
+
+The current problem is that users can see the call / video / mic controls even when those features are not available yet, but tapping them does not explain clearly what is happening.
+
+I want every unavailable communication control to give a clear premium explanation.
+
+Do NOT change:
+- message quotas
+- stage order
+- existing call durations
+- existing free-call entitlement
+- matching
+- payments logic except where explicitly requested below
+- message delivery
+- conversation starters
+- profile navigation
+- call timers
+- WebRTC implementation unless needed to enforce the existing gate properly
+
+## 1. LOCKED CALL / VIDEO / VOICE-NOTE FEEDBACK
+
+If the user taps a control before it has unlocked, show a small premium inline message / toast / sheet explaining why.
+
+Do not silently ignore the tap.
+
+Examples:
+
+### AUDIO CALL BEFORE UNLOCK
+If Call 1 has not unlocked yet:
+
+“Audio call unlocks after you both complete this chat stage.”
+
+Optionally include remaining progress:
+
+“8 messages left before your first call unlocks.”
+
+Use the REAL remaining amount from the current stage state.
+
+Do not hardcode a fake number.
+
+### VIDEO CALL BEFORE UNLOCK
+If the video-call stage has not been reached:
+
+“Video call unlocks later in your connection.”
+
+If useful:
+
+“Complete your first call and the next message stage to unlock video.”
+
+### VOICE NOTES BEFORE UNLOCK
+If voice notes have not unlocked yet:
+
+“Voice notes unlock as your conversation progresses.”
+
+If the app already has a precise voice-note threshold, show it dynamically:
+
+“3 more messages until voice notes unlock.”
+
+Do not expose internal technical terminology.
+
+## 2. CALLS MUST ONLY BE ACTIVE DURING THEIR CORRECT STAGE
+
+Enforce this server/client-side based on the existing conversation-stage state.
+
+### CALL 1
+The free audio call button becomes active only when:
+
+- Stage 1 messaging quota has been properly completed
+- the call has not already been successfully consumed
+- both users are in the correct state to receive/start the call
+
+Before that:
+locked.
+
+After successful Call 1 completion:
+Call 1 becomes unavailable again.
+
+It must NOT remain free/re-callable indefinitely.
+
+## 3. CALL 2 / VIDEO
+
+Same rule.
+
+Video Call becomes available only at the correct stage after:
+
+- Call 1 completed
+- Stage 2 messaging completed
+- all existing eligibility conditions satisfied
+
+After the successful free video call is completed:
+the free video entitlement becomes unavailable.
+
+Do not leave the button active forever.
+
+## 4. FAILED CALLS MUST NOT CONSUME THE ENTITLEMENT
+
+Preserve the important existing rule:
+
+If the call:
+
+- fails to connect
+- is declined
+- errors before connection
+- drops before the app considers it a valid completed call
+
+do NOT consume the free-call entitlement incorrectly.
+
+Use the existing valid-completion rules.
+
+Do not create a re-call exploit either.
+
+## 5. AFTER THE FREE CALL STAGE HAS PASSED
+
+Once a user has already used the included free call and taps that call control again later, do not silently fail.
+
+Show a payment-oriented explanation.
+
+Example:
+
+“Your included audio call has been used.”
+
+Then:
+
+“Unlock another call to keep talking.”
+
+Provide the existing paid-call purchase action if one already exists.
+
+If the paid purchase surface already exists, route to that exact existing flow.
+
+Do NOT create a duplicate checkout system.
+
+## 6. AFTER FREE VIDEO CALL HAS BEEN USED
+
+Equivalent behaviour:
+
+“Your included video call has been used.”
+
+“Unlock another video call to keep talking.”
+
+Then expose the existing paid video-call option.
+
+## 7. DISTINGUISH LOCKED VS USED
+
+These are different states and must have different user feedback.
+
+### LOCKED
+The stage has not been reached yet.
+
+Message should explain what they need to do next.
+
+### AVAILABLE
+Feature is currently available.
+
+Control works normally.
+
+### USED / STAGE PASSED
+The included entitlement has already been consumed.
+
+Message should explain that additional calls are paid.
+
+Do NOT display “unlock after more messages” once the free call has already been used.
+
+## 8. VISUAL STATE
+
+The icons should communicate state clearly.
+
+Locked:
+- muted/soft grey
+- small lock indicator if appropriate
+- still tappable for explanation
+
+Available:
+- normal active Lulou styling
+- clearly enabled
+
+Used / paid:
+- visually distinct but not disabled-looking
+- tapping opens the paid explanation/purchase flow
+
+Do not make used-call buttons look identical to pre-stage locked buttons.
+
+## 9. TOP CALL ICONS AND COMPOSER ICONS MUST AGREE
+
+The screenshot shows call/video/mic controls in more than one location.
+
+Audit every active communication-control renderer.
+
+The state must be consistent across:
+
+- top audio-call icon
+- top video-call icon
+- composer mic / voice-note icon
+- any additional call controls inside the chat
+
+If Audio Call is locked, every Audio Call entry point must reflect that same state.
+
+No situation where one icon is enabled while another is locked.
+
+## 10. SINGLE SOURCE OF TRUTH
+
+Do not duplicate stage calculations in several components.
+
+Use the existing conversation/stage state as the authoritative source.
+
+Create/reuse a shared resolver if needed that returns something like:
+
+audioCallState:
+- locked
+- available
+- used_paid
+
+videoCallState:
+- locked
+- available
+- used_paid
+
+voiceNoteState:
+- locked
+- available
+
+and optional:
+
+reason
+remainingMessages
+purchaseType
+
+Do not let separate components invent their own rules.
+
+## 11. STAGE PROGRESSION MUST REMAIN EXACT
+
+Preserve the current intended Lulou progression and quotas already in the app.
+
+Do NOT casually change the numbers while implementing this.
+
+Use the existing configured quotas/stage definitions as source of truth.
+
+The important behaviour is:
+
+Messaging stage
+→ free call becomes available
+→ successful call completes
+→ free call closes
+→ next messaging stage
+→ later video call becomes available
+→ successful video call closes
+→ subsequent additional calls require payment where applicable
+
+## 12. DO NOT AUTO-ADVANCE FROM A TAP
+
+Tapping a locked call icon must NOT:
+
+- advance stage
+- consume messages
+- mark call completed
+- create a call session
+- trigger ringing
+- deduct entitlement
+- begin payment
+
+It should only show the explanation.
+
+## 13. RINGING SAFETY
+
+Before starting any actual call:
+
+re-check eligibility immediately.
+
+Do not rely only on the visual button state.
+
+This prevents:
+
+- stale UI
+- two tabs/devices
+- race conditions
+- rapid repeated taps
+
+Only create/ring the call after the authoritative eligibility check passes.
+
+## 14. DOUBLE TAP PROTECTION
+
+Prevent rapid repeated taps from:
+
+- creating multiple call sessions
+- opening duplicate purchase sheets
+- ringing twice
+- consuming entitlement twice
+
+Use the existing single-flight pattern if one already exists.
+
+## 15. USER-FRIENDLY COPY
+
+Keep messages short and human.
+
+Do not show technical text like:
+
+“stage_1_quota_not_met”
+“call_entitlement_consumed”
+
+Use copy such as:
+
+“Your first call unlocks after this chat stage.”
+
+“5 messages left until your first call.”
+
+“Video unlocks later in your connection.”
+
+“Your included call has been used.”
+
+“Unlock another call to keep talking.”
+
+## 16. PREMIUM PRESENTATION
+
+The feedback should match Lulou’s current premium iOS aesthetic.
+
+Prefer:
+- compact toast
+- small bottom sheet
+- subtle inline notice
+
+Do not use:
+- browser alerts
+- ugly red error banners
+- giant modal windows for simple locked-state explanations
+
+Paid-call purchase may use the existing purchase modal/sheet if already implemented.
+
+## 17. TEST THESE STATES
+
+Test at least:
+
+### AUDIO
+1. Before Stage 1 complete → tap → locked explanation.
+2. Exact Stage 1 completion → button becomes available.
+3. Tap available → normal call starts.
+4. Declined/failed call → entitlement remains available according to existing rules.
+5. Successful completed call → included entitlement consumed.
+6. Tap again → paid-call explanation/purchase.
+7. No free re-call loop.
+
+### VIDEO
+8. Before video stage → locked explanation.
+9. Correct stage reached → active.
+10. Failed video → not wrongly consumed.
+11. Successful video → free video consumed.
+12. Tap again → paid video option.
+
+### VOICE NOTES
+13. Before threshold → explanatory message.
+14. At threshold → immediately active.
+15. No stale locked state after eligibility updates.
+
+### CONSISTENCY
+16. Top controls and composer controls always agree.
+17. Reload/re-login preserves the correct state.
+18. Two-device/stale-state call start is revalidated before ringing.
+
+## 18. DO NOT CHANGE OTHER CHAT UI
+
+Do not alter:
+
+- the header layout
+- stage progress UI
+- conversation-starter cards
+- composer visual design
+- message quota labels
+- profile chip
+- existing colours/typography
+
+This task is functionality + explanatory feedback only.
+
+## 19. DEPLOYMENT
+
+After implementation:
+
+- run build/tests
+- inspect diff
+- commit
+- push GitHub main
+- wait for Vercel/Railway
+- verify the live production bundle/API contains the new gating logic
+
+Do not stop at local source.
+
+At the end report only:
+
+1. exact files changed
+2. shared gating/state logic implemented
+3. audio locked/available/used rules
+4. video locked/available/used rules
+5. voice-note locked/available rules
+6. failed-call consumption behaviour
+7. paid-call behaviour after included call
+8. exact user-facing copy added
+9. double-tap/stale-state protection
+10. regression tests
+11. production commit
+12. live deployment verification

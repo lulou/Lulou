@@ -1,0 +1,168 @@
+Remove the OLD/duplicate Lulou guide/tip experience that can still appear elsewhere in the app.
+
+KEEP the newest required “How to use Lulou” onboarding guide that we recently implemented in the correct signup flow:
+
+Account creation
+→ email verification
+→ profile setup
+→ newest required Lulou guide
+→ Connection DNA / compatibility test
+→ main app
+
+That newest guide is the one we want to keep.
+
+## REMOVE THE OLDER GUIDE
+
+There is another older Lulou guide/tip/onboarding experience that was implemented previously.
+
+Now that the new six-step guide happens before Connection DNA, the older one is redundant and should no longer appear.
+
+Find the OLD guide by tracing all guide/tutorial/tip/onboarding render paths.
+
+Do not guess from component names alone.
+
+Search for things like:
+
+- old onboarding tour
+- app tips
+- first-use guide
+- feature coach marks
+- walkthrough overlays
+- tutorial popups
+- localStorage/sessionStorage “seen guide” flags
+- old settings flags
+- delayed post-login guide triggers
+- guide components mounted inside AppLayout
+- any guide that appears after the user has already reached the main app
+
+## IMPORTANT: KEEP THE NEWEST REQUIRED GUIDE
+
+Do NOT remove or weaken the newest required guide that appears before Connection DNA.
+
+Preserve:
+
+- all six visual slides
+- required mode
+- no Skip option
+- swipe/tap navigation
+- completion persistence
+- the existing `onboarding_tutorial_completed` persistence
+- the centralized onboarding resolver
+- the transition from guide → Connection DNA
+- direct-route blocking until the guide is completed
+- logout/re-login persistence
+- legacy-user grandfathering logic
+
+Do not alter the verified onboarding order.
+
+## EXPECTED FINAL BEHAVIOUR
+
+### BRAND-NEW USER
+
+Exactly:
+
+Sign up
+→ verify email
+→ complete profile
+→ newest “How to use Lulou” guide
+→ Connection DNA compatibility test
+→ DNA completion/explanation
+→ main app
+
+After reaching the main app:
+
+NO second Lulou guide
+NO duplicate tutorial
+NO extra “tips” overlay repeating the same features.
+
+### EXISTING COMPLETED USER
+
+They should enter the app normally.
+
+Do NOT suddenly show them the new mandatory guide or the old guide.
+
+Preserve the existing legacy-account compatibility rules.
+
+### MODERN USER WHO ALREADY COMPLETED THE NEW GUIDE
+
+Do not show any old guide later.
+
+Their persisted completion should remain authoritative.
+
+## REMOVE OLD PERSISTENCE ONLY IF SAFE
+
+If the old guide has its own:
+
+- localStorage key
+- sessionStorage key
+- settings field
+- component state
+- delayed timer
+
+remove the trigger/path that causes the old guide to appear.
+
+Do NOT delete or repurpose `onboarding_tutorial_completed`.
+
+That belongs to the newest required guide and must remain intact.
+
+Do not run destructive database migrations just to remove an obsolete UI trigger.
+
+## DO NOT CHANGE
+
+Do not touch:
+
+- Connection DNA questions
+- compatibility scoring
+- profile setup
+- email verification
+- authentication
+- Discover
+- Intention Wheel
+- Likes
+- Connections
+- messaging
+- calls
+- payments
+- bottom navigation
+
+This task is ONLY about removing the redundant older Lulou guide while preserving the newest onboarding guide before Connection DNA.
+
+## TEST THESE FLOWS
+
+1. Fresh account:
+  - profile setup
+  - newest guide appears
+  - complete guide
+  - Connection DNA appears
+  - complete DNA
+  - main app opens
+  - old guide does NOT appear afterwards
+
+2. Reload after reaching main app:
+  - no guide reappears
+
+3. Logout and log back in:
+  - no old guide
+  - no repeat of newest guide if already completed
+
+4. Existing legacy account:
+  - enters normally
+  - no old guide
+  - no forced new guide
+
+5. Incomplete modern account:
+  - still follows the correct centralized onboarding resolver
+  - cannot bypass the newest guide or DNA
+
+## AT THE END REPORT ONLY
+
+1. exact old guide/component/path removed
+2. exact trigger/persistence mechanism that caused it to appear
+3. exact newest guide/component retained
+4. confirmation `onboarding_tutorial_completed` remains authoritative
+5. confirmation onboarding order is unchanged
+6. fresh-user test result
+7. completed-user re-login result
+8. legacy-user result
+9. files changed
+10. build/test result

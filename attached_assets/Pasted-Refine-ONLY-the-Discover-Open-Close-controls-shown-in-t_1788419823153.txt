@@ -1,0 +1,138 @@
+Refine ONLY the Discover Open / Close controls shown in the attached REAL iPhone screenshot.
+
+The current button size is closer, but the word + emoji combination still feels too busy and slightly cheap.
+
+I want to simplify the controls and make them feel much more premium.
+
+Do not redesign Discover.
+Do not change any behavior.
+
+## NEW DIRECTION
+
+Remove the emojis completely.
+
+Change:
+
+Open ❤️
+Close 🌙
+
+to:
+
+Open
+Close
+
+Words only.
+
+Do not replace them with different wording in this pass.
+
+## VISUAL STYLE
+
+Move away from the current rose pill look.
+
+Make both controls feel like understated premium iOS floating actions.
+
+Preferred direction:
+
+- near-circular / compact rounded controls
+- ivory / warm off-white background
+- dark wine / charcoal text
+- very subtle shadow
+- no thick border
+- no glow
+- no oversized fill
+- no emoji
+
+The image should remain the hero.
+
+The controls should feel like quiet actions layered on top of the photo, not dominant CTA buttons.
+
+## SIZE
+
+Target approximately:
+
+- 58–64px wide
+- 48–54px high
+- compact near-round shape
+
+If the word looks cramped, increase width slightly, but keep both controls visually small.
+
+Do not return to elongated pills.
+
+## TYPOGRAPHY
+
+Use clean medium-weight text.
+
+Keep:
+
+Open
+Close
+
+single-line and vertically centered.
+
+No icon next to either word.
+
+## POSITIONING
+
+Keep the current action concept:
+
+- Close lower-left
+- Open lower-right
+
+But refine the insets so they look intentionally placed.
+
+They must:
+
+- remain fully inside the image/profile area
+- not touch the screen edge
+- not overlap pagination dots
+- not cover important profile information
+- remain fully visible on narrow iPhones
+
+## TAP TARGETS
+
+Preserve at least a 44×44px interactive hit area.
+
+Do not sacrifice usability for the smaller visual design.
+
+## PRESSED STATE
+
+Use only a subtle premium response:
+
+- slight scale/compression
+- subtle shadow change
+
+No bounce.
+No arcade animation.
+
+## KEEP EVERYTHING ELSE UNCHANGED
+
+Do not alter:
+
+- Open logic
+- Close/pass logic
+- matching
+- undo
+- three-dot menu
+- block/remove
+- pagination
+- profile layout
+- Discover candidate sourcing
+- conversation starters
+- bottom navigation
+- Intention Wheel
+
+## RESPONSIVE ACCEPTANCE
+
+Verify on 375px and 390px iPhone widths:
+
+1. Open and Close are clearly smaller than the current controls.
+2. No emojis remain.
+3. Both controls have the same visual weight.
+4. Neither dominates the photo.
+5. Both remain easy to tap.
+6. Labels stay on one line.
+7. Neither collides with pagination.
+8. Neither is clipped.
+9. No behavior changed.
+
+Only edit the minimum source needed for this visual refinement.
