@@ -1039,6 +1039,51 @@ function spinEase(t: number): number {
   return 0.820 + 0.180 * (Vr * p + (3 - 2 * Vr) * p * p + (Vr - 2) * p * p * p);
 }
 
+const ACTIVE_ORBIT_DURATION_MS = 4200;
+const REDUCED_ORBIT_DURATION_MS = 1800;
+const ACTIVE_ORBIT_FULL_TURNS = 2;
+
+// Integrated velocity profile for the visible SpinRoom orbit.
+//
+// 0–6%: smoothstep acceleration from rest (about 250 ms at normal duration)
+// 6–43%: sustained high speed
+// 43–100%: one continuous smootherstep deceleration to zero
+//
+// Returning integrated distance rather than a per-phase target speed means every
+// frame is derived from one timestamp and one curve. Velocity is continuous at
+// both joins, and the final value is exactly 1 so the preselected winner reaches
+// centre without a correction snap.
+function activeOrbitProgress(rawT: number): number {
+  const t = Math.max(0, Math.min(rawT, 1));
+  const accelerationEnd = 0.06;
+  const slowdownStart = 0.43;
+  const slowdownSpan = 1 - slowdownStart;
+  const accelerationArea = accelerationEnd * 0.5;
+  const cruiseArea = slowdownStart - accelerationEnd;
+  const slowdownArea = slowdownSpan * 0.5;
+  const totalArea = accelerationArea + cruiseArea + slowdownArea;
+
+  if (t <= accelerationEnd) {
+    const u = t / accelerationEnd;
+    const integratedSmoothstep = u * u * u - 0.5 * u * u * u * u;
+    return (accelerationEnd * integratedSmoothstep) / totalArea;
+  }
+  if (t <= slowdownStart) {
+    return (accelerationArea + (t - accelerationEnd)) / totalArea;
+  }
+
+  const q = (t - slowdownStart) / slowdownSpan;
+  // Integral of 1 - smootherstep(q), whose endpoint velocity and acceleration
+  // both reach zero: q - q^6 + 3q^5 - 2.5q^4.
+  const integratedSlowdown =
+    q - Math.pow(q, 6) + 3 * Math.pow(q, 5) - 2.5 * Math.pow(q, 4);
+  return (
+    accelerationArea +
+    cruiseArea +
+    slowdownSpan * integratedSlowdown
+  ) / totalArea;
+}
+
 // ── Wheel Debug Panel ─────────────────────────────────────────────────────────
 // Always visible inside the SpinRoom overlay — no DEV gate, no Safari console.
 // Shows the last 12 [INTENTION_WHEEL_STATE] events and last 4 pushDebugError
@@ -1914,46 +1959,27 @@ export default function IntentPage() {
     sendSpark.mutate(selectedProfile.userId);
   };
 
-  // ── SpinRoom phase timeline ─────────────────────────────────────────────────
-  // Runs entirely independently of the underlying wheel animation so the
-   // Timeline: velocity phases up to the winner-planned guided stop.
-   // The stop begins at 5000 ms while the orbit is still fast, so the remaining
-   // travel naturally decelerates onto the known winner instead of correcting late.
-   // The guided RAF fires 'pullforward' when the orbit converges. All subsequent timing
-  // (momentum labels, reveal, pause, buttons) runs from the pullforward
-  // useLayoutEffect via a single winnerMomentStart RAF — not from here.
-  //
-  // Timeline (ms from spin start):
-  //   0      accelerate → 1.6 rad/s
-  //   2000   fast       → 4.2 rad/s
-   //   5000   slow       → guided cubic deceleration to the frozen winner target
-   //   ~5000+ guided RAF reaches target → fires 'pullforward' automatically
-  //   then → pullforward useLayoutEffect drives all timing via winnerMomentStart RAF
+  // ── SpinRoom copy timeline ──────────────────────────────────────────────────
+  // These timers only change the supporting copy/phase label. Visible movement
+  // is driven by activeOrbitProgress inside the single orbit RAF below.
   useEffect(() => {
     if (!showSpinRoom) {
       setSpinRoomPhase('idle');
       setMomentumLabel('');
       orbitTargetRef.current = 0;
+      spinPhaseRef.current = 'idle';
       return;
     }
-    const go = (p: SpinPhase, speed: number) => {
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    const go = (p: SpinPhase) => {
+      spinPhaseRef.current = p;
       setSpinRoomPhase(p);
-      orbitTargetRef.current = speed;
     };
-    go('accelerate', 1.6);
+    go('accelerate');
     console.log('[WHEEL] SPIN_START');
     const ts = [
-      setTimeout(() => { go('fast', 4.2); console.log('[WHEEL] FAST_PHASE');  }, 2000),
-      setTimeout(() => {
-        // Freeze the candidate order, winner, and live visual angle on the next RAF.
-        // No extra turn is added: it uses only the natural forward distance remaining.
-        orbitGuidedStopRef.current = true;
-        orbitApproachStartTimeRef.current = 0;
-        orbitApproachStartAngleRef.current = 0;
-        orbitApproachCorrectionRef.current = 0;
-        go('slow', 0);
-        console.log('[WHEEL] GUIDED_STOP_PHASE');
-      }, 5000),
+      setTimeout(() => { go('fast'); console.log('[WHEEL] FAST_PHASE'); }, reducedMotion ? 120 : 250),
+      setTimeout(() => { go('slow'); console.log('[WHEEL] CONTINUOUS_SLOWDOWN_PHASE'); }, reducedMotion ? 500 : 1800),
     ];
     return () => ts.forEach(clearTimeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2025,6 +2051,17 @@ export default function IntentPage() {
     orbitFrontCandRef.current = 0; // card 0 is at front initially
 
     const orbitStartMs = performance.now();
+    const orbitStartAngle = Math.PI / 2;
+    const winnerIndex = pendingWinnerRef.current?.index ?? 0;
+    const winnerTheta = orbitStartAngle + (2 * Math.PI / N) * winnerIndex;
+    let winnerCorrection = (Math.PI / 2 - winnerTheta) % (2 * Math.PI);
+    if (winnerCorrection < 0) winnerCorrection += 2 * Math.PI;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    const orbitDurationMs = reducedMotion ? REDUCED_ORBIT_DURATION_MS : ACTIVE_ORBIT_DURATION_MS;
+    const fullTurns = reducedMotion ? 1 : ACTIVE_ORBIT_FULL_TURNS;
+    const orbitTravel = fullTurns * 2 * Math.PI + winnerCorrection;
+    const orbitTargetAngle = orbitStartAngle + orbitTravel;
+    let orbitElapsedMs = 0;
     let   logLastSec   = -1;
 
     const tick = (now: number) => {
@@ -2032,6 +2069,7 @@ export default function IntentPage() {
         ? 0.016
         : Math.min((now - orbitLastTimeRef.current) / 1000, 0.05);
       orbitLastTimeRef.current = now;
+      orbitElapsedMs += dt * 1000;
 
       const phase = spinPhaseRef.current;
 
@@ -2178,13 +2216,9 @@ export default function IntentPage() {
       if (phase === 'pullforward' || phase === 'arrive' || phase === 'momentum' ||
           phase === 'growing'     || phase === 'reveal' || phase === 'buttons') return;
 
-      // Smooth speed toward target
-      const tgt  = orbitTargetRef.current;
-      const cur  = orbitSpeedRef2.current;
-      const diff = tgt - cur;
-      orbitSpeedRef2.current += diff * Math.min(dt * (diff > 0 ? 1.4 : 2.2), 1);
-
-      // Advance orbit angle — this is the single line that drives all visible motion.
+      // Derive the whole orbit from one elapsed timestamp and one continuous
+      // distance curve. There are no per-phase speed targets and no accumulated
+      // frame-time drift.
       // Invariant: orbitAngle must NOT change after WINNER_LOCKED (pullforward).
       if (orbitLockedRef.current) {
         console.warn('[INTENTION_WHEEL_BUG]', 'orbit_changed_after_lock', {
@@ -2200,8 +2234,15 @@ export default function IntentPage() {
         return;
       }
       const _prevAngle = orbitAngleRef2.current;
-      orbitAngleRef2.current += orbitSpeedRef2.current * dt;
+      // Accumulate clamped RAF deltas rather than using wall-clock elapsed time.
+      // A backgrounded tab therefore resumes from its previous visual position
+      // instead of jumping several seconds ahead on the first returning frame.
+      const orbitElapsed = orbitElapsedMs;
+      const orbitT = Math.min(orbitElapsed / orbitDurationMs, 1);
+      orbitAngleRef2.current = orbitStartAngle + orbitTravel * activeOrbitProgress(orbitT);
+      if (orbitT >= 1) orbitAngleRef2.current = orbitTargetAngle;
       const angle = orbitAngleRef2.current;
+      orbitSpeedRef2.current = dt > 0 ? Math.max(0, (angle - _prevAngle) / dt) : 0;
       // Tick sound: play once per card-spacing boundary crossed (angle-driven, not timer).
       {
         const _ts = (2 * Math.PI) / N;
@@ -2256,6 +2297,21 @@ export default function IntentPage() {
       // Keep the stage quiet at every speed rather than pulsing like a game.
       if (orbitGlowRef.current) {
         orbitGlowRef.current.style.boxShadow = '0 24px 70px rgba(12,6,10,0.18)';
+      }
+
+      if (orbitT >= 1) {
+        orbitSpeedRef2.current = 0;
+        orbitFrontCandRef.current = winnerIndex;
+        logWheelState({
+          event: 'continuous_orbit_complete',
+          durationMs: Math.round(orbitElapsed),
+          winnerIndex,
+          orbitAngle: orbitTargetAngle.toFixed(4),
+          reducedMotion,
+        });
+        setSpinRoomPhase('pullforward');
+        setMomentumLabel('Narrowing down\u2026');
+        return;
       }
 
       orbitRafRef2.current = requestAnimationFrame(tick);
@@ -3280,10 +3336,13 @@ export default function IntentPage() {
 
       {/* ── Header ── */}
       <div
-        className="px-6 pt-2 pb-0"
-        style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
+        className="px-6"
+        style={{
+          paddingTop: "calc(14px + env(safe-area-inset-top, 0px))",
+          paddingBottom: "14px",
+        }}
       >
-        <div className="flex items-start justify-between gap-5">
+        <div className="flex items-center justify-between gap-5">
           <div>
             <h1
               className="font-serif text-[26px] font-medium tracking-[-0.025em] leading-none"
