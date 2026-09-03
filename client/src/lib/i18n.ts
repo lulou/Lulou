@@ -1315,7 +1315,7 @@ export const TRANSLATIONS = {
     tutorial_likes_title:          "Likes become connections",
     tutorial_likes_body:           "When interest is mutual, a Like becomes a Match and your new connection appears in Connections.",
     tutorial_conversation_title:   "Conversations, with intention",
-    tutorial_conversation_body:    "Messages unlock an audio call, more messages, a video call, and eventually the chance to plan a date.",
+    tutorial_conversation_body:    "Messages unlock your first audio call. After a valid call, hold the mic to record a voice note, release to send, or slide left to cancel.",
     tutorial_dna_title:            "Your Connection DNA",
     tutorial_dna_body:             "A few thoughtful questions help Lulou understand your compatibility, preferences, communication style, and deeper signals.",
     tutorial_journey_title:        "The Lulou journey",

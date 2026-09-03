@@ -3,8 +3,6 @@ import { supabase } from "@/lib/supabase";
 import { useLanguageContext } from "@/contexts/language-context";
 import { LANGUAGE_NAME_TO_CODE } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
-import { LulouGuide } from "@/components/lulou-guide";
-import { GUIDE_KEYS } from "@/lib/guide-store";
 import { translateSignal, translateGreenFlag, translateIntent, translateStyle, translateStarterItem } from "@/lib/profile-i18n";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -755,7 +753,6 @@ export default function LikesPage() {
   const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
   const [showFullMessage, setShowFullMessage] = useState(false);
   const [showElevate, setShowElevate] = useState(false);
-  const [elevateGuideTriggered, setElevateGuideTriggered] = useState(false);
   const [selectedLike, setSelectedLike] = useState<IncomingOpen | null>(null);
   const isActive = useTabActive();
   useRenderCount("LikesPage");
@@ -922,7 +919,7 @@ export default function LikesPage() {
             {!elevateActive && (
               <button
                 className="w-full rounded-xl bg-primary text-primary-foreground px-5 py-3.5 font-semibold text-sm flex items-center justify-center gap-2 shadow-md hover:brightness-105 active:scale-95 transition-all"
-                onClick={() => { setShowElevate(true); setElevateGuideTriggered(true); }}
+                onClick={() => { setShowElevate(true); }}
                 data-testid="button-elevate-cta"
               >
                 <Sparkles className="w-4 h-4" />
@@ -958,7 +955,7 @@ export default function LikesPage() {
               {!elevateActive && (
                 <button
                   className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/25 bg-primary/5 px-3 py-1.5 rounded-full hover:bg-primary/10 transition-colors"
-                  onClick={() => { setShowElevate(true); setElevateGuideTriggered(true); }}
+                  onClick={() => { setShowElevate(true); }}
                   data-testid="button-elevate-header"
                 >
                   <Sparkles className="w-3 h-3" />
@@ -1049,15 +1046,6 @@ export default function LikesPage() {
       {celebration && <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />}
       {showElevate && <ElevateModal onClose={() => setShowElevate(false)} />}
 
-      {elevateGuideTriggered && (
-        <LulouGuide
-          guideKey={GUIDE_KEYS.ELEVATE_SCREEN}
-          userId={user?.id}
-          title="More visibility."
-          body="Elevate places your profile in front of more compatible people."
-          delay={1000}
-        />
-      )}
     </>
   );
 }

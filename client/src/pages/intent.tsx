@@ -5,8 +5,6 @@ import { Loader2, X, MapPin, Star, Crown, MessageCircle, HelpCircle, Moon, Volum
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
 import { useAuth } from "@/hooks/use-auth";
-import { LulouGuide } from "@/components/lulou-guide";
-import { GUIDE_KEYS } from "@/lib/guide-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -4875,16 +4873,6 @@ export default function IntentPage() {
         <ElevateModal onClose={() => setShowElevateInReveal(false)} cancelPath="/intent" />
       )}
 
-      {/* First-time Spin Room guide */}
-      <LulouGuide
-        guideKey={GUIDE_KEYS.SPIN_ROOM_ENTRY}
-        userId={user?.id}
-        icon="✦"
-        title={t("spin_room_guide_title")}
-        body={t("spin_room_guide_body")}
-        delay={800}
-        autoDismissMs={6000}
-      />
     </div>
   );
 }

@@ -5,8 +5,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useLanguageContext } from "@/contexts/language-context";
 import { type TranslationKey } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
-import { LulouGuide } from "@/components/lulou-guide";
-import { GUIDE_KEYS } from "@/lib/guide-store";
 
 export type MatchCelebration = { firstName: string; photo?: string; matchId?: string };
 
@@ -191,16 +189,6 @@ export function MatchOverlay({
         </div>
       </div>
 
-      <LulouGuide
-        guideKey={GUIDE_KEYS.CONNECTIONS_FIRST_MATCH}
-        userId={user?.id}
-        icon="✨"
-        title="You're connected"
-        body="Take your time. Conversations unlock calls together."
-        delay={2400}
-        autoDismissMs={5000}
-        zIndex={65}
-      />
     </div>
   );
 }

@@ -75,8 +75,6 @@ import {
 } from "lucide-react";
 import type { Profile, BlockedContact, RefundRecord, UserSettings } from "@shared/schema";
 import { useLanguageContext } from "@/contexts/language-context";
-import { LulouGuidePreview } from "@/components/lulou-guide";
-import { GUIDE_KEYS, resetGuide } from "@/lib/guide-store";
 
 const LANGUAGES = [
   "English", "Spanish", "French", "German", "Portuguese",
@@ -100,7 +98,7 @@ function useToggle(key: string, defaultVal = false): [boolean, (v: boolean) => v
 }
 
 
-type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | "licences" | "privacy_prefs" | "data_deletion" | "cookie_policy" | "billing_terms" | "lulou_guide" | "payment_history" | null;
+type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | "licences" | "privacy_prefs" | "data_deletion" | "cookie_policy" | "billing_terms" | "payment_history" | null;
 
 export default function SettingsPage() {
   const [, navigate] = useLocation();
@@ -1041,16 +1039,6 @@ export default function SettingsPage() {
             testId="row-audio-transcripts"
           />
 
-          {/* ── 4. Lulou Guide ── */}
-          <SectionHeader title={t("lulou_guide_label")} />
-          <SettingRow
-            icon={<BookOpen className="w-[18px] h-[18px] text-muted-foreground" />}
-            label={t("replay_guides_label")}
-            description={t("replay_guides_desc")}
-            onPress={() => setActiveSheet("lulou_guide")}
-            testId="button-lulou-guide"
-          />
-
           {/* ── 5. Contact & Security ── */}
           <SectionHeader title={t("contact_security")} />
           <SettingRow
@@ -1757,57 +1745,6 @@ export default function SettingsPage() {
                 </button>
               </div>
             )}
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* ── Lulou Guide sheet ── */}
-      <Sheet open={activeSheet === "lulou_guide"} onOpenChange={open => !open && setActiveSheet(null)}>
-        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
-          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
-            <SheetTitle className="font-serif">Lulou Guide</SheetTitle>
-            <p className="text-sm text-muted-foreground mt-0.5">Replay any guide from your journey.</p>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-6">
-            {language === "English" && <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
-              <p className="font-serif text-base font-semibold">{t("welcome_tour_title")}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{t("welcome_tour_desc")}</p>
-              <button
-                onClick={() => {
-                  updateSetting.mutate({ onboardingTutorialCompleted: false });
-                  setActiveSheet(null);
-                }}
-                className="mt-3 text-xs font-semibold text-primary"
-                data-testid="button-replay-onboarding-tour"
-              >
-                {t("replay_tour_label")}
-              </button>
-            </div>}
-            {[
-              { label: "Welcome", key: GUIDE_KEYS.WELCOME, icon: "✨", title: "Welcome to Lulou", body: "Take your time. Great connections aren't rushed." },
-              { label: "Opening a profile", key: GUIDE_KEYS.DISCOVER_OPEN, icon: "❤️", title: "Nice choice", body: "Open means you're interested. If they open you too, you'll connect." },
-              { label: "Closing a profile", key: GUIDE_KEYS.DISCOVER_CLOSE, icon: "🌙", title: "Changed your mind?", body: "Undo Close can bring someone back." },
-              { label: "Undoing", key: GUIDE_KEYS.DISCOVER_UNDO, title: "Nothing is final.", body: "People can be rediscovered." },
-              { label: "Your first match", key: GUIDE_KEYS.CONNECTIONS_FIRST_MATCH, icon: "✨", title: "You're connected", body: "Take your time. Conversations unlock calls together." },
-              { label: "First message", key: GUIDE_KEYS.CHAT_FIRST_MESSAGE, title: "15 messages each", body: "Enough to spark chemistry before hearing their voice." },
-              { label: "First call", key: GUIDE_KEYS.CALLS_FIRST_PHONE, icon: "📞", title: "Hear their voice.", body: "Your first call lasts 10 minutes. No pressure." },
-              { label: "Video call", key: GUIDE_KEYS.CALLS_FIRST_VIDEO, icon: "✨", title: "Now you can be seen.", body: "Chemistry deserves more than text." },
-              { label: "Intention Wheel", key: GUIDE_KEYS.WHEEL_ENTRY, icon: "✨", title: "Standouts", body: "Exceptional profiles chosen for quality and compatibility." },
-              { label: "Elevate", key: GUIDE_KEYS.ELEVATE_SCREEN, title: "More visibility.", body: "Elevate places your profile in front of more compatible people." },
-              { label: "Membership", key: GUIDE_KEYS.MEMBERSHIP_VIEW, title: "Lulou Member", body: "Unlimited access. Refined for those who are serious." },
-            ].map(({ label, key, icon, title, body }) => (
-              <div key={key} className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">{label}</p>
-                <LulouGuidePreview icon={icon} title={title} body={body} />
-                <button
-                  onClick={() => { resetGuide(user?.id, key); }}
-                  className="w-full text-xs font-semibold text-primary py-2 rounded-xl border border-primary/25 hover:bg-primary/5 active:scale-95 transition-all"
-                  data-testid={`button-replay-guide-${key}`}
-                >
-                  {t("replay_guide_btn")}
-                </button>
-              </div>
-            ))}
           </div>
         </SheetContent>
       </Sheet>
