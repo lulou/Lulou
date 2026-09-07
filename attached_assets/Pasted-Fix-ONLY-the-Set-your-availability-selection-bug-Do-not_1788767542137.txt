@@ -1,0 +1,180 @@
+Fix ONLY the “Set your availability” selection bug. Do not change anything else.
+
+Current bug:
+I have tapped “Available now” several times and it still does not actually select.
+
+Also, when any availability option is tapped, the selected colour state does not appear.
+
+This means there are TWO problems:
+
+The tap/selection logic is not firing correctly
+The selected visual state is not being applied
+Fix both without breaking any existing working behaviour.
+
+AREA TO FIX
+
+Set your availability:
+
+Available now
+In 30 minutes
+In 1 hour
+In 2 hours
+Pick a specific time
+FIX THE TAP HANDLER
+Make sure tapping “Available now” immediately updates the availability state.
+
+Check for:
+
+broken onClick/onPointerDown handling
+overlapping invisible elements intercepting taps
+disabled state accidentally remaining true
+stale React state
+wrong selected value comparison
+event propagation issues
+mobile/PWA touch issues
+async request preventing local selection
+selection being reset immediately after tap
+parent re-render overwriting the selected value
+Do not require multiple taps.
+
+One tap must select it.
+
+OPTIMISTIC LOCAL SELECTION
+Do not wait for the backend request before showing the selected state.
+
+When the user taps an availability option:
+
+Immediately:
+
+update local selectedAvailability state
+visually highlight that option
+Then:
+
+persist the selection to the backend
+If the backend fails:
+
+show a controlled error
+do not silently ignore the tap
+only revert the selection if genuinely necessary
+The UI must feel instant.
+
+USE ONE CONSISTENT VALUE FORMAT
+Check the actual values being used.
+
+For example, do not have:
+
+button value:
+“available_now”
+
+but comparison:
+selectedAvailability === “now”
+
+Make sure each option uses one canonical value consistently across:
+
+button click
+local React state
+API payload
+backend
+database
+restored state
+Use the existing schema if it already exists. Do not create duplicate fields.
+
+SELECTED COLOUR STATE
+When selected, the option must visibly use Lulou’s existing colour palette.
+
+Selected state:
+
+existing Lulou rose/pink tinted background
+existing rose/pink border
+stronger selected text colour
+subtle premium emphasis
+Unselected state:
+
+leave exactly as it currently looks
+Only ONE option can be selected at a time.
+
+When another option is tapped:
+
+previous selection loses highlight immediately
+new selection becomes highlighted immediately
+Do not introduce a random new colour.
+
+Use the same existing Lulou rose/pink design tokens already used elsewhere in the app.
+
+AVAILABLE NOW SPECIFIC TEST
+Explicitly test:
+
+Tap “Available now” once.
+
+Expected:
+
+button immediately becomes selected
+Lulou colour highlight appears
+selectedAvailability contains the correct value
+backend receives the correct availability
+navigating away and back restores the correct selected state if that is the intended existing behaviour
+This specific option is currently not working, so do not consider the fix complete until it works on one tap.
+
+OTHER OPTIONS
+Also verify:
+
+In 30 minutes
+In 1 hour
+In 2 hours
+Pick a specific time
+Each must:
+
+respond on first tap
+visibly highlight
+correctly update state
+not interfere with the others
+If “Pick a specific time” opens a picker:
+
+keep that option visibly selected
+preserve the selected highlight while choosing the time
+MOBILE / INSTALLED IPHONE PWA
+Test this on the actual installed iPhone PWA.
+
+Specifically verify:
+
+tap target responds first time
+no touch event is swallowed
+no stale cached component behaviour
+selected colour updates immediately
+selection is not reset by a render immediately afterwards
+DO NOT CHANGE ANYTHING ELSE
+Do NOT change:
+
+call-stage logic
+availability wording
+button sizes
+spacing
+typography
+border radius
+page layout
+End Match
+call controls
+messaging
+colours elsewhere
+any other working feature
+This is a targeted bug fix only.
+
+EXPECTED RESULT
+
+One tap on “Available now”:
+→ actually selects it
+→ immediately shows the Lulou selected colour
+→ persists correctly
+→ remains stable
+
+Do not finish until that exact behaviour works.
+
+At the end report:
+
+Root cause of the tap not selecting
+Root cause of the colour state not appearing
+Files changed
+Exact selectedAvailability values used
+Whether backend persistence was changed
+Confirmation that “Available now” works on first tap
+Confirmation tested on installed iPhone PWA

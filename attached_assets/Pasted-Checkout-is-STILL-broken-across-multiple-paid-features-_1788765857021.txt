@@ -1,0 +1,230 @@
+Checkout is STILL broken across multiple paid features.
+
+The screenshots confirm:
+
+Intention Wheel purchase:
+“Checkout failed — Checkout couldn’t start. Please try again.”
+Elevate purchase:
+“Payment couldn’t be started — Checkout couldn’t start. Please try again.”
+This means the shared checkout/payment flow is likely failing, not just one individual purchase button.
+
+DO NOT change the UI, pricing, purchase screens, product design, colours, wording, or layout.
+
+Fix the actual production Stripe checkout flow.
+
+TRACE THE FULL FLOW
+
+For every paid purchase:
+
+Purchase button
+→ frontend purchase handler
+→ API request
+→ production backend
+→ Stripe Checkout Session creation
+→ checkout URL returned
+→ browser redirected to Stripe
+
+Inspect the actual failing request in production and identify exactly where it breaks.
+
+CHECK FIRST
+
+Browser/network request when Pay is pressed
+exact request URL
+HTTP status
+response body
+whether request reaches Railway
+whether frontend is calling the correct production API base URL
+Railway logs
+When checkout is attempted, log:
+checkout route reached
+authenticated user ID
+requested product/package
+requested price/product mapping
+Stripe session creation attempt
+Stripe error code/type/message if it fails
+Do NOT log secret keys or sensitive payment details.
+
+Stripe environment variables
+Verify the production Railway environment has the correct Stripe variables required by the current code.
+Check for:
+
+STRIPE_SECRET_KEY
+Stripe webhook secret if required
+Stripe price IDs/product IDs
+success URL configuration
+cancel URL configuration
+any production API URL/env variables used by checkout
+Make sure the frontend does NOT require STRIPE_SECRET_KEY.
+
+PRODUCT / PRICE MAPPING
+Test every current monetised item.
+
+Especially verify:
+
+Intention Wheel spin purchase
+1 Elevate
+3 Elevates — screenshot currently shows $26.99
+other Elevate packages
+extra messages
+extra audio calls
+extra video calls
+bundles
+subscriptions
+any other paid extras currently visible
+Check whether the frontend is sending a product identifier that the backend no longer recognises.
+
+Example failure to specifically investigate:
+
+Frontend sends:
+“elevate_3”
+
+but backend expects:
+“elevate3”
+
+or an old Stripe price ID no longer exists.
+
+Do not guess. Trace the exact product identifier being sent and compare it to the backend mapping.
+
+AUTHENTICATION
+Verify checkout requests are carrying the current Supabase authentication session/token correctly.
+
+If the route requires authentication:
+
+confirm Authorization header exists
+confirm token validates
+confirm current user is resolved
+confirm expired/missing sessions produce a proper 401 rather than a generic checkout failure
+Installed iPhone PWA must work exactly the same as desktop.
+
+CHECKOUT RESPONSE
+The checkout endpoint must return a valid usable Stripe checkout URL.
+
+Example intended response:
+
+{
+“url”: “https://checkout.stripe.com/…”
+}
+
+The frontend must validate that URL and immediately navigate to it.
+
+Do not silently swallow errors.
+
+If the backend returns:
+
+400
+401
+404
+500
+HTML instead of JSON
+missing url
+invalid JSON
+log and surface the real cause during debugging.
+
+API ROUTING
+We previously had deployment issues involving frontend/API routing.
+
+Verify checkout is NOT accidentally being handled by:
+
+the Vercel SPA fallback
+index.html
+an incorrect /api rewrite
+the wrong production domain
+the frontend server instead of Railway
+The checkout POST must reach the real Express/Railway backend.
+
+If the response Content-Type is text/html, find out why.
+
+STRIPE SESSION CREATION
+Verify the actual Stripe call succeeds.
+
+Check:
+
+Stripe secret key is valid
+live/test mode matches the configured price IDs
+price exists
+price is active
+currency is correct
+quantity is valid
+mode is correct: payment or subscription
+success_url is valid
+cancel_url is valid
+metadata values are valid
+Stripe customer creation/reuse is working
+If Stripe rejects the request, capture the exact Stripe error and fix that root cause.
+
+FRONTEND REDIRECT
+Once session creation succeeds:
+
+window.location.href = returnedCheckoutUrl
+
+or the existing correct equivalent should execute immediately.
+
+Make sure the installed iPhone PWA does not block the redirect because of:
+
+popup logic
+window.open
+async gesture loss
+invalid external URL handling
+Prefer direct top-level navigation to the Stripe checkout URL.
+
+TEST ON THE ACTUAL PRODUCTION APP
+Do not consider this fixed from localhost only.
+
+Test the deployed app.
+
+Required production tests:
+
+A. Intention Wheel
+Tap buy
+→ checkout session created
+→ Stripe page opens
+
+B. 3 Elevates — $26.99
+Tap Pay $26.99
+→ checkout session created
+→ Stripe page opens
+
+C. Test at least one other paid extra
+→ Stripe page opens
+
+D. Cancel checkout
+→ returns correctly to Lulou
+
+E. Successful test payment
+→ correct purchase/credits are applied once only
+
+F. Refresh/reopen after successful payment
+→ credits remain correctly stored
+
+IMPORTANT
+
+The screenshots already prove the frontend is correctly reaching the purchase confirmation screen.
+
+Do NOT waste time redesigning that screen.
+
+The failure occurs AFTER the user presses the final purchase button.
+
+Focus on:
+
+frontend checkout request
+→ API
+→ Railway
+→ Stripe session
+→ redirect
+
+Do not mask the bug with a nicer error message.
+
+Find and repair the actual root cause.
+
+WHEN FINISHED REPORT EXACTLY:
+
+Exact root cause
+Exact failing endpoint
+HTTP error/status that was occurring
+Stripe error if there was one
+Environment variable or price mapping issue found
+Files changed
+Production deployment confirmed
+Intention Wheel checkout test result
+Elevate $26.99 checkout test result
+Successful Stripe redirect confirmed on iPhone installed PWA

@@ -1,0 +1,172 @@
+The previous two attempts did NOT change anything.
+
+Both issues are still present:
+
+Tapping “Available now” does not actually select it
+The selected option still does not change to Lulou’s colour palette
+Stop treating this as a styling-only issue. Inspect the actual rendered component and fix the real cause.
+
+IMPORTANT:
+Do not make any unrelated changes.
+Do not redesign the page.
+Do not alter working call logic.
+Do not change wording, spacing, layout, typography, or button sizes.
+
+TARGET SECTION:
+“Set your availability”
+
+Options:
+
+Available now
+In 30 minutes
+In 1 hour
+In 2 hours
+Pick a specific time
+REQUIRED DEBUGGING
+
+FIND THE EXACT COMPONENT BEING RENDERED
+Do not assume the file/component from the previous attempt is the one actually used in production.
+Trace from the chat/call-stage screen to the exact rendered availability component.
+
+Confirm:
+
+exact file path
+exact component name
+exact button element currently appearing on screen
+If there are duplicate/old availability components, identify which one is actually mounted in production.
+
+PROVE THE TAP HANDLER FIRES
+Add temporary debugging around “Available now”.
+On first tap, verify:
+
+the click/pointer event fires
+the selected value changes in React state
+the selected value does not instantly reset
+the backend request fires if applicable
+If the event does NOT fire, inspect:
+
+overlays
+z-index
+pointer-events
+disabled attributes
+parent elements intercepting touch
+iOS/PWA touch handling
+stopPropagation/preventDefault
+transparent elements covering the button
+Fix the actual blocking element.
+
+PROVE STATE CHANGES
+When tapping Available now, state must become the exact canonical value used by the app.
+
+Example only:
+selectedAvailability = “available_now”
+
+Do not invent a new value if the backend already uses another one.
+
+Log/inspect the actual current value before and after tap.
+
+If state changes and then resets:
+
+find which effect/query/render is overwriting it
+stop that reset
+do not continuously rehydrate stale backend state over the local selection
+MAKE THE VISUAL STATE DIRECTLY DEPEND ON THAT STATE
+The rendered button class/style must explicitly depend on:
+
+selectedAvailability === THIS_OPTION_VALUE
+
+When true, apply the existing Lulou selected styling.
+
+Do not rely on:
+
+hover
+focus
+:active
+temporary pressed state
+data-state unless it is definitely being set
+CSS that is not included in the current build
+The selected appearance must come from persistent React state.
+
+USE EXISTING LULOU COLOURS
+Selected option must visibly change to the existing Lulou palette:
+
+rose/pink tinted background
+rose/pink border
+stronger rose/pink text or appropriate contrast text
+Use an existing Lulou token/class already present elsewhere in the app.
+
+Do NOT add a random pink.
+
+FORCE A CLEAR TEST CASE
+For “Available now”, implement and verify this exact sequence:
+
+Initial:
+
+white/neutral button
+Tap once:
+
+local selectedAvailability updates immediately
+button visibly turns to Lulou selected colour immediately
+backend persistence happens after local update
+Tap “In 30 minutes”:
+
+Available now returns to neutral
+In 30 minutes becomes selected colour
+Tap “Available now” again:
+
+Available now becomes selected colour again
+This must all happen without refresh.
+
+DO NOT LET BACKEND LATENCY BLOCK THE UI
+Selection must be optimistic.
+
+Correct flow:
+tap
+→ local state changes
+→ visual colour changes
+→ backend save
+
+Not:
+tap
+→ wait for backend
+→ maybe update UI
+
+CHECK PRODUCTION BUILD / STALE CODE
+Because the last two fixes apparently changed nothing, verify this is not a deployment mismatch.
+
+Check:
+
+correct Git branch
+correct deployed commit
+Vercel production deployment
+installed PWA receiving latest build
+service worker/cache
+old bundle still being served
+duplicate component still being imported
+If code is correct locally but unchanged on iPhone, fix the deployment/cache issue rather than editing random UI files again.
+
+TEST ON ACTUAL IPHONE PWA
+Do not mark complete from desktop only.
+
+On installed iPhone PWA verify:
+
+first tap registers
+button remains selected
+colour visibly changes
+switching option updates correctly
+page re-render does not remove the selection
+FINAL REPORT
+Report exactly:
+
+Exact component/file actually rendered
+Why previous changes had no visible effect
+Whether tap event was firing
+Whether state was being reset
+Exact canonical availability values
+Exact selected classes/styles applied
+Whether deployment/cache caused the old UI to remain
+Production commit/deployment confirmed
+Available now verified on first tap
+Selected colour verified on iPhone PWA
+Do not make any unrelated changes.
+
