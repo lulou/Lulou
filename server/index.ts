@@ -257,6 +257,24 @@ async function initLocalDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_saved_wheel_user ON saved_wheel_profiles(user_id);
 
+      CREATE TABLE IF NOT EXISTS spin_entitlement_claims (
+        user_id        VARCHAR NOT NULL,
+        entitlement_key TEXT NOT NULL,
+        operation_id   TEXT,
+        claimed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, entitlement_key)
+      );
+      ALTER TABLE spin_entitlement_claims ADD COLUMN IF NOT EXISTS operation_id TEXT;
+      UPDATE spin_entitlement_claims
+        SET operation_id = gen_random_uuid()::text
+        WHERE operation_id IS NULL;
+      ALTER TABLE spin_entitlement_claims ALTER COLUMN operation_id SET NOT NULL;
+      DROP INDEX IF EXISTS idx_spin_entitlement_operation;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_spin_entitlement_operation
+        ON spin_entitlement_claims(user_id, operation_id);
+      CREATE INDEX IF NOT EXISTS idx_spin_entitlement_claims_user
+        ON spin_entitlement_claims(user_id);
+
       CREATE TABLE IF NOT EXISTS active_sessions (
         id           VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id      TEXT NOT NULL UNIQUE,
@@ -456,7 +474,7 @@ async function initLocalDb() {
         updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks, voice_note_popup_seen, first_call_prompt_seen, connection_dna_responses, connection_dna_profiles, match_compatibility, interaction_signals, private_connection_feedback, user_settings");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, spin_entitlement_claims, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks, voice_note_popup_seen, first_call_prompt_seen, connection_dna_responses, connection_dna_profiles, match_compatibility, interaction_signals, private_connection_feedback, user_settings");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }
@@ -828,6 +846,7 @@ async function initPushCleanup() {
       const _ws = (await import("ws")).default;
       const {
         setHasIsPausedColumn,
+        setHasIsDiscoverableColumn,
         setHasCustomQColumn,
         setHasViewerQColumn,
         setHasCustomStartersColumn,
@@ -854,6 +873,7 @@ async function initPushCleanup() {
       };
       const OPTIONAL_COLS: ColDef[] = [
         { col: "is_paused",          setter: setHasIsPausedColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;" },
+        { col: "is_discoverable",    setter: setHasIsDiscoverableColumn,    sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_discoverable boolean NOT NULL DEFAULT true;" },
         { col: "custom_questions",   setter: setHasCustomQColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb;" },
         { col: "viewer_questions",   setter: setHasViewerQColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS viewer_questions jsonb DEFAULT '[]'::jsonb;" },
         { col: "custom_starters",    setter: setHasCustomStartersColumn,    sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_starters jsonb DEFAULT '[]'::jsonb;" },
@@ -895,6 +915,16 @@ async function initPushCleanup() {
         console.warn("  Affected features are gracefully disabled until the columns exist.");
       } else {
         console.log("[STARTUP] All optional Supabase profile columns present ✓");
+      }
+
+      if (!missingSql.some(sql => sql.includes("is_discoverable"))) {
+        const { error: seedVisibilityError } = await _adminSb
+          .from("profiles")
+          .update({ is_discoverable: false })
+          .like("user_id", "10000000-0000-4000-a000-0000000000%");
+        if (seedVisibilityError) {
+          console.warn("[STARTUP] Could not mark legacy seed profiles non-discoverable:", seedVisibilityError.message);
+        }
       }
 
       // ── email_verified backfill ───────────────────────────────────────────────

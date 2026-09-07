@@ -1,23 +1,23 @@
 ---
-name: Replit blocked from Supabase PostgreSQL
-description: All TCP paths to Supabase PostgreSQL are blocked from Replit; only HTTP to the REST API works
+name: Supabase connectivity from Replit
+description: Direct PostgreSQL TCP is blocked, while the Management API and PostgREST are available
 ---
 
 ## Blocked
 
-- **Management API** `https://api.supabase.com/v1/projects/{ref}/database/query`: 401 (sbp_ PAT unauthorized)
 - **Direct TCP** `db.{ref}.supabase.co:5432`: ENOTFOUND (DNS blocked, even with DoH)
 - **Supabase Pooler** `aws-0-*.pooler.supabase.com:5432/6543`: all regions fail
 - **Supabase CLI `db query --db-url`**: same DNS failure with DoH
-- **Supabase CLI `link --project-ref`**: 401 same Management API issue
 
 ## Works
 
+- Supabase Management API database queries using the current workspace access token ✓
 - HTTP to `https://{ref}.supabase.co/rest/v1/` (PostgREST) via JS client ✓
 
 ## Implication
 
-DDL migrations cannot be applied programmatically. User must apply via Supabase SQL editor:
-https://supabase.com/dashboard/project/{ref}/sql/new
+DDL can be applied programmatically through the Management API when authorized.
 
-After DDL: `SELECT pg_notify('pgrst', 'reload schema');`
+**Why:** The previously stored access token returned 401, but the currently configured token successfully applied an additive production migration on 2026-09-07.
+
+**How to apply:** Prefer the Management API for migrations; keep REST verification requests pinned to the project URL origin because the stored URL may contain an extra path.

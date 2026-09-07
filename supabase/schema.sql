@@ -35,6 +35,7 @@ create table if not exists public.profiles (
   phone_number          text,
   photo_verified        boolean     default false,
   onboarding_complete   boolean     default false,
+  is_discoverable       boolean     not null default true,
   elevate_type          text,
   elevate_expires_at    timestamptz,
   created_at            timestamptz default now()

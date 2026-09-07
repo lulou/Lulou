@@ -38,6 +38,7 @@ export const profiles = pgTable("profiles", {
   photoVerified: boolean("photo_verified").default(false),
   onboardingComplete: boolean("onboarding_complete").default(false),
   isPaused: boolean("is_paused").default(false),
+  isDiscoverable: boolean("is_discoverable").default(true),
   elevateType: text("elevate_type"),
   elevateExpiresAt: timestamp("elevate_expires_at"),
   lastActive: timestamp("last_active"),

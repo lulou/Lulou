@@ -11,6 +11,7 @@ import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db, pool as localPool } from "./db";
 import { eq, gt, sql, and, or, asc } from "drizzle-orm";
+import { utcWeekStartKey } from "./spinEligibility";
 import { dnaBonusScore, deserializeDna, type DnaDimensions } from "./connectionDna";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -783,6 +784,10 @@ export interface IStorage {
   getSpinsToday(userId: string): Promise<number>;
   getSpinsThisWeek(userId: string): Promise<number>;
   recordSpin(userId: string): Promise<void>;
+  hasSpinEntitlementClaim(userId: string, entitlementKey: string): Promise<boolean>;
+  claimSpinEntitlement(userId: string, entitlementKey: string, operationId: string): Promise<"claimed" | "replay" | "unavailable">;
+  releaseSpinEntitlementClaim(userId: string, entitlementKey: string, operationId: string): Promise<void>;
+  claimPaidSpin(userId: string, operationId: string): Promise<"claimed" | "replay" | "unavailable">;
   getDailyLikeCount(userId: string): Promise<number>;
   getConsecutiveLikeDays(userId: string, goal: number): Promise<number>;
   hasUnusedStreakSpin(userId: string): Promise<boolean>;
@@ -823,6 +828,55 @@ export interface IStorage {
   acceptWheelSpark(fromUserId: string, toUserId: string): Promise<{ matchId: string }>;
   declineWheelSpark(fromUserId: string, toUserId: string): Promise<void>;
   getDatePlanMessages(matchId: string): Promise<Message[]>;
+}
+
+const LEGACY_SEED_USER_ID_LIKE = "10000000-0000-4000-a000-0000000000%";
+let spinClaimsTableReady: Promise<void> | null = null;
+
+function ensureSpinClaimsTable(): Promise<void> {
+  if (!spinClaimsTableReady) {
+    spinClaimsTableReady = localPool.query(`
+      CREATE TABLE IF NOT EXISTS spin_entitlement_claims (
+        user_id          VARCHAR NOT NULL,
+        entitlement_key TEXT NOT NULL,
+        operation_id    TEXT,
+        claimed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, entitlement_key)
+      );
+      ALTER TABLE spin_entitlement_claims ADD COLUMN IF NOT EXISTS operation_id TEXT;
+      UPDATE spin_entitlement_claims
+      SET operation_id = gen_random_uuid()::text
+      WHERE operation_id IS NULL;
+      ALTER TABLE spin_entitlement_claims ALTER COLUMN operation_id SET NOT NULL;
+      DROP INDEX IF EXISTS idx_spin_entitlement_operation;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_spin_entitlement_operation
+        ON spin_entitlement_claims(user_id, operation_id);
+    `).then(() => undefined).catch(error => {
+      spinClaimsTableReady = null;
+      throw error;
+    });
+  }
+  return spinClaimsTableReady;
+}
+
+function applyProductionCandidateGuards(query: any): any {
+  let guarded = query
+    .eq("onboarding_complete", true)
+    .not("user_id", "like", LEGACY_SEED_USER_ID_LIKE);
+  if (_hasIsPausedColumn) {
+    guarded = guarded.or("is_paused.is.null,is_paused.eq.false");
+  }
+  if (_hasIsDiscoverableColumn) {
+    guarded = guarded.eq("is_discoverable", true);
+  }
+  if (_hasEmailVerifiedColumn) {
+    guarded = guarded.eq("email_verified", true);
+  }
+  return guarded;
+}
+
+function isKnownNonProductionProfile(profile: Pick<Profile, "userId">): boolean {
+  return profile.userId.startsWith("10000000-0000-4000-a000-0000000000");
 }
 
 /**
@@ -994,6 +1048,12 @@ let _hasIsPausedColumn = false;
 export function setHasIsPausedColumn(val: boolean) {
   _hasIsPausedColumn = val;
   console.log(`[STORAGE] is_paused column ${val ? "AVAILABLE" : "NOT YET MIGRATED"}`);
+}
+
+let _hasIsDiscoverableColumn = false;
+export function setHasIsDiscoverableColumn(val: boolean) {
+  _hasIsDiscoverableColumn = val;
+  console.log(`[STORAGE] is_discoverable column ${val ? "AVAILABLE" : "NOT YET MIGRATED"}`);
 }
 
 // email_verified — true once the user has confirmed their email address.
@@ -1193,6 +1253,7 @@ function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | nul
   if (data.photoVerified !== undefined) row.photo_verified = data.photoVerified;
   if (data.onboardingComplete !== undefined) row.onboarding_complete = data.onboardingComplete;
   if ((data as any).isPaused !== undefined) row.is_paused = (data as any).isPaused;
+  if ((data as any).isDiscoverable !== undefined) row.is_discoverable = (data as any).isDiscoverable;
   if (_hasShowLastActiveColumn && (data as any).showLastActive !== undefined) row.show_last_active = (data as any).showLastActive;
   if (_hasCommentFilterColumn && (data as any).commentFilter !== undefined) row.comment_filter = (data as any).commentFilter;
   if (_hasConversationStarterAiColumn && (data as any).conversationStarterAi !== undefined) row.conversation_starter_ai = (data as any).conversationStarterAi;
@@ -1535,24 +1596,12 @@ export class SupabaseStorage implements IStorage {
     // Base query: exclude own profile, require onboarding complete.
     // Age filter uses OR to treat NULL age as a pass-through (graceful degradation
     // for profiles where age wasn't stored — null age must not block everyone).
-    let profilesQuery = this.sb
+    let profilesQuery = applyProductionCandidateGuards(this.sb
       .from("profiles")
       .select(POOL_COLS)
       .neq("user_id", userId)
-      .eq("onboarding_complete", true)
       .or(`age.is.null,age.gte.${effectiveAgeMin}`)
-      .or(`age.is.null,age.lte.${effectiveAgeMax}`);
-
-    // Exclude paused profiles from discovery when column exists.
-    if (_hasIsPausedColumn) {
-      profilesQuery = (profilesQuery as any).or("is_paused.is.null,is_paused.eq.false");
-    }
-    // Exclude profiles whose owner has not yet confirmed their email address.
-    // The column is set lazily (fire-and-forget) by isAuthenticated the first
-    // time a verified user makes an API request, so it self-heals over time.
-    if (_hasEmailVerifiedColumn) {
-      profilesQuery = (profilesQuery as any).eq("email_verified", true);
-    }
+      .or(`age.is.null,age.lte.${effectiveAgeMax}`));
 
     // ── Mutual-compatibility filters ────────────────────────────────────────
     // Both conditions must hold:
@@ -1662,7 +1711,7 @@ export class SupabaseStorage implements IStorage {
     }
 
     const now = new Date();
-    const all = (profilesResult.data || []).map(mapProfile);
+    const all = (profilesResult.data || []).map(mapProfile).filter(p => !isKnownNonProductionProfile(p));
 
     console.log(`[POOL_DEBUG] after DB query (onboarding+email_verified+gender+pref+age+bbox+exclusions): ${all.length}`);
 
@@ -1754,14 +1803,13 @@ export class SupabaseStorage implements IStorage {
     // completely blank on a small user base.
     if (filtered.length === 0) {
       console.log("[DISCOVER] Mutual-compat pool empty — relaxing to gender-only filter for fallback");
-      let fallbackQuery = this.sb
+      let fallbackQuery = applyProductionCandidateGuards(this.sb
         .from("profiles")
         .select(POOL_COLS)
         .neq("user_id", userId)
-        .eq("onboarding_complete", true)
         // Null-safe age filter in fallback too
         .or(`age.is.null,age.gte.${effectiveAgeMin}`)
-        .or(`age.is.null,age.lte.${effectiveAgeMax}`);
+        .or(`age.is.null,age.lte.${effectiveAgeMax}`));
 
       if (targetGenders && targetGenders.length > 0) {
         fallbackQuery = fallbackQuery.in("gender", targetGenders);
@@ -1779,7 +1827,7 @@ export class SupabaseStorage implements IStorage {
 
       const { data: fallbackData, error: fallbackErr } = await (fallbackQuery as any).limit(useBBox ? 500 : 100);
       if (!fallbackErr && fallbackData && fallbackData.length > 0) {
-        const fallbackAll: Profile[] = (fallbackData as any[]).map(mapProfile);
+        const fallbackAll: Profile[] = (fallbackData as any[]).map(mapProfile).filter(p => !isKnownNonProductionProfile(p));
         const fallbackFiltered = fallbackAll.filter((p: Profile) => {
           // Null age passes through in fallback too
           if (p.age != null && (p.age < effectiveAgeMin || p.age > effectiveAgeMax)) return false;
@@ -2729,29 +2777,20 @@ export class SupabaseStorage implements IStorage {
       // profiles (same 300-cap as Discovery).  Without this, the popular query fills
       // allProfiles with up to `limit` excluded users, preventing the fill query from
       // ever running and leaving the wheel with 0–1 eligible profiles.
-      let query = this.sb
+      let query = applyProductionCandidateGuards(this.sb
         .from("profiles")
         .select(WHEEL_COLS)
-        .eq("onboarding_complete", true)
-        .in("user_id", sortedIds);
-
-      // Exclude paused accounts — parity with getDiscoverProfiles.
-      if (_hasIsPausedColumn) {
-        query = (query as any).or("is_paused.is.null,is_paused.eq.false");
-      }
+        .in("user_id", sortedIds));
 
       if (useDbExclusion && excludedIds.size > 0) {
         query = query.not("user_id", "in", `(${[...excludedIds].join(",")})`);
       }
 
       query = applyFilters(query);
-      if (_hasEmailVerifiedColumn) {
-        query = (query as any).eq("email_verified", true);
-      }
 
       const { data, error } = await query;
       if (error) console.error("[WHEEL] popular query error:", error.message);
-      allProfiles = (data || []).map(mapProfile);
+      allProfiles = (data || []).map(mapProfile).filter(p => !isKnownNonProductionProfile(p));
 
       const orderMap = new Map(sortedIds.map((id, i) => [id, i]));
       allProfiles.sort((a, b) => (orderMap.get(a.userId) ?? 99) - (orderMap.get(b.userId) ?? 99));
@@ -2762,20 +2801,10 @@ export class SupabaseStorage implements IStorage {
     // Fill remaining slots from any eligible profile (most recently joined first).
     if (allProfiles.length < limit) {
       const existingIds = allProfiles.map(r => r.userId);
-      let query = this.sb
+      let query = applyProductionCandidateGuards(this.sb
         .from("profiles")
         .select(WHEEL_COLS)
-        .eq("onboarding_complete", true)
-        .order("created_at", { ascending: false });
-
-      // Exclude paused accounts — parity with getDiscoverProfiles.
-      if (_hasIsPausedColumn) {
-        query = (query as any).or("is_paused.is.null,is_paused.eq.false");
-      }
-
-      if (_hasEmailVerifiedColumn) {
-        query = (query as any).eq("email_verified", true);
-      }
+        .order("created_at", { ascending: false }));
 
       // Combine already-fetched profiles, own profile, and (when within the URL-safe cap)
       // the full interaction-exclusion set — mirrors Discovery's DB-level exclusion.
@@ -2813,7 +2842,7 @@ export class SupabaseStorage implements IStorage {
 
       const { data: extra, error: fillError } = await (query as any).limit(wheelUseBBox ? limit * 15 : limit * 3);
       if (fillError) console.error("[WHEEL] fill query error:", fillError.message);
-      allProfiles.push(...(extra || []).map(mapProfile));
+      allProfiles.push(...(extra || []).map(mapProfile).filter(p => !isKnownNonProductionProfile(p)));
     }
 
     console.log(`[POOL_DEBUG] total profiles (wheel): ${allProfiles.length}`);
@@ -2896,19 +2925,13 @@ export class SupabaseStorage implements IStorage {
     // completely unconstrained query that showed profiles outside the user's preference.
     if (distanceFiltered.length === 0) {
       console.log("[WHEEL] pool empty after all filters — relaxing to gender-only fallback (mirrors Discovery)");
-      let fallbackQuery = this.sb
+      let fallbackQuery = applyProductionCandidateGuards(this.sb
         .from("profiles")
         .select(WHEEL_COLS)
-        .eq("onboarding_complete", true)
         .or(`age.is.null,age.gte.${effectiveAgeMin}`)
         .or(`age.is.null,age.lte.${effectiveAgeMax}`)
         .order("created_at", { ascending: false })
-        .limit(limit * 3);
-
-      // Exclude paused accounts — parity with getDiscoverProfiles.
-      if (_hasIsPausedColumn) {
-        fallbackQuery = (fallbackQuery as any).or("is_paused.is.null,is_paused.eq.false");
-      }
+        .limit(limit * 3));
 
       // Keep gender filter; relax the mutual-compat (dating_preference) filter.
       if (targetGenders && targetGenders.length > 0) {
@@ -2918,6 +2941,7 @@ export class SupabaseStorage implements IStorage {
       const { data: fallback, error: fallbackErr } = await fallbackQuery;
       if (fallbackErr) console.error("[WHEEL] fallback query error:", fallbackErr.message);
       const fallbackMapped = (fallback || []).map(mapProfile).filter(p => {
+        if (isKnownNonProductionProfile(p)) return false;
         if (p.userId === userId || excludedIds.has(p.userId)) return false;
         // ── RADIUS FILTER: apply to wheel fallback pool too ─────────────────
         // Same bug as Discovery: without this a Portsmouth user with 25-mile
@@ -2979,11 +3003,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getSpinsThisWeek(userId: string): Promise<number> {
-    const now = new Date();
-    const dayOfWeek = now.getDay();
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - ((dayOfWeek + 6) % 7));
-    const weekStart = monday.toISOString().slice(0, 10);
+    const weekStart = utcWeekStartKey();
 
     const { count } = await this.sb
       .from("spin_usage")
@@ -2995,9 +3015,83 @@ export class SupabaseStorage implements IStorage {
 
   async recordSpin(userId: string): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
-    await this.sb
+    const { error } = await this.sb
       .from("spin_usage")
       .insert({ user_id: userId, spin_date: today });
+    if (error) throw new Error(`Failed to record spin usage: ${error.message}`);
+  }
+
+  async hasSpinEntitlementClaim(userId: string, entitlementKey: string): Promise<boolean> {
+    await ensureSpinClaimsTable();
+    const result = await db.execute(sql`
+      SELECT 1
+      FROM spin_entitlement_claims
+      WHERE user_id = ${userId} AND entitlement_key = ${entitlementKey}
+      LIMIT 1
+    `);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async claimSpinEntitlement(
+    userId: string,
+    entitlementKey: string,
+    operationId: string,
+  ): Promise<"claimed" | "replay" | "unavailable"> {
+    await ensureSpinClaimsTable();
+    const result = await db.execute(sql`
+      INSERT INTO spin_entitlement_claims (user_id, entitlement_key, operation_id)
+      VALUES (${userId}, ${entitlementKey}, ${operationId})
+      ON CONFLICT DO NOTHING
+      RETURNING operation_id
+    `);
+    if ((result.rowCount ?? 0) > 0) return "claimed";
+
+    const replay = await db.execute(sql`
+      SELECT 1
+      FROM spin_entitlement_claims
+      WHERE user_id = ${userId} AND operation_id = ${operationId}
+      LIMIT 1
+    `);
+    return (replay.rowCount ?? 0) > 0 ? "replay" : "unavailable";
+  }
+
+  async releaseSpinEntitlementClaim(userId: string, entitlementKey: string, operationId: string): Promise<void> {
+    await ensureSpinClaimsTable();
+    await db.execute(sql`
+      DELETE FROM spin_entitlement_claims
+      WHERE user_id = ${userId}
+        AND entitlement_key = ${entitlementKey}
+        AND operation_id = ${operationId}
+    `);
+  }
+
+  async claimPaidSpin(userId: string, operationId: string): Promise<"claimed" | "replay" | "unavailable"> {
+    await ensureSpinClaimsTable();
+    return db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${userId}))`);
+
+      const replay = await tx.execute(sql`
+        SELECT 1
+        FROM spin_entitlement_claims
+        WHERE user_id = ${userId} AND operation_id = ${operationId}
+        LIMIT 1
+      `);
+      if ((replay.rowCount ?? 0) > 0) return "replay";
+
+      const consumed = await tx.execute(sql`
+        UPDATE spark_balances
+        SET balance = balance - 1, updated_at = NOW()
+        WHERE user_id = ${userId} AND balance > 0
+        RETURNING balance
+      `);
+      if ((consumed.rowCount ?? 0) === 0) return "unavailable";
+
+      await tx.execute(sql`
+        INSERT INTO spin_entitlement_claims (user_id, entitlement_key, operation_id)
+        VALUES (${userId}, ${`paid:${operationId}`}, ${operationId})
+      `);
+      return "claimed";
+    });
   }
 
   async getSpinCredits(userId: string): Promise<number> {
@@ -3046,14 +3140,26 @@ export class SupabaseStorage implements IStorage {
     const startOfDay = `${today}T00:00:00.000Z`;
     const endOfDay = `${today}T23:59:59.999Z`;
 
-    const { count } = await this.sb
+    const { data: incoming, error: incomingError } = await this.sb
       .from("interactions")
-      .select("*", { count: "exact", head: true })
-      .eq("from_user_id", userId)
+      .select("from_user_id")
+      .eq("to_user_id", userId)
       .eq("type", "open")
       .gte("created_at", startOfDay)
       .lte("created_at", endOfDay);
-    return count || 0;
+    if (incomingError) throw new Error(`Failed to count incoming likes: ${incomingError.message}`);
+
+    const senderIds = [...new Set((incoming || []).map(row => row.from_user_id).filter(Boolean))];
+    if (senderIds.length === 0) return 0;
+
+    const { data: eligibleProfiles, error: profileError } = await applyProductionCandidateGuards(
+      this.sb
+        .from("profiles")
+        .select("user_id")
+        .in("user_id", senderIds),
+    );
+    if (profileError) throw new Error(`Failed to validate incoming likes: ${profileError.message}`);
+    return (eligibleProfiles || []).filter(row => !String(row.user_id).startsWith("10000000-0000-4000-a000-0000000000")).length;
   }
 
   async getConsecutiveLikeDays(userId: string, goal: number): Promise<number> {

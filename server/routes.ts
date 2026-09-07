@@ -46,6 +46,11 @@ import {
   isIncludedCallTypeAllowed,
   resolveCommunicationEntitlements,
 } from "@shared/communication-entitlements";
+import {
+  DAILY_ELIGIBLE_LIKE_GOAL,
+  getFreeSpinEntitlementKey,
+  isDailySpinEntitlement,
+} from "./spinEligibility";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -5140,20 +5145,32 @@ export async function registerRoutes(
       const userId = req.user.id;
 
       // Run all spin-status checks in parallel
-      const [spinsThisWeek, dailyLikes, consecutiveDays, hasUnusedStreak, purchasedSpins, savedWheel] = await Promise.all([
+      const [spinsToday, spinsThisWeek, dailyLikes, consecutiveDays, purchasedSpins, savedWheel] = await Promise.all([
+        storage.getSpinsToday(userId),
         storage.getSpinsThisWeek(userId),
         storage.getDailyLikeCount(userId),
         storage.getConsecutiveLikeDays(userId, 10),
-        storage.hasUnusedStreakSpin(userId),
         storage.getSpinCredits(userId),
         storage.getSavedWheelProfile(userId),
       ]);
 
       const streakComplete = consecutiveDays >= 3;
-      const canSpin = (streakComplete && hasUnusedStreak) || (!streakComplete && spinsThisWeek === 0) || purchasedSpins > 0;
+      const entitlementKey = getFreeSpinEntitlementKey(dailyLikes);
+      const entitlementClaimed = await storage.hasSpinEntitlementClaim(userId, entitlementKey);
+      const legacyUsageExists = isDailySpinEntitlement(dailyLikes) ? spinsToday > 0 : spinsThisWeek > 0;
+      const canSpin = purchasedSpins > 0 || (!entitlementClaimed && !legacyUsageExists);
 
       if (IS_DEV) console.log(`[SPIN_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
-      res.json({ spinsThisWeek, dailyLikes, consecutiveDays, streakComplete, canSpin, purchasedSpins, hasSavedWheelProfile: !!savedWheel });
+      res.json({
+        spinsThisWeek,
+        dailyLikes,
+        consecutiveDays,
+        streakComplete,
+        dailyEligible: dailyLikes >= DAILY_ELIGIBLE_LIKE_GOAL,
+        canSpin,
+        purchasedSpins,
+        hasSavedWheelProfile: !!savedWheel,
+      });
     } catch (error) {
       console.error(`[SPIN_STATUS] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch spin status" });
@@ -5756,35 +5773,55 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const { standoutUserId } = req.body;
-
-      const spinsThisWeek = await storage.getSpinsThisWeek(userId);
-      const consecutiveDays = await storage.getConsecutiveLikeDays(userId, 10);
-      const streakComplete = consecutiveDays >= 3;
-      const hasUnusedStreak = await storage.hasUnusedStreakSpin(userId);
-
-      let canSpin = false;
-      if (streakComplete && hasUnusedStreak) {
-        canSpin = true;
-      } else if (!streakComplete && spinsThisWeek === 0) {
-        canSpin = true;
-      } else {
-        // Fall back to purchased spin credits — consume atomically via
-        // DELETE…RETURNING so concurrent requests cannot double-spend.
-        const consumed = await storage.consumeSpinCredit(userId);
-        if (consumed) {
-          // Credit already consumed; skip the second consume below.
-          await storage.recordSpin(userId);
-          if (standoutUserId) await storage.addSpinStandout(userId, standoutUserId);
-          return res.json({ success: true });
-        }
+      const { standoutUserId, operationId } = req.body;
+      if (typeof operationId !== "string" || operationId.length < 16 || operationId.length > 100) {
+        return res.status(400).json({ message: "A valid spin operation ID is required" });
       }
 
-      if (!canSpin) {
+      const [spinsToday, spinsThisWeek, dailyLikes] = await Promise.all([
+        storage.getSpinsToday(userId),
+        storage.getSpinsThisWeek(userId),
+        storage.getDailyLikeCount(userId),
+      ]);
+      const dailyEntitlement = isDailySpinEntitlement(dailyLikes);
+      const entitlementKey = getFreeSpinEntitlementKey(dailyLikes);
+      const legacyUsageExists = dailyEntitlement ? spinsToday > 0 : spinsThisWeek > 0;
+
+      const consumePaidSpin = async (): Promise<"success" | "replay" | "unavailable"> => {
+        const paidClaim = await storage.claimPaidSpin(userId, operationId);
+        if (paidClaim === "replay") return "replay";
+        if (paidClaim === "unavailable") return "unavailable";
+        return "success";
+      };
+
+      if (legacyUsageExists) {
+        const paidResult = await consumePaidSpin();
+        if (paidResult !== "unavailable") {
+          if (standoutUserId) await storage.addSpinStandout(userId, standoutUserId);
+          return res.json({ success: true, replayed: paidResult === "replay" });
+        }
         return res.status(403).json({ message: "No spins available" });
       }
 
-      await storage.recordSpin(userId);
+      const freeClaim = await storage.claimSpinEntitlement(userId, entitlementKey, operationId);
+      if (freeClaim === "replay") {
+        return res.json({ success: true, replayed: true });
+      }
+      if (freeClaim === "unavailable") {
+        const paidResult = await consumePaidSpin();
+        if (paidResult !== "unavailable") {
+          if (standoutUserId) await storage.addSpinStandout(userId, standoutUserId);
+          return res.json({ success: true, replayed: paidResult === "replay" });
+        }
+        return res.status(403).json({ message: "No spins available" });
+      }
+
+      try {
+        await storage.recordSpin(userId);
+      } catch (error) {
+        await storage.releaseSpinEntitlementClaim(userId, entitlementKey, operationId);
+        throw error;
+      }
 
       if (standoutUserId) {
         await storage.addSpinStandout(userId, standoutUserId);

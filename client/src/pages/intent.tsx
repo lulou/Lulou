@@ -1688,14 +1688,15 @@ export default function IntentPage() {
   // Dedup guard — prevents a second recordSpin call if the timer fires twice
   // (e.g. due to a fast re-mount or dev StrictMode double-effect).
   const recordSpinFiredRef = useRef(false);
+  const spinOperationIdRef = useRef("");
   // Set true in saveSpinResult.onSuccess; checked by the reveal guard at t=5000 ms
   // to confirm the result is server-persisted before mounting the result UI.
   const saveSpinSucceededRef = useRef(false);
 
   const recordSpin = useMutation({
-    mutationFn: async (standoutUserId: string) => {
-      console.log("[INTENTION_WHEEL] spin_request_started", { standoutUserId });
-      await apiRequest("POST", "/api/spin", { standoutUserId });
+    mutationFn: async ({ standoutUserId, operationId }: { standoutUserId: string; operationId: string }) => {
+      console.log("[INTENTION_WHEEL] spin_request_started", { standoutUserId, operationId });
+      await apiRequest("POST", "/api/spin", { standoutUserId, operationId });
     },
     onSuccess: () => {
       console.log("[INTENTION_WHEEL] result_persisted");
@@ -1811,6 +1812,8 @@ export default function IntentPage() {
     try { (navigator as any).vibrate?.([30]); } catch {}
     // Reset dedup guard so this fresh spin can record
     recordSpinFiredRef.current = false;
+    spinOperationIdRef.current = globalThis.crypto?.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     saveSpinSucceededRef.current = false;
     pendingWinnerRef.current = null;
     winnerLockChimePlayedRef.current = false;
@@ -2385,7 +2388,10 @@ export default function IntentPage() {
     });
     if (!recordSpinFiredRef.current) {
       recordSpinFiredRef.current = true;
-      recordSpin.mutate(winner.userId);
+      recordSpin.mutate({
+        standoutUserId: winner.userId,
+        operationId: spinOperationIdRef.current,
+      });
     }
 
     // ── Step 0: lock winner card; capture loser opacities from guided stop ─────

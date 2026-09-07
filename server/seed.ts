@@ -888,6 +888,7 @@ export async function seedDatabase() {
         conversationStarters: profile.conversationStarters || [],
         questions: profile.questions || [],
         onboardingComplete: profile.onboardingComplete,
+        isDiscoverable: false,
       }).onConflictDoNothing();
     }
 

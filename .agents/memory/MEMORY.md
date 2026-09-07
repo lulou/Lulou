@@ -38,7 +38,7 @@
 - [getMatchMeta Supabase column mismatch](getmatchmeta-supabase-columns.md) — call_avail_1/call_avail_2 absent from Supabase; selecting them → PostgREST error → null → 404 on every message POST → counter never increments.
 - [Supabase matches.id is TEXT](supabase-matches-id-type.md) — matches.id is TEXT not UUID; RPC params must use TEXT or "operator does not exist: text = uuid" at runtime.
 - [WAL refetch race causes badge snap-back](wal-refetch-race.md) — message insert WAL → useUnreadCounts invalidates match-detail → refetch races counter update → reads 0 → snaps badge to 15. Fix: increment counter BEFORE inserting message.
-- [Replit blocked from Supabase PostgreSQL](replit-supabase-connectivity.md) — Management API 401 (sbp_ PAT unauthorized), direct TCP DNS-blocked (even with DoH). Only HTTP to PostgREST works. DDL must be applied manually via Supabase SQL editor.
+- [Supabase connectivity from Replit](replit-supabase-connectivity.md) — direct PostgreSQL TCP remains blocked, but the Management API can now apply DDL with the workspace access token.
 - [SpinRoom proven production bugs](spinroom-proven-bugs.md) — React #31=dnaReasons[0] is {key,text} object; photo jump=FLIP handoff at pause; Retry 401=bare fetch omits auth headers; text invisible=under investigation pending winner_node logs.
 - [SpinRoom cinematic finish](spinroom-cinematic-overhaul.md) — guided stop starts while the orbit is fast; the original locked card interpolates to a measured hero rect, then hands off only after a ≤1px geometry check.
 - [Post-signup tutorial ordering](post-signup-tutorial-order.md) — the Lulou tour is additive and may render only after profile onboarding and server-confirmed Connection DNA completion.
