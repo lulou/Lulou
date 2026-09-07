@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest";
 
 const matchesPage = readFileSync("client/src/pages/matches.tsx", "utf8");
 const routes = readFileSync("server/routes.ts", "utf8");
+const storage = readFileSync("server/storage.ts", "utf8");
 const availabilityMutation = matchesPage.slice(
   matchesPage.indexOf("const setCallAvailMutation"),
   matchesPage.indexOf("const startPaidCall"),
+);
+const availabilityWrite = storage.slice(
+  storage.indexOf("async setCallAvailability("),
+  storage.indexOf("async clearAgreedCallAt("),
 );
 
 describe("call availability selection regressions", () => {
@@ -81,5 +86,9 @@ describe("call availability selection regressions", () => {
     expect(routes).toContain(
       "await storage.setCallAvailability(matchId, userId, availableAt ?? null)",
     );
+    expect(availabilityWrite).toContain("ownUpdate.call_avail_1_at");
+    expect(availabilityWrite).toContain("ownUpdate.call_avail_2_at");
+    expect(availabilityWrite).not.toMatch(/ownUpdate\.call_avail_1(?!_at)/);
+    expect(availabilityWrite).not.toMatch(/ownUpdate\.call_avail_2(?!_at)/);
   });
 });

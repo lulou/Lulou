@@ -3326,12 +3326,12 @@ export class SupabaseStorage implements IStorage {
     // agreement is calculated — agreed_call_at is never based on a stale read.
     const ownUpdate: Record<string, any> = {};
     if (availableAt === null) {
-      if (isUser1) { ownUpdate.call_avail_1 = null; ownUpdate.call_avail_1_at = null; }
-      else         { ownUpdate.call_avail_2 = null; ownUpdate.call_avail_2_at = null; }
+      if (isUser1) ownUpdate.call_avail_1_at = null;
+      else         ownUpdate.call_avail_2_at = null;
     } else {
       const newTs = new Date(availableAt);
-      if (isUser1) { ownUpdate.call_avail_1 = availableAt; ownUpdate.call_avail_1_at = newTs.toISOString(); }
-      else         { ownUpdate.call_avail_2 = availableAt; ownUpdate.call_avail_2_at = newTs.toISOString(); }
+      if (isUser1) ownUpdate.call_avail_1_at = newTs.toISOString();
+      else         ownUpdate.call_avail_2_at = newTs.toISOString();
     }
     const { error: ownWriteErr } = await this.sb.from("matches").update(ownUpdate).eq("id", matchId);
     if (ownWriteErr) throw new Error(`setCallAvailability own-write error: ${ownWriteErr.message}`);
