@@ -2301,11 +2301,25 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   // Set (or clear) the current user's pre-first-call availability
   const setCallAvailMutation = useMutation({
-    mutationFn: async (availableAt: string | null) => {
-      const r = await apiRequest("POST", `/api/matches/${match.id}/call/set-availability`, { availableAt });
-      return r.json();
+    mutationFn: async (selection: {
+      availableAt: string | null;
+      key: string;
+      previousKey: string | null;
+      requestId: number;
+    }) => {
+      const request = availabilityPersistChainRef.current.then(async () => {
+        const r = await apiRequest(
+          "POST",
+          `/api/matches/${match.id}/call/set-availability`,
+          { availableAt: selection.availableAt },
+        );
+        return r.json();
+      });
+      availabilityPersistChainRef.current = request.then(() => undefined, () => undefined);
+      return request;
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data: any, selection) => {
+      if (selection.requestId !== availabilityRequestIdRef.current) return;
       // Patch the match cache so availability fields update immediately without a full refetch
       const patch = {
         callAvail1:   data.callAvail1,
@@ -2326,8 +2340,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       );
       setShowAvailPicker(false);
     },
-    onError: (err: any) => {
-      toast({ title: t("call_failed_title"), description: err?.message || t("something_went_wrong"), variant: "destructive" });
+    onError: (err: any, selection) => {
+      if (selection.requestId === availabilityRequestIdRef.current) {
+        setSelectedAvailability(selection.previousKey);
+        queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+        toast({ title: t("call_failed_title"), description: err?.message || t("something_went_wrong"), variant: "destructive" });
+      }
     },
   });
 
@@ -2794,6 +2812,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // Sub-picker state for "Pick a specific time" inside the availability step
   const [showSpecificTimePicker, setShowSpecificTimePicker] = useState(false);
   const [specificTimePending, setSpecificTimePending] = useState("");
+  const [selectedAvailability, setSelectedAvailability] = useState<string | null>(null);
+  const availabilityBeforeSpecificRef = useRef<string | null>(null);
+  const availabilityRequestIdRef = useRef(0);
+  const availabilityPersistChainRef = useRef<Promise<void>>(Promise.resolve());
 
   // Recording state. The visual state deliberately follows the recorder lifecycle
   // instead of an optimistic boolean, so a failed setup can never leave a live-looking mic.
@@ -4580,20 +4602,33 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         key={opt.key}
                         size="sm"
                         variant="outline"
-                        className="w-full justify-start"
+                        className={`w-full justify-start ${
+                          selectedAvailability === opt.key
+                            ? "border-primary/60 bg-primary/10 text-primary hover:border-primary/60 hover:bg-primary/10 hover:text-primary shadow-[0_0_14px_hsl(var(--primary)/0.16)]"
+                            : ""
+                        }`}
                         onClick={() => {
+                          const previousKey = selectedAvailability;
+                          setSelectedAvailability(opt.key);
+                          const requestId = ++availabilityRequestIdRef.current;
                           if (opt.key === "specific_time") {
                             // Open the inline datetime picker — the ISO value is sent on confirm.
+                            availabilityBeforeSpecificRef.current = previousKey;
                             setShowSpecificTimePicker(true);
                           } else {
                             setShowSpecificTimePicker(false);
                             setSpecificTimePending("");
                             // Convert preset key → absolute UTC timestamp at the moment of click.
                             // "available_now" → now; "in_30_minutes" → now + 30 min; etc.
-                            setCallAvailMutation.mutate(toAbsoluteTimestamp(opt.key));
+                            setCallAvailMutation.mutate({
+                              availableAt: toAbsoluteTimestamp(opt.key),
+                              key: opt.key,
+                              previousKey,
+                              requestId,
+                            });
                           }
                         }}
-                        disabled={setCallAvailMutation.isPending}
+                        aria-pressed={selectedAvailability === opt.key}
                         data-testid={`button-avail-${opt.key}-${match.id}`}
                       >
                         {opt.label}
@@ -4614,7 +4649,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       <div className="flex gap-2">
                         <Button
                           size="sm" variant="outline" className="flex-1"
-                          onClick={() => { setShowSpecificTimePicker(false); setSpecificTimePending(""); }}
+                          onClick={() => {
+                            setShowSpecificTimePicker(false);
+                            setSpecificTimePending("");
+                            setSelectedAvailability(availabilityBeforeSpecificRef.current);
+                          }}
                         >
                           {t("cancel")}
                         </Button>
@@ -4622,7 +4661,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                           size="sm" className="flex-1"
                           onClick={() => {
                             if (specificTimePending) {
-                              setCallAvailMutation.mutate(specificTimePending);
+                              setCallAvailMutation.mutate({
+                                availableAt: specificTimePending,
+                                key: "specific_time",
+                                previousKey: availabilityBeforeSpecificRef.current,
+                                requestId: ++availabilityRequestIdRef.current,
+                              });
                               setShowSpecificTimePicker(false);
                               setSpecificTimePending("");
                             }
