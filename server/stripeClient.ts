@@ -2,7 +2,9 @@ import Stripe from 'stripe';
 
 // ── Credential loading ────────────────────────────────────────────────────────
 // Reads ONLY from environment variables — no Replit connector, no sandbox claim.
-// Required vars: STRIPE_SECRET_KEY + (STRIPE_PUBLISHABLE_KEY or VITE_STRIPE_PUBLISHABLE_KEY)
+// Server-hosted Checkout requires only STRIPE_SECRET_KEY. The publishable key is
+// optional here because this app redirects to Stripe-hosted Checkout and never
+// initializes Stripe.js in the checkout request path.
 
 type Credentials = { secretKey: string; publishableKey: string };
 
@@ -25,13 +27,6 @@ function loadCredentials(): Credentials {
       'Add it to Replit Secrets and redeploy.',
     );
   }
-  if (!publishableKey) {
-    throw new Error(
-      '[STRIPE_CLIENT] Neither STRIPE_PUBLISHABLE_KEY nor VITE_STRIPE_PUBLISHABLE_KEY is set. ' +
-      'Add one to Replit Secrets and redeploy.',
-    );
-  }
-
   return { secretKey, publishableKey };
 }
 
@@ -53,14 +48,15 @@ function getCredentials(): Credentials {
 function _logCredentials(creds: Credentials): void {
   const keyMode  = creds.secretKey.startsWith('sk_live')  ? 'LIVE'    :
                    creds.secretKey.startsWith('sk_test')  ? 'TEST'    : 'UNKNOWN';
-  const pubMode  = creds.publishableKey.startsWith('pk_live') ? 'LIVE' :
+  const pubMode  = !creds.publishableKey ? 'MISSING' :
+                   creds.publishableKey.startsWith('pk_live') ? 'LIVE' :
                    creds.publishableKey.startsWith('pk_test') ? 'TEST' : 'UNKNOWN';
 
   const pubParts  = creds.publishableKey.split('_');
   const acctFrag  = pubParts.length >= 3 ? (pubParts[2]?.slice(0, 8) ?? '') + '…' : '(unknown)';
   const livemode  = keyMode === 'LIVE';
 
-  if (keyMode !== pubMode) {
+  if (creds.publishableKey && keyMode !== pubMode) {
     console.error(
       `[STRIPE_CLIENT] ⚠ KEY MODE MISMATCH — secret=${keyMode} publishable=${pubMode}. ` +
       'Keys must belong to the same Stripe account and mode.',
@@ -68,14 +64,15 @@ function _logCredentials(creds: Credentials): void {
   }
 
   const secretPrefix = livemode ? 'sk_live' : 'sk_test';
-  const pubPrefix    = creds.publishableKey.startsWith('pk_live') ? 'pk_live' : 'pk_test';
+  const pubPrefix    = !creds.publishableKey ? '(not set)' :
+                       creds.publishableKey.startsWith('pk_live') ? 'pk_live' : 'pk_test';
   const isProduction = process.env.REPLIT_DEPLOYMENT === '1';
 
   // ── summary line ─────────────────────────────────────────────────────────
   console.log(
     `[STRIPE_CLIENT] ✓ Credentials loaded — source=env mode=${keyMode} ` +
     `acct=…${acctFrag} secret=${secretPrefix}_…${creds.secretKey.slice(-4)} ` +
-    `pub=${pubPrefix}_…${creds.publishableKey.slice(-4)}`,
+    `pub=${creds.publishableKey ? `${pubPrefix}_…${creds.publishableKey.slice(-4)}` : '(not set)'}`,
   );
 
   // ── [STRIPE_MODE] block (exact format for ops monitoring) ─────────────
@@ -111,7 +108,13 @@ export function getUncachableStripeClient(): Stripe {
 }
 
 export function getStripePublishableKey(): string {
-  return getCredentials().publishableKey;
+  const publishableKey = getCredentials().publishableKey;
+  if (!publishableKey) {
+    throw new Error(
+      '[STRIPE_CLIENT] Neither STRIPE_PUBLISHABLE_KEY nor VITE_STRIPE_PUBLISHABLE_KEY is set.',
+    );
+  }
+  return publishableKey;
 }
 
 export function getStripeSecretKey(): string {
@@ -189,7 +192,7 @@ export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
     country:         account.country ?? null,
     livemode:        (account as any).livemode ?? !creds.secretKey.startsWith('sk_test'),
     secretKeyPrefix: creds.secretKey.slice(0, 12),
-    pubKeyPrefix:    creds.publishableKey.slice(0, 12),
+    pubKeyPrefix:    creds.publishableKey ? creds.publishableKey.slice(0, 12) : '(not set)',
     source:          'env',
   };
 

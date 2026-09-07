@@ -5,6 +5,7 @@ const purchaseService = readFileSync("client/src/lib/purchase-service.ts", "utf8
 const routes = readFileSync("server/routes.ts", "utf8");
 const purchaseItems = readFileSync("server/purchaseItems.ts", "utf8");
 const webhookHandlers = readFileSync("server/webhookHandlers.ts", "utf8");
+const stripeClient = readFileSync("server/stripeClient.ts", "utf8");
 
 describe("shared Stripe checkout regressions", () => {
   it("uses the app auth helper so protected checkout requests include the session ID", () => {
@@ -19,6 +20,21 @@ describe("shared Stripe checkout regressions", () => {
     expect(purchaseService).toContain("DUPLICATE_CLICK_IGNORED");
     expect(purchaseService).toContain("Checkout couldn’t start. Please try again.");
     expect(purchaseService).toContain("window.location.assign(parsed.url)");
+  });
+
+  it("requires only the secret key for server-hosted Checkout", () => {
+    const credentialLoader = stripeClient.slice(
+      stripeClient.indexOf("function loadCredentials"),
+      stripeClient.indexOf("function getCredentials"),
+    );
+    const publishableKeyGetter = stripeClient.slice(
+      stripeClient.indexOf("export function getStripePublishableKey"),
+      stripeClient.indexOf("export function getStripeSecretKey"),
+    );
+
+    expect(credentialLoader).toContain("if (!secretKey)");
+    expect(credentialLoader).not.toContain("if (!publishableKey)");
+    expect(publishableKeyGetter).toContain("if (!publishableKey)");
   });
 
   it("returns users to their trusted request origin instead of a stale deployment URL", () => {
