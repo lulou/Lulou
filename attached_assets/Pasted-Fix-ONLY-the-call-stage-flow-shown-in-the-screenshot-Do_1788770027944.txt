@@ -1,0 +1,226 @@
+Fix ONLY the call-stage flow shown in the screenshot. Do not redesign unrelated parts of the app and do not change any existing working messaging, profile, payment, or matching logic.
+
+CURRENT BUGS
+
+The screen is showing:
+“First call in progress”
+even though the user has not actually started the call themselves.
+After the user selects an availability option, the call starts instantly.
+That is WRONG.
+
+Availability is only meant to communicate WHEN the user is available.
+
+Selecting:
+
+Available now
+In 30 minutes
+In 1 hour
+In 2 hours
+Pick a specific time
+must NOT start the call.
+
+The user must be taken to a separate call-ready section where they manually control whether to start the call.
+
+RESTORE THE INTENDED LULOU CALL FLOW
+
+The first call stage should behave like this:
+
+STEP 1 — AVAILABILITY
+
+User reaches first call stage.
+
+Show the availability choices.
+
+When the user selects one:
+
+save the availability
+show the selected state in Lulou colours
+do NOT create a WebRTC call
+do NOT mark the call as active
+do NOT start a countdown
+do NOT set “call in progress”
+do NOT trigger ringing
+do NOT connect media
+do NOT open the live call overlay
+Availability selection and actual call start must be completely separate actions.
+
+STEP 2 — CALL-READY SECTION
+
+After an availability option is selected successfully, move the user into a proper call-ready section.
+
+This must be a separate UI state.
+
+The call-ready section should clearly show:
+
+first call
+10-minute audio call
+the other person’s availability/status
+whether the other person is also ready/available if applicable
+a clear manual “Start call” / call button
+The user must have to deliberately press the call button themselves.
+
+Do not auto-start anything.
+
+STEP 3 — MANUAL CALL START
+
+Only when the user presses the actual call button should the app:
+
+create the live call session
+initiate WebRTC
+start outgoing call state
+trigger incoming call state for the other user
+show ringing
+start the proper call overlay
+start the call timer only after the call is answered/connected
+Do not treat availability as equivalent to startCall().
+
+CRITICAL CODE FIX
+
+Trace the availability handlers.
+
+There is likely an incorrect path similar to:
+
+selectAvailability()
+→ saveAvailability()
+→ startCall()
+
+or:
+
+onAvailabilityClick()
+→ setCallState(“active”)
+
+REMOVE that coupling.
+
+Availability handler must ONLY:
+
+set local selected availability
+persist availability
+transition to the call-ready UI state
+It must never invoke:
+
+startCall
+initiateCall
+createCallSession
+connectWebRTC
+setCallInProgress(true)
+setCallStatus(“active”)
+ringPeer
+any equivalent call-start function
+CALL STATUS STATE
+
+Fix the status model so these are separate states:
+
+availability_not_set
+availability_set
+call_ready
+outgoing_ringing
+incoming_ringing
+connected
+ended
+Do not mark the call as “in progress” unless the call is genuinely connected.
+
+The screenshot currently shows “First call in progress” incorrectly.
+
+That message should only ever appear after:
+
+user manually starts the call
+other person answers
+WebRTC/media connection is established
+If the call has not connected, do not show “in progress”.
+
+FIRST CALL RULES MUST REMAIN
+
+Do not change the established first-call rules:
+
+first call = audio
+10 minutes
+free
+timer only starts once genuinely connected
+failed call does not consume the call
+cancelled/declined/unanswered call does not consume the call
+no auto-redial
+no automatic call start
+earpiece/default existing audio behaviour must remain
+call stage progression must remain unchanged
+SCREEN/UI
+
+The current huge “First call in progress” area shown in the screenshot should NOT appear just because availability was selected.
+
+Instead:
+
+Availability selected
+→ user is taken to call-ready section
+→ explicit call button is shown
+→ user presses it manually
+
+Keep this visually consistent with the existing premium Lulou interface.
+
+Do not invent a totally new design language.
+
+Also do not change the top:
+
+Call
+Locked video
+Mic
+stage progress bar
+unless necessary to correctly reflect the real call state.
+
+BACKEND / REALTIME
+
+Make sure availability updates do not create or activate a call record.
+
+A call record/session should only become active when the actual call action is triggered.
+
+Verify realtime subscriptions also distinguish between:
+
+availability change
+and
+incoming call event
+An availability update must NEVER be interpreted as an incoming/active call event.
+
+IPHONE / INSTALLED PWA TEST
+
+Test this exact flow on the installed iPhone PWA:
+
+Reach call stage
+Tap “Available now”
+Selected button changes to Lulou colour
+No call starts
+No ringing starts
+No WebRTC connection starts
+No “First call in progress” message appears
+User transitions to call-ready section
+User sees a manual call button
+User presses call button
+Only then does outgoing call begin
+Other user gets incoming call
+When answered, call becomes “in progress”
+10-minute timer starts only after connection
+DO NOT BREAK ANYTHING ELSE
+
+Do not change:
+
+pricing
+Intention Wheel
+Discover
+Likes
+profile
+messaging
+voice notes
+video-call stage
+stage message quotas
+existing call duration
+existing call entitlement logic
+This is a targeted call-stage flow fix.
+
+AT THE END REPORT
+
+Exact reason availability was starting the call
+Exact function that was incorrectly triggered
+Exact component/file changed
+New availability state flow
+New call-ready state flow
+Exact condition for “First call in progress”
+Confirmation availability no longer starts a call
+Confirmation manual call button is now required
+Confirmation tested on installed iPhone PWA
