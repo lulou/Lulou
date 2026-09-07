@@ -1,0 +1,187 @@
+Fix these regressions ONLY. Do not redesign anything, do not change working UI, colours, layouts, pricing, call stages, or existing product logic outside the specific bugs below.
+
+INCOMING CALL TRIGGERING WHEN APP LOADS
+Bug:
+An incoming call/ringing state appeared immediately when loading the app even though no genuine incoming call was happening.
+
+Fix:
+
+Incoming call UI and ringtone must ONLY trigger from a genuinely active incoming call session intended for that user.
+On app startup, clear any stale local call state, stale ringing state, stale persisted call session data, stale timers, and stale WebRTC state.
+Do not restore an old incoming call from localStorage/sessionStorage/cache unless the backend confirms that call is still genuinely active.
+Realtime call events must be validated against:
+
+correct receiver user ID
+active call status
+current valid call/session ID
+call not already ended, declined, cancelled, timed out, or answered
+Old realtime events must never retrigger ringing after reopening the app.
+Ensure duplicate subscriptions/listeners are cleaned up properly.
+Only one active incoming-call event should be handled at a time.
+Failed, ended, declined, cancelled, expired, or stale calls must immediately reset the full call state.
+Expected result:
+Opening or refreshing Lulou never randomly causes ringing. Incoming call UI only appears when another real user is actively calling that account.
+
+BOT / TEST PROFILE HAS REAPPEARED IN DISCOVER
+Bug:
+A bot profile appeared in Discover even though bot profiles were removed months ago.
+
+Fix this at the backend/database query level, not only visually.
+
+Discover must permanently exclude:
+
+bots
+seed accounts
+demo accounts
+test accounts
+development profiles
+internal QA accounts
+deleted/deactivated profiles
+any account explicitly marked as non-production/non-discoverable
+Check the current profiles schema and existing flags rather than inventing duplicate fields if suitable fields already exist.
+
+Every Discover/profile recommendation query must apply the exclusion consistently.
+
+Also check:
+
+fallback profile queries
+empty-state fallback logic
+cached profile pools
+recommendation endpoints
+intention wheel profile selection if it uses profile data
+any hardcoded/demo profile data still present in the frontend
+Do not delete legitimate real-user accounts.
+
+Expected result:
+No bot/test/demo/seed profile can ever appear to a production user again.
+
+INTENTION WHEEL ALLOWS MORE THAN ONE SPIN
+Bug:
+The Intention Wheel allowed the same user to spin multiple times even though its eligibility rules already exist.
+
+Restore the existing intended rules exactly:
+
+If user receives at least 10 eligible likes in a day:
+User gets ONE Intention Wheel spin for that daily eligibility period.
+Otherwise:
+User gets ONE free spin per week.
+A user must never be able to repeatedly spin by:
+
+refreshing
+reopening the app
+navigating away and back
+double tapping
+sending repeated API requests
+using multiple tabs/devices
+frontend state resetting
+This MUST be enforced server-side/database-side, not only by disabling the button.
+
+Requirements:
+
+Check eligibility before allowing a spin.
+Record the spin atomically.
+Prevent race conditions and duplicate spins.
+Add/verify appropriate unique constraints or transaction locking if required.
+The spin endpoint must reject a second spin when no new eligibility exists.
+Frontend must immediately update to the locked/used state after a successful spin.
+Reopening the app must load the true eligibility state from the backend.
+Do not reset the weekly or daily window incorrectly because of timezone/client clock differences.
+Use the backend as the source of truth.
+Do not change the current Intention Wheel design, animation, Open/Close flow, DNA logic, colours, or profile presentation.
+
+Expected result:
+Each user receives exactly the number of spins they are entitled to and cannot bypass the restriction.
+
+PURCHASES DO NOT PROCEED TO CHECKOUT
+Bug:
+Anything that costs money currently fails to take the user through to checkout.
+
+Trace the complete payment flow:
+
+Purchase button
+→ frontend purchase handler
+→ checkout API endpoint
+→ Stripe Checkout Session creation
+→ valid checkout URL/session
+→ browser redirect to Stripe Checkout
+
+Check every paid product currently offered in Lulou, including:
+
+Elevate / profile upgrade
+extra messages
+extra audio calls
+extra video calls
+extra Intention Wheel spins
+bundles
+subscriptions
+any other paid extras currently present
+Check:
+
+Stripe secret key/environment configuration
+frontend API base URL
+production Railway API route
+Stripe price IDs
+price/product mapping
+currency setup
+success URL
+cancel URL
+authenticated user ID/customer metadata
+checkout session creation response
+CORS/network failures
+JSON parsing errors
+production vs development Stripe configuration
+Do not expose Stripe secret keys to the frontend.
+
+If checkout-session creation fails:
+
+log the actual server error with useful context
+return a controlled API error
+show the user a proper failure message
+do not silently fail or leave the button doing nothing
+If the API successfully creates a checkout session:
+
+immediately redirect the user to the Stripe-hosted checkout URL.
+After cancel:
+
+return the user correctly to Lulou Profile/Purchases.
+After success:
+
+existing purchase fulfilment logic must continue correctly.
+IMPORTANT:
+Do not change current prices, products, currency, UI, checkout styling, or monetisation structure unless something is genuinely misconfigured and preventing checkout.
+
+REGRESSION SAFETY
+Before finishing, verify all four fixes in production behaviour:
+
+A. Open/refresh Lulou several times with no active call:
+
+no ringtone
+no incoming-call modal
+B. Browse multiple Discover profiles:
+
+zero bot/test/demo profiles
+C. Test Intention Wheel:
+
+first eligible spin succeeds
+immediate second attempt is rejected
+refresh/reopen still shows spin already used
+eligibility returns only when the actual daily/weekly rule permits it
+D. Test every paid purchase button:
+
+each creates a valid Stripe Checkout Session
+each redirects to checkout
+cancel returns correctly
+no silent failures
+Also inspect production logs while testing these flows so the root causes are fixed rather than masked.
+
+Do not make unrelated changes.
+
+At the end, report:
+
+Root cause of the random incoming call
+Root cause of the bot profile appearing
+Root cause of repeat Intention Wheel spins
+Root cause of checkout failing
+Files changed
+Backend/API/database changes made
+Production tests completed and their results
