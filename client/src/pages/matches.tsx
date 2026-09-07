@@ -2338,7 +2338,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       queryClient.setQueryData(["/api/voice-notes/entitlement", match.id], (old: any) =>
         old ? { ...old, firstCallPromptSeen: true } : old
       );
-      setShowAvailPicker(false);
     },
     onError: (err: any, selection) => {
       if (selection.requestId === availabilityRequestIdRef.current) {
@@ -4609,6 +4608,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         }`}
                         onClick={() => {
                           const previousKey = selectedAvailability;
+                          setShowAvailPicker(true);
                           setSelectedAvailability(opt.key);
                           const requestId = ++availabilityRequestIdRef.current;
                           if (opt.key === "specific_time") {

@@ -27,8 +27,18 @@ describe("call availability selection regressions", () => {
     expect(optionHandler.indexOf("setCallAvailMutation.mutate({")).toBeGreaterThan(
       optionHandler.indexOf("setSelectedAvailability(opt.key)"),
     );
+    expect(optionHandler).toContain("setShowAvailPicker(true)");
     expect(optionHandler).toContain("availableAt: toAbsoluteTimestamp(opt.key)");
     expect(matchesPage).toContain("available_now:   0");
+  });
+
+  it("keeps the selected option visible after the backend confirms the save", () => {
+    const mutationSuccess = matchesPage.slice(
+      matchesPage.indexOf("onSuccess: (data: any, selection) =>"),
+      matchesPage.indexOf("onError: (err: any, selection) =>"),
+    );
+
+    expect(mutationSuccess).not.toContain("setShowAvailPicker(false)");
   });
 
   it("keeps the specific-time option selected and reverts only on cancel or save failure", () => {
