@@ -2338,17 +2338,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       queryClient.setQueryData(["/api/voice-notes/entitlement", match.id], (old: any) =>
         old ? { ...old, firstCallPromptSeen: true } : old
       );
-
-      // "Available now" is an immediate call action once the server confirms
-      // both users' times overlap and the agreed time is inside the start window.
-      const agreedAtMs = data.agreedCallAt ? new Date(data.agreedCallAt).getTime() : NaN;
-      const canStartAvailableNow =
-        selection.key === "available_now" &&
-        Number.isFinite(agreedAtMs) &&
-        Date.now() >= agreedAtMs - 5 * 60_000;
-      if (canStartAvailableNow && !startCall.isPending) {
-        startCall.mutate({ isVideo: false });
-      }
+      // Availability only communicates timing. Once it is persisted, leave the
+      // picker so the server-backed waiting/scheduled/ready state is shown.
+      // The live call is created only from the explicit Start Call button.
+      setShowAvailPicker(false);
+      setShowSpecificTimePicker(false);
+      setSpecificTimePending("");
     },
     onError: (err: any, selection) => {
       if (selection.requestId === availabilityRequestIdRef.current) {
