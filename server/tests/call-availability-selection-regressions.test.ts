@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 
 const matchesPage = readFileSync("client/src/pages/matches.tsx", "utf8");
 const routes = readFileSync("server/routes.ts", "utf8");
+const availabilityMutation = matchesPage.slice(
+  matchesPage.indexOf("const setCallAvailMutation"),
+  matchesPage.indexOf("const startPaidCall"),
+);
 
 describe("call availability selection regressions", () => {
   it("uses one canonical key for every availability option", () => {
@@ -33,12 +37,24 @@ describe("call availability selection regressions", () => {
   });
 
   it("keeps the selected option visible after the backend confirms the save", () => {
-    const mutationSuccess = matchesPage.slice(
-      matchesPage.indexOf("onSuccess: (data: any, selection) =>"),
-      matchesPage.indexOf("onError: (err: any, selection) =>"),
+    const mutationSuccess = availabilityMutation.slice(
+      availabilityMutation.indexOf("onSuccess: (data: any, selection) =>"),
+      availabilityMutation.indexOf("onError: (err: any, selection) =>"),
     );
 
     expect(mutationSuccess).not.toContain("setShowAvailPicker(false)");
+  });
+
+  it("starts the existing voice-call flow when Available now is mutually ready", () => {
+    const mutationSuccess = availabilityMutation.slice(
+      availabilityMutation.indexOf("onSuccess: (data: any, selection) =>"),
+      availabilityMutation.indexOf("onError: (err: any, selection) =>"),
+    );
+
+    expect(mutationSuccess).toContain('selection.key === "available_now"');
+    expect(mutationSuccess).toContain("data.agreedCallAt");
+    expect(mutationSuccess).toContain("Date.now() >= agreedAtMs - 5 * 60_000");
+    expect(mutationSuccess).toContain("startCall.mutate({ isVideo: false })");
   });
 
   it("keeps the specific-time option selected and reverts only on cancel or save failure", () => {
