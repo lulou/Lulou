@@ -12,6 +12,13 @@ import { apiRequest, batchPrefetchPhotos, getAppSessionId, getAuthHeaders, API_B
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
+import {
+  LULOU_ACTIVE_CHAT_CHEVRON,
+  LULOU_ACTIVE_CHAT_NAME,
+  LULOU_ACTIVE_CHAT_PREVIEW,
+  LULOU_ACTIVE_CHAT_SURFACE,
+  LULOU_SELECTED_ACCENT,
+} from "@/lib/lulou-action-style";
 import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession, isSelfCancelled } from "@/lib/cancelled-calls";
 import { requestMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
@@ -5434,11 +5441,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 // prop data actually changes, not on every poll cycle.
 const MatchChat = memo(_MatchChat);
 
-const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }: {
+const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen, activeChat = false }: {
   match: MatchWithProfile;
   unreadCount: number;
   userId: string | null;
   onOpen: (matchId: string) => void;
+  activeChat?: boolean;
 }) {
   const { t } = useLanguageContext();
   useRenderCount("MatchCard");
@@ -5451,7 +5459,12 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
 
   return (
     <Card
-      className="cursor-pointer hover-elevate transition-all"
+      className={`cursor-pointer transition-all ${activeChat ? "" : "hover-elevate"}`}
+      style={activeChat ? {
+        background: LULOU_ACTIVE_CHAT_SURFACE,
+        borderColor: "rgba(255, 231, 223, 0.14)",
+        boxShadow: "0 4px 14px rgba(53, 21, 32, 0.12)",
+      } : undefined}
       onClick={() => onOpen(match.id)}
       data-testid={`button-expand-match-${match.id}`}
     >
@@ -5465,16 +5478,27 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-sm truncate" data-testid={`text-match-name-${match.id}`}>
+          <h3
+            className="font-semibold text-sm truncate"
+            style={activeChat ? { color: LULOU_ACTIVE_CHAT_NAME } : undefined}
+            data-testid={`text-match-name-${match.id}`}
+          >
             {match.profile.firstName}, {match.profile.age}
           </h3>
-          <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-last-message-${match.id}`}>
+          <p
+            className={`text-xs truncate mt-0.5 ${activeChat ? "" : "text-muted-foreground"}`}
+            style={activeChat ? { color: LULOU_ACTIVE_CHAT_PREVIEW } : undefined}
+            data-testid={`text-last-message-${match.id}`}
+          >
             {match.lastMessage
               ? renderMatchPreview(match.lastMessage, userId, match.profile.firstName, t)
               : (match.profile.datingIntent ? translateIntent(match.profile.datingIntent, t) : t("start_conversation"))}
           </p>
         </div>
-        <ChevronDown className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+        <ChevronDown
+          className={`w-4 h-4 shrink-0 ${activeChat ? "" : "text-muted-foreground/40"}`}
+          style={activeChat ? { color: LULOU_ACTIVE_CHAT_CHEVRON } : undefined}
+        />
       </div>
     </Card>
   );
@@ -5879,7 +5903,8 @@ export default function Matches() {
         <div data-testid="section-match-list">
           <div className="flex border-b mb-4" data-testid="tabs-connections">
             <button
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "new" ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "new" ? "" : "text-muted-foreground border-transparent hover:text-foreground"}`}
+              style={activeTab === "new" ? { color: LULOU_SELECTED_ACCENT, borderColor: LULOU_SELECTED_ACCENT } : undefined}
               onClick={() => handleTabChange("new")}
               data-testid="tab-new-connections"
             >
@@ -5889,7 +5914,8 @@ export default function Matches() {
               )}
             </button>
             <button
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "active" ? "text-[#773846] border-[#773846] dark:text-[#c6777f] dark:border-[#c6777f]" : "text-muted-foreground border-transparent hover:text-foreground"}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "active" ? "" : "text-muted-foreground border-transparent hover:text-foreground"}`}
+              style={activeTab === "active" ? { color: LULOU_SELECTED_ACCENT, borderColor: LULOU_SELECTED_ACCENT } : undefined}
               onClick={() => handleTabChange("active")}
               data-testid="tab-active-chats"
             >
@@ -5934,6 +5960,7 @@ export default function Matches() {
                     unreadCount={unreadCounts[match.id] || 0}
                     userId={user?.id || null}
                     onOpen={handleMatchOpen}
+                    activeChat
                   />
                 ))
               )}

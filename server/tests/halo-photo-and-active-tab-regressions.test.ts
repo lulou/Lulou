@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 const likesPage = readFileSync("client/src/pages/likes.tsx", "utf8");
 const matchesPage = readFileSync("client/src/pages/matches.tsx", "utf8");
+const appLayout = readFileSync("client/src/components/app-layout.tsx", "utf8");
+const actionStyle = readFileSync("client/src/lib/lulou-action-style.ts", "utf8");
 
 describe("Halo photo and Active Chats presentation regressions", () => {
   const sparkCard = likesPage.slice(
@@ -27,7 +29,7 @@ describe("Halo photo and Active Chats presentation regressions", () => {
     expect(sparkCard).toContain("<Sparkles");
   });
 
-  it("uses the approved deep SPIN wine only for the selected Active Chats tab", () => {
+  it("uses the exact Open / Close wine stop for selected connection tabs", () => {
     const activeTab = matchesPage.slice(
       matchesPage.indexOf('data-testid="tab-active-chats"') - 500,
       matchesPage.indexOf('data-testid="tab-active-chats"') + 500,
@@ -37,10 +39,35 @@ describe("Halo photo and Active Chats presentation regressions", () => {
       matchesPage.indexOf('data-testid="tab-new-connections"') + 500,
     );
 
-    expect(activeTab).toContain("text-[#773846] border-[#773846]");
-    expect(activeTab).not.toContain(
-      'activeTab === "active" ? "text-primary border-primary"',
+    expect(actionStyle).toContain('export const LULOU_SELECTED_ACCENT = "#773846"');
+    expect(activeTab).toContain("color: LULOU_SELECTED_ACCENT");
+    expect(activeTab).toContain("borderColor: LULOU_SELECTED_ACCENT");
+    expect(newTab).toContain("color: LULOU_SELECTED_ACCENT");
+    expect(newTab).toContain("borderColor: LULOU_SELECTED_ACCENT");
+  });
+
+  it("uses the Open / Close wine stop for selected bottom navigation only", () => {
+    expect(appLayout).toContain("style={isActive ? { color: LULOU_SELECTED_ACCENT } : undefined}");
+    expect(appLayout).toContain('"text-muted-foreground/70 hover:text-muted-foreground"');
+  });
+
+  it("applies the premium dark-wine treatment only to Active Chats cards", () => {
+    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_SURFACE = "#351520"');
+    expect(matchesPage).toContain("activeChat?: boolean");
+    expect(matchesPage).toContain("background: LULOU_ACTIVE_CHAT_SURFACE");
+    expect(matchesPage).toContain("color: LULOU_ACTIVE_CHAT_NAME");
+    expect(matchesPage).toContain("color: LULOU_ACTIVE_CHAT_PREVIEW");
+    expect(matchesPage).toContain("color: LULOU_ACTIVE_CHAT_CHEVRON");
+
+    const activePanel = matchesPage.slice(
+      matchesPage.indexOf('data-testid="tab-panel-active"'),
+      matchesPage.indexOf("</div>", matchesPage.indexOf('data-testid="tab-panel-active"')) + 1000,
     );
-    expect(newTab).toContain('activeTab === "new" ? "text-primary border-primary"');
+    const newPanel = matchesPage.slice(
+      matchesPage.indexOf('data-testid="tab-panel-new"'),
+      matchesPage.indexOf('data-testid="tab-panel-active"'),
+    );
+    expect(activePanel).toMatch(/\n\s+activeChat\s*\n/);
+    expect(newPanel).not.toMatch(/\n\s+activeChat\s*\n/);
   });
 });

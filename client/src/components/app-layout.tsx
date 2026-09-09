@@ -4,6 +4,7 @@ import { Compass, Heart, MessageCircle, User, CircleDot, LogOut } from "lucide-r
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
+import { LULOU_SELECTED_ACCENT } from "@/lib/lulou-action-style";
 import { decodedPhotos } from "@/lib/image-utils";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { getAppLayoutScrollPolicy } from "@/lib/app-layout-scroll-policy";
@@ -217,8 +218,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 key={item.path}
                 href={item.path}
                 className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-0.5 transition-colors ${
-                  isActive ? "text-primary" : "text-muted-foreground/70 hover:text-muted-foreground"
+                  isActive ? "" : "text-muted-foreground/70 hover:text-muted-foreground"
                 }`}
+                style={isActive ? { color: LULOU_SELECTED_ACCENT } : undefined}
                 aria-current={isActive ? "page" : undefined}
                 data-testid={`nav-${item.label.toLowerCase()}`}
                 onClick={() => stopAllNonVoiceCallAudio("nav_tab_click")}
