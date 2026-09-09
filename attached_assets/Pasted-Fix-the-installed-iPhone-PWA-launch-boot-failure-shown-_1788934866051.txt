@@ -1,0 +1,350 @@
+Fix the installed iPhone PWA launch/boot failure shown in the attached REAL screenshot.
+
+Current symptom:
+
+I tap the installed Lulou app icon on iPhone.
+
+The app opens to a completely blank white screen.
+
+Nothing appears after waiting.
+
+No login.
+No reconnect screen.
+No app shell.
+No error message.
+No navigation.
+No recovery.
+
+This is a production boot failure.
+
+Do NOT treat this as a cosmetic issue.
+
+## PRIMARY GOAL
+
+Opening the installed Lulou PWA must always resolve into one of these valid states:
+
+1. authenticated app
+2. login screen
+3. onboarding flow
+4. genuine recoverable error screen
+
+It must NEVER remain on a permanent blank white screen.
+
+## 1. FIND THE EXACT BOOT FAILURE
+
+Trace the full installed-PWA startup path.
+
+Inspect:
+
+- `index.html`
+- service worker
+- root React mount
+- `App.tsx`
+- auth initialization
+- session restoration
+- onboarding resolver
+- router initialization
+- lazy imports
+- API bootstrap
+- error boundaries
+- suspense/loading states
+
+Determine the FIRST point where rendering stops.
+
+Do not just add a spinner over the blank screen.
+
+Find the actual failure.
+
+## 2. CAPTURE RUNTIME ERRORS
+
+Inspect production Safari/PWA console/runtime errors if available.
+
+Look for:
+
+- uncaught JS exceptions
+- failed dynamic imports
+- stale asset hashes
+- chunk-load errors
+- hydration/root-mount failure
+- undefined config/env values
+- auth initialization rejection
+- service-worker fetch errors
+- bad cached HTML referencing deleted JS bundles
+- unhandled promise rejection
+- router crash
+- infinite pending state
+
+Report the exact error category.
+
+## 3. SERVICE WORKER / STALE BUNDLE AUDIT
+
+This looks highly consistent with an installed PWA opening stale cached HTML or stale JS after deployment.
+
+Audit the service worker carefully.
+
+Check whether:
+
+- old `index.html` is cached
+- old asset filenames are cached
+- current `index.html` references new asset hashes
+- service worker returns stale HTML
+- deleted Vercel assets are still requested
+- chunk requests return 404
+- service worker update activates but old client never refreshes
+- PWA remains controlled by an obsolete worker
+
+Static asset caching must never leave the installed app pointing at deleted bundles.
+
+## 4. DO NOT CACHE THE APP SHELL UNSAFELY
+
+If current SW uses cache-first for navigation requests, fix it.
+
+For navigation/app-shell requests, use a safe strategy such as:
+
+- network-first with fallback to last known good shell
+
+or another robust versioned strategy.
+
+Do not indefinitely serve an obsolete `index.html`.
+
+Auth/API routes must remain network-authoritative.
+
+## 5. CHUNK LOAD RECOVERY
+
+If the app hits a stale dynamic-import/chunk error after a deployment:
+
+recover once automatically.
+
+For example:
+
+- detect chunk-load failure
+- unregister/update stale worker if appropriate
+- clear only obsolete app-shell/static caches
+- reload once
+
+Guard with a one-time session flag so it cannot create an infinite reload loop.
+
+Do NOT wipe:
+- auth unnecessarily
+- user data
+- unrelated local preferences
+
+## 6. ROOT RENDER FALLBACK
+
+The React root must never leave users with an empty document.
+
+Add/verify a top-level error boundary / bootstrap fallback.
+
+If boot throws before authenticated state resolves, show a minimal Lulou recovery UI rather than white.
+
+Example:
+
+“Lulou couldn’t finish loading.”
+
+with:
+
+“Try Again”
+
+But only as a fallback.
+
+The real goal is to make normal boot succeed.
+
+## 7. BOOT TIMEOUT SAFETY
+
+If auth/app bootstrap is waiting forever because a promise never resolves:
+
+add a bounded timeout.
+
+States should be explicit:
+
+- booting
+- authenticated
+- unauthenticated
+- onboarding
+- recoverable_error
+
+Do not allow:
+
+`loading=true`
+
+forever.
+
+If boot exceeds a sensible threshold:
+
+- attempt one controlled recovery
+- then show recovery UI
+
+## 8. AUTH INITIALIZATION MUST NOT BLOCK FOREVER
+
+Audit:
+
+- `getSession()`
+- token refresh
+- auth listener setup
+- app session establishment
+- `X-Session-Id`
+- profile/settings load
+
+Every awaited step needs:
+
+- success
+- failure
+- timeout/recovery
+
+No unresolved promise should leave the root blank.
+
+## 9. INITIAL HTML MUST RENDER SOMETHING
+
+Before React fully boots, ensure the app has a basic root/loading surface.
+
+Even if JS fails, the user should not stare at pure white indefinitely.
+
+Use a lightweight Lulou boot shell if appropriate.
+
+Do not create a visually heavy splash redesign.
+
+## 10. IPHONE PWA SPECIFIC TESTING
+
+Test these exact scenarios:
+
+### NORMAL OPEN
+1. PWA installed.
+2. Kill app.
+3. Tap Lulou icon.
+4. Correct screen appears.
+
+### AFTER FRESH DEPLOY
+5. User still has older installed PWA/service worker.
+6. Deploy new frontend.
+7. Open app.
+8. App updates/reloads safely.
+9. No white screen.
+
+### BACKGROUND RESUME
+10. Leave PWA suspended.
+11. Deploy newer version.
+12. Resume old app.
+13. No blank screen.
+
+### OFFLINE/POOR NETWORK
+14. Open with weak network.
+15. Either last known shell loads safely or recovery UI appears.
+16. No infinite white screen.
+
+### AUTHENTICATED USER
+17. Existing session.
+18. Open app.
+19. Session restores and main app loads.
+
+### LOGGED OUT USER
+20. Open app.
+21. Login screen appears.
+
+### EXPIRED SESSION
+22. Access token expired but refresh valid.
+23. Session refreshes.
+24. App loads.
+
+### INVALID SESSION
+25. Refresh invalid.
+26. Login screen appears.
+27. No blank screen.
+
+## 11. VERIFY VERCEL ASSETS
+
+After build/deploy:
+
+- confirm current production `index.html`
+- confirm referenced JS/CSS assets exist
+- confirm service worker points to current asset version
+- confirm no stale cached asset references
+- confirm no 404s for current chunks
+
+## 12. SAFE RECOVERY BUTTON
+
+If recovery UI is shown:
+
+“Try Again” should:
+
+- check for service-worker update
+- clear only stale/versioned frontend caches if necessary
+- re-run bootstrap
+- reload once if required
+
+Do NOT:
+- blindly clear all storage
+- sign the user out unless auth is actually invalid
+- create reload loops
+
+## 13. LOGGING
+
+Add production-safe boot diagnostics if needed.
+
+Useful fields:
+
+- app build/commit
+- service-worker version
+- boot stage
+- auth stage
+- root mounted yes/no
+- chunk-load failure yes/no
+- API bootstrap status
+- recovery attempt count
+- fatal error category
+
+Do NOT log:
+- tokens
+- passwords
+- private user data
+- secrets
+
+## 14. DO NOT CHANGE
+
+Do not redesign:
+
+- login
+- Discover
+- Intent
+- Likes
+- Connections
+- Profile
+- chat
+- onboarding
+
+Do not change:
+- matching
+- payments
+- call logic
+- voice-note logic
+- navigation behavior
+
+This task is ONLY PWA startup reliability.
+
+## 15. DEPLOYMENT
+
+After fixing:
+
+- run production build
+- inspect SW output
+- test clean browser load
+- test installed-PWA stale-worker scenario
+- commit
+- push GitHub main
+- wait for Vercel
+- verify live `index.html`
+- verify live service worker
+- verify live assets exist
+
+At the end report only:
+
+1. exact root cause of blank white screen
+2. first failing boot stage
+3. files changed
+4. service-worker/cache fix
+5. chunk-load recovery behavior
+6. root fallback/error-boundary behavior
+7. boot timeout/recovery behavior
+8. tests
+9. production commit
+10. live Vercel verification
+11. whether physical installed-iPhone validation is still required
