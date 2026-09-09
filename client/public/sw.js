@@ -82,19 +82,20 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("[SW] activated version=" + SW_VERSION + " commit=" + APP_COMMIT + " — deleting ALL caches and claiming clients");
+  console.log("[SW] activated version=" + SW_VERSION + " commit=" + APP_COMMIT + " — deleting obsolete Lulou caches and claiming clients");
   event.waitUntil(
     caches.keys()
       .then((keys) => {
-        // Delete EVERY cache — including the current CACHE_NAME — so stale
-        // HTTP-cached assets on the client are fully evicted.  This service
-        // worker does no caching of its own (fetch handler is pass-through),
-        // so there is no risk of evicting live cached data.
-        const deleteAll = keys.map((k) => {
+        // Only this app's versioned Cache Storage entries are eligible. Browser
+        // HTTP cache is separate and is refreshed by the boot recovery's
+        // cache-busted navigation; unrelated origin storage is never touched.
+        const deleteObsolete = keys
+          .filter((k) => k.startsWith("lulou-") && k !== CACHE_NAME)
+          .map((k) => {
           console.log("[SW] deleting cache: " + k);
           return caches.delete(k);
         });
-        return Promise.all(deleteAll);
+        return Promise.all(deleteObsolete);
       })
       .then(() => clients.claim())
   );

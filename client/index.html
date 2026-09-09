@@ -54,20 +54,31 @@
     <link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Fira+Code:wght@300..700&family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Lora:ital,wght@0,400..700;1,400..700&family=Merriweather:ital,opsz,wght@0,18..144,300..900;1,18..144,300..900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Outfit:wght@100..900&family=Oxanium:wght@200..800&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Roboto:ital,wght@0,100..900;1,100..900&family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&family=Space+Grotesk:wght@300..700&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="lulou-boot-shell" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#faf8f5;padding:24px;font-family:system-ui,sans-serif;color:#2d2225">
+        <div style="text-align:center">
+          <div style="font-family:Georgia,serif;font-size:28px;font-weight:700;letter-spacing:.01em">Lulou</div>
+          <div style="margin-top:10px;font-size:13px;color:#806b70">Loading…</div>
+        </div>
+      </div>
+    </div>
 
     <!--
-      Pre-module error handler.
-      Runs BEFORE the JS bundle so it catches synchronous module-init crashes
-      (e.g. missing VITE_SUPABASE_URL causes createClient() to throw before
-      React can mount).  Without this the page stays blank; with it the user
-      sees a readable error instead.
+      Pre-module boot recovery. This is deliberately plain JavaScript so it runs
+      before the app bundle and can recover when that bundle never executes.
     -->
     <script>
       (function () {
+        var recoveryKey = "lulou_boot_recovery_attempted";
+        var bootTimeoutMs = 20000;
+
+        function bootIsPending() {
+          return !!document.getElementById("lulou-boot-shell");
+        }
+
         function showCrash(msg) {
           var root = document.getElementById("root");
-          if (!root || root.childElementCount > 0) return;
+          if (!root) return;
           root.innerHTML =
             '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;' +
             'background:#faf8f5;padding:24px;font-family:system-ui,sans-serif;">' +
@@ -82,25 +93,99 @@
             '<p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 8px;word-break:break-word;">' +
             (msg || "An unexpected error occurred.") +
             '</p>' +
-            '<p style="font-size:12px;color:#888;margin:0 0 20px">' +
-            'Open DevTools (F12) \u2192 Console for the full error.' +
-            '</p>' +
-            '<button onclick="location.reload()" ' +
+            '<p style="font-size:12px;color:#888;margin:0 0 20px">Your account and preferences are safe.</p>' +
+            '<button onclick="window.__lulouBootRetry()" ' +
             'style="padding:10px 24px;border-radius:8px;background:#be4b61;color:white;' +
             'border:none;cursor:pointer;font-size:14px;font-weight:500">Try again</button>' +
             '</div></div>';
         }
 
-        // Catches sync throws from module scripts (e.g. createClient with bad env vars)
+        function clearLulouCaches() {
+          if (!("caches" in window)) return Promise.resolve();
+          return caches.keys().then(function (keys) {
+            return Promise.all(keys
+              .filter(function (key) { return key.indexOf("lulou-") === 0; })
+              .map(function (key) { return caches.delete(key); }));
+          });
+        }
+
+        function updateWorker() {
+          if (!("serviceWorker" in navigator)) return Promise.resolve();
+          return navigator.serviceWorker.getRegistration()
+            .then(function (registration) {
+              return registration ? registration.update() : undefined;
+            })
+            .catch(function () {});
+        }
+
+        function reloadFresh() {
+          var url = new URL(location.href);
+          url.searchParams.set("boot-recovery", "1");
+          url.searchParams.set("v", String(Date.now()));
+          location.replace(url.toString());
+        }
+
+        function recoverOnce(reason) {
+          if (!bootIsPending()) return;
+          var attempted = false;
+          try {
+            attempted = sessionStorage.getItem(recoveryKey) === "1";
+            if (!attempted) sessionStorage.setItem(recoveryKey, "1");
+          } catch (_) {}
+          console.error("[BOOT] pre-react failure", { category: reason, recoveryAttempted: attempted });
+          if (attempted) {
+            showCrash("Lulou couldn’t finish loading.");
+            return;
+          }
+          Promise.all([updateWorker(), clearLulouCaches()])
+            .then(reloadFresh)
+            .catch(function () { showCrash("Lulou couldn’t finish loading."); });
+        }
+
+        window.__lulouBootRetry = function () {
+          try { sessionStorage.removeItem(recoveryKey); } catch (_) {}
+          Promise.all([updateWorker(), clearLulouCaches()])
+            .then(reloadFresh)
+            .catch(reloadFresh);
+        };
+
+        // A successful React commit replaces the shell. Reset the one-shot guard
+        // only then, so a later app update in the same installed-PWA session can
+        // perform its own single recovery.
+        var root = document.getElementById("root");
+        if (root && "MutationObserver" in window) {
+          new MutationObserver(function (_, observer) {
+            if (!bootIsPending()) {
+              try { sessionStorage.removeItem(recoveryKey); } catch (_) {}
+              observer.disconnect();
+            }
+          }).observe(root, { childList: true, subtree: true });
+        }
+
+        // Module graph and hashed asset failures may surface only as a resource
+        // error in installed Safari rather than a normal Error object.
         window.addEventListener("error", function (e) {
-          showCrash(e.message || "Startup error");
+          var target = e.target;
+          var isScript = target && target.tagName === "SCRIPT";
+          var isStylesheet = target && target.tagName === "LINK" && target.rel === "stylesheet";
+          var assetUrl = target && (target.src || target.href);
+          var isSameOrigin = false;
+          try { isSameOrigin = !!assetUrl && new URL(assetUrl, location.href).origin === location.origin; } catch (_) {}
+          var isBootAsset = isSameOrigin && (isScript || isStylesheet);
+          if (bootIsPending() && (isBootAsset || e.message)) {
+            recoverOnce(isBootAsset ? "startup_asset_load" : "startup_exception");
+          }
+        }, true);
+
+        window.addEventListener("unhandledrejection", function (e) {
+          if (bootIsPending()) recoverOnce("startup_rejection");
         });
 
-        // Catches unhandled promise rejections from async module init code
-        window.addEventListener("unhandledrejection", function (e) {
-          var msg = e.reason instanceof Error ? e.reason.message : String(e.reason || "Startup error");
-          showCrash(msg);
-        });
+        // Safari does not reliably dispatch an error when an installed PWA's
+        // stale module graph cannot finish loading. Never wait forever.
+        setTimeout(function () {
+          if (bootIsPending()) recoverOnce("startup_timeout");
+        }, bootTimeoutMs);
       })();
     </script>
 
