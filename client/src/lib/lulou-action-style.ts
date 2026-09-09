@@ -1,6 +1,6 @@
 // Exact palette values used by the production Open / Close action treatment.
 export const LULOU_SELECTED_ACCENT = "#773846";
-export const LULOU_ACTIVE_CHAT_SURFACE = "#773846";
+export const LULOU_ACTIVE_CHAT_SURFACE = "#895362";
 export const LULOU_ACTIVE_CHAT_NAME = "#fff7e9";
 export const LULOU_ACTIVE_CHAT_PREVIEW = "#d8c8ca";
 export const LULOU_ACTIVE_CHAT_CHEVRON = "#c4adb2";
