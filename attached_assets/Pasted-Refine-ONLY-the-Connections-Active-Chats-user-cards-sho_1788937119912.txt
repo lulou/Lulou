@@ -1,0 +1,164 @@
+Refine ONLY the Connections → Active Chats user cards shown in the attached REAL iPhone screenshot.
+
+We have tried several solid wine versions and they still feel too heavy.
+
+I want to move back toward the original light card treatment, but keep the Lulou identity through subtle wine accents.
+
+## NEW DIRECTION
+
+Change the Active Chats user cards from solid wine fills to:
+
+- warm ivory / soft off-white card background
+- very subtle wine border
+- dark charcoal / deep brown name text
+- taupe / warm grey message-preview text
+- muted wine chevron/accent
+- soft premium shadow
+- same existing corner radius
+
+The cards should feel lighter, more elegant, and more premium.
+
+## IMPORTANT
+
+Do NOT return to a harsh pure white.
+
+Use a warm ivory / creamy surface that fits Lulou’s overall background.
+
+The card should still be visually distinct from the page background through:
+
+- subtle border
+- soft shadow
+- tiny tonal difference
+
+## KEEP THE LULOU WINE IDENTITY
+
+Keep the selected “Active Chats” tab styling exactly as it is:
+
+- selected text = current Lulou wine
+- underline = current Lulou wine
+
+Keep the selected Connections bottom-nav colour exactly as it is.
+
+Do NOT recolour those.
+
+## CARD DETAILS
+
+For each Active Chat card:
+
+### Background
+- warm ivory / soft cream
+
+### Border
+- thin subtle Lulou wine-tinted border
+- low contrast
+- premium, not outlined/heavy
+
+### Name
+- dark charcoal / deep warm brown
+- strong contrast
+
+### Message preview
+- muted taupe / warm grey
+
+### Chevron
+- muted Lulou wine
+
+### Avatar
+- unchanged
+- use actual user image
+- no tint
+
+### Shadow
+- very subtle
+- soft iOS-like elevation
+- no heavy drop shadow
+
+## KEEP CURRENT LAYOUT
+
+Do NOT change:
+
+- card height
+- card width
+- spacing
+- corner radius
+- avatar size
+- text positions
+- chevron position
+- ordering
+- tap behavior
+- routing
+- active-chat logic
+
+This is a colour/material refinement only.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- Open / Close buttons
+- Active Chats selected tab colour
+- Active Chats underline
+- bottom navigation selected colour
+- New Connections styling
+- Discover
+- Intention Wheel
+- Likes
+- chat
+- payments
+- call logic
+
+## VISUAL GOAL
+
+The page should feel:
+
+- lighter
+- cleaner
+- more premium
+- less blocky
+- less heavy
+- still clearly Lulou
+
+Think:
+
+warm ivory luxury card
++ subtle wine detail
+
+instead of:
+
+solid burgundy block
+
+## VERIFY
+
+Confirm:
+
+1. Active Chat cards are no longer solid wine.
+2. Cards use warm ivory/soft cream.
+3. Border has a subtle wine tint.
+4. Names are dark charcoal/deep brown.
+5. Preview text is taupe/warm grey.
+6. Chevron uses muted wine.
+7. Selected Active Chats tab remains unchanged.
+8. Bottom-nav selected colour remains unchanged.
+9. Open / Close remain unchanged.
+10. No other page is recoloured.
+
+After implementation:
+
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. old Active Chats card background token/hex
+2. new warm-ivory card token/hex
+3. border token/hex
+4. name text token/hex
+5. preview text token/hex
+6. chevron token/hex
+7. files changed
+8. confirmation selected tab/nav/Open-Close were NOT modified
+9. production commit
+10. live deployment verification
