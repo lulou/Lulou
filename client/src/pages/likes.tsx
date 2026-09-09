@@ -589,7 +589,21 @@ function SparkCard({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const firstPhoto = spark.profile.photos?.[0] ?? null;
+  // Halo payloads can omit photos, so use the same canonical per-profile photo
+  // endpoint as the other Likes cards instead of falling through to an initial.
+  const { data: photosData } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", spark.profile.userId ?? spark.fromUserId, "photos"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const haloPhotos = (photosData?.photos ?? spark.profile.photos ?? [])
+    .map(photo => photo?.trim())
+    .filter((photo): photo is string => !!photo);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const firstPhoto = haloPhotos[photoIndex] ?? null;
+
+  useEffect(() => {
+    setPhotoIndex(0);
+  }, [spark.fromUserId, photosData?.photos]);
 
   const acceptSpark = useMutation({
     mutationFn: async () => {
@@ -665,7 +679,7 @@ function SparkCard({
           {firstPhoto ? (
             <img
               src={firstPhoto}
-              alt=""
+              alt={`${spark.profile.firstName}'s profile`}
               className="w-full h-full object-cover"
               draggable={false}
               style={{ opacity: decodedPhotos.has(firstPhoto) ? 1 : 0, transition: "opacity 80ms ease" }}
@@ -673,12 +687,11 @@ function SparkCard({
                 decodedPhotos.add(firstPhoto);
                 (e.currentTarget as HTMLImageElement).style.opacity = "1";
               }}
+              onError={() => setPhotoIndex(index => index + 1)}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, hsl(350 45% 92%), hsl(350 45% 82%))" }}>
-              <span className="font-serif font-bold text-2xl" style={{ color: "hsl(350 45% 52%)" }}>
-                {spark.profile.firstName?.[0]}
-              </span>
+              <Sparkles className="w-6 h-6" style={{ color: "hsl(350 45% 52%)" }} aria-hidden="true" />
             </div>
           )}
         </div>

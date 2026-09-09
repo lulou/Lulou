@@ -5889,7 +5889,7 @@ export default function Matches() {
               )}
             </button>
             <button
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "active" ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "active" ? "text-[#773846] border-[#773846] dark:text-[#c6777f] dark:border-[#c6777f]" : "text-muted-foreground border-transparent hover:text-foreground"}`}
               onClick={() => handleTabChange("active")}
               data-testid="tab-active-chats"
             >
