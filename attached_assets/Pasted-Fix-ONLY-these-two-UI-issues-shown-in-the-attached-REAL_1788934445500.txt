@@ -1,0 +1,194 @@
+Fix ONLY these two UI issues shown in the attached REAL iPhone screenshots:
+
+1. The Halo card/photo area is showing a plain square with the number “1” instead of the actual user photo.
+2. The “Active Chats” styling should use the current Lulou premium colour palette rather than the brighter pink currently shown.
+
+Do not redesign the Likes or Connections pages.
+
+## 1. HALO CARD MUST SHOW THE USER PHOTO
+
+In the Likes → Halos section, the received Halo card currently shows a pale square with:
+
+“1”
+
+inside it.
+
+That is wrong.
+
+This square should display the Halo sender’s actual profile photo.
+
+Use the sender’s primary/first valid profile image from the same canonical photo source already used elsewhere in Lulou.
+
+Expected:
+
+HALO RECEIVED
+→ actual sender profile photo
+→ name / age
+→ location
+→ personality signal
+→ Pass / Accept Halo
+
+Do NOT show:
+- numeric placeholders
+- initials if a valid photo exists
+- blank pastel boxes
+- broken-image fallbacks unless the user genuinely has no usable photo
+
+## PHOTO SOURCE
+
+Trace the current Halo data shape and use the same reliable profile-photo resolver already used for:
+
+- Discover
+- Connections
+- profile cards
+- chat avatars
+
+Do not invent a separate Halo-only photo path if a shared resolver already exists.
+
+Audit for fields such as:
+
+- photos
+- profile_photos
+- primary_photo
+- avatar_url
+- photo_urls
+- storage path / transformed URL
+
+Use the authoritative production field.
+
+## FALLBACK
+
+If the user genuinely has no valid photo:
+
+use the existing intentional Lulou avatar fallback.
+
+Do NOT use the numeric Halo count as the image content.
+
+The “1” belongs only in the Halo count badge, not inside the profile image.
+
+## HALO PHOTO PRESENTATION
+
+Keep the existing Halo card geometry.
+
+Photo should:
+
+- fill the existing square/rounded-square area
+- use `object-fit: cover`
+- preserve current corner radius
+- not stretch
+- not distort
+- not create layout shift
+- load the same optimized photo quality used elsewhere
+
+## 2. ACTIVE CHATS COLOUR
+
+On the Connections page, the “Active Chats” tab and underline are currently using a brighter pink.
+
+Change them to the SAME deeper premium Lulou colour palette we have been moving toward.
+
+Use the same accent family as the current approved Lulou controls / SPIN-style palette where appropriate:
+
+- deeper muted wine
+- dusty burgundy / rose-wine
+- restrained
+- premium
+- not bright pink
+- not generic dating-app red
+
+Prefer an existing theme token rather than adding another random hardcoded colour.
+
+## ACTIVE CHATS STATE
+
+When Active Chats is selected:
+
+- “Active Chats” text = deep muted Lulou wine
+- underline = same deep muted Lulou wine
+- any related selected-state accent should use the same token
+
+Do NOT change the inactive “New Connections” styling except if needed to preserve contrast.
+
+## CONSISTENCY
+
+Audit the selected tab accent on Connections.
+
+The selected-state colour should match Lulou’s current premium palette, not an old brighter rose token.
+
+Do not change:
+- card backgrounds
+- connection avatars
+- message previews
+- tab layout
+- spacing
+- bottom navigation
+- counts
+- connection behavior
+
+## DO NOT CHANGE
+
+Do not alter:
+
+- Halo acceptance logic
+- Halo passing logic
+- Halo counts
+- profile data
+- matching
+- Connections sorting
+- chat routing
+- Discover
+- Intention Wheel
+- payments
+- bottom navigation
+
+This task is only:
+
+1. render the correct sender photo in the Halo card
+2. update the selected Active Chats colour to the current Lulou palette
+
+## TEST EXACTLY
+
+HALO:
+1. Halo sender with valid profile photo:
+  - actual photo appears
+  - no numeric placeholder
+
+2. Halo sender with multiple photos:
+  - correct primary/first valid photo appears
+
+3. Broken/invalid first photo but valid later photo:
+  - use valid fallback photo if shared resolver supports it
+
+4. No photo:
+  - intentional Lulou fallback avatar
+  - never show count “1” as image content
+
+CONNECTIONS:
+5. Active Chats selected:
+  - text uses deep muted Lulou wine
+  - underline matches
+  - no bright old pink
+
+6. New Connections selected:
+  - normal selected-state behaviour remains correct
+
+7. Verify 375px and 390px iPhone widths.
+
+## DEPLOYMENT
+
+After implementation:
+
+- run production build
+- inspect final diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. exact cause of the Halo numeric placeholder
+2. exact photo source/resolver now used
+3. fallback behaviour
+4. files changed
+5. exact old Active Chats colour/token
+6. exact new Lulou colour/token
+7. production commit
+8. live deployment verification
