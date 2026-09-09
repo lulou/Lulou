@@ -1,0 +1,223 @@
+Fix ONLY the Lulou colour consistency issues shown in the attached REAL iPhone screenshots.
+
+There are TWO things I want changed:
+
+1. The selected/active text accents across the app need to use the SAME deep wine colour already used by the current Open / Close buttons.
+2. The white Active Chats user cards need to become a dark wine card style instead of white.
+
+IMPORTANT:
+Do NOT change the Open / Close buttons themselves.
+They are the colour reference.
+
+Use their CURRENT actual production colour/token as the source of truth.
+
+## 1. MAKE SELECTED TEXT ACCENTS MATCH OPEN / CLOSE
+
+Audit the app for bright/old pink selected-state text and underline colours.
+
+Examples visible in the screenshots:
+
+- “Active Chats”
+- the Active Chats underline
+- selected bottom-nav labels/icons such as Connections / Likes / Discover where appropriate
+- other selected tabs / selected-state labels that are still using the older brighter rose/pink
+
+Change those selected-state accents to the EXACT SAME colour token currently used by the Open / Close buttons.
+
+Do not eyeball a similar colour.
+
+Find the actual current Open / Close token / CSS variable / class / hex and reuse it.
+
+The goal is one consistent Lulou selected-state colour across the app.
+
+## DO NOT CHANGE OPEN / CLOSE
+
+This is critical.
+
+Do NOT:
+- recolour Open
+- recolour Close
+- change their size
+- change their shape
+- change their opacity
+- change their placement
+
+They are now the reference colour.
+
+Everything else should move toward THEM.
+
+## 2. ACTIVE CHATS USER CARDS
+
+On Connections → Active Chats, the user cards are currently white/off-white.
+
+I want those Active Chats profile rows/cards to use the premium dark Lulou wine colour instead.
+
+This applies to the selectable user cards for:
+
+- georgia, 26
+- Steph, 26
+- Flower, 25
+- all other Active Chats rows
+
+## ACTIVE CHAT CARD STYLE
+
+Use a deep dark wine / burgundy surface from the existing Lulou palette.
+
+Prefer an existing dark wine token already used elsewhere in the app.
+
+The card should feel:
+
+- premium
+- dark wine
+- elegant
+- restrained
+- not bright red
+- not bright pink
+
+## TEXT ON DARK ACTIVE CHAT CARDS
+
+Because the card background will be dark:
+
+Name:
+- warm ivory / near-white
+- strong readable contrast
+
+Message preview:
+- softer warm ivory / taupe
+- lower emphasis than the name
+
+Chevron:
+- muted warm ivory / taupe
+
+Avatar:
+- unchanged
+- keep actual user photo
+
+Do not tint the avatar.
+
+## CARD BORDERS / SHADOW
+
+Use:
+
+- subtle border if needed
+- very restrained shadow
+- same corner radius as current card
+
+Do not make the cards look heavy or game-like.
+
+## ACTIVE CHATS TAB
+
+The “Active Chats” text and underline should also use the SAME Open / Close colour token.
+
+So the visual hierarchy becomes:
+
+Selected tab/accent:
+= Open / Close wine colour
+
+Active chat profile cards:
+= deeper dark-wine surface
+
+Text on cards:
+= warm ivory
+
+This should feel like one intentional palette.
+
+## NEW CONNECTIONS TAB
+
+Do not darken New Connections cards unless they are part of the Active Chats list.
+
+Only the Active Chats user cards should use the dark-wine treatment in this task.
+
+Keep the inactive tab neutral.
+
+## BOTTOM NAV
+
+If selected bottom-nav items are still using the old bright rose/pink, change ONLY the selected-state colour to match the Open / Close token.
+
+Inactive bottom-nav items remain muted taupe/grey.
+
+Do not redesign the navigation.
+
+## AUDIT OLD ACCENT COLOURS
+
+Search for old hardcoded bright pink / rose values used for selected states.
+
+Consolidate where safe.
+
+Prefer shared semantic tokens such as:
+
+- selectedAccent
+- activeAccent
+- lulouWine
+
+rather than multiple near-identical hardcoded colours.
+
+But do not perform a giant theme rewrite.
+
+Only fix the visible selected-state inconsistencies.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- Open / Close buttons
+- Intention Wheel SPIN button
+- profile photos
+- connection ordering
+- chat routing
+- Halo logic
+- message bubbles
+- call logic
+- onboarding
+- payments
+- layout spacing
+
+This task is colour consistency only.
+
+## TEST EXACTLY
+
+1. Discover:
+  - Open / Close unchanged
+
+2. Connections:
+  - “Active Chats” text matches Open / Close colour
+  - underline matches Open / Close colour
+
+3. Active Chat rows:
+  - dark wine background
+  - warm ivory names
+  - softer ivory/taupe previews
+  - avatars unchanged
+  - chevrons readable
+
+4. Bottom navigation:
+  - selected-state accents match Open / Close colour where applicable
+  - inactive states remain neutral
+
+5. No bright old pink remains in the selected states changed by this task
+
+6. Verify on 375px and 390px iPhone widths
+
+## DEPLOYMENT
+
+After implementation:
+
+- inspect the exact Open / Close colour token first
+- reuse that token for selected-state text/underline
+- apply dark-wine surface token to Active Chats user cards
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. exact Open / Close colour token/hex used as reference
+2. selected-state elements changed to that token
+3. exact dark-wine card token/hex used
+4. Active Chats card text colours
+5. files changed
+6. confirmation Open / Close were NOT modified
+7. production commit
+8. live deployment verification
