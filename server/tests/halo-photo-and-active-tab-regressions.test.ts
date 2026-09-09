@@ -51,10 +51,16 @@ describe("Halo photo and Active Chats presentation regressions", () => {
     expect(appLayout).toContain('"text-muted-foreground/70 hover:text-muted-foreground"');
   });
 
-  it("applies the premium dusty-wine treatment only to Active Chats cards", () => {
-    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_SURFACE = "#895362"');
+  it("applies the premium warm-ivory treatment only to Active Chats cards", () => {
+    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_SURFACE = "#fff8ed"');
+    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_BORDER = "#e5cdd2"');
+    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_NAME = "#35282b"');
+    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_PREVIEW = "#817277"');
+    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_CHEVRON = "#8b5665"');
     expect(matchesPage).toContain("activeChat?: boolean");
     expect(matchesPage).toContain("background: LULOU_ACTIVE_CHAT_SURFACE");
+    expect(matchesPage).toContain("borderColor: LULOU_ACTIVE_CHAT_BORDER");
+    expect(matchesPage).toContain('boxShadow: "0 4px 14px rgba(53, 21, 32, 0.07)"');
     expect(matchesPage).toContain("color: LULOU_ACTIVE_CHAT_NAME");
     expect(matchesPage).toContain("color: LULOU_ACTIVE_CHAT_PREVIEW");
     expect(matchesPage).toContain("color: LULOU_ACTIVE_CHAT_CHEVRON");

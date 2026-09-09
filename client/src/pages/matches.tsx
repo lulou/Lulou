@@ -13,6 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import {
+  LULOU_ACTIVE_CHAT_BORDER,
   LULOU_ACTIVE_CHAT_CHEVRON,
   LULOU_ACTIVE_CHAT_NAME,
   LULOU_ACTIVE_CHAT_PREVIEW,
@@ -5462,8 +5463,8 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen, 
       className={`cursor-pointer transition-all ${activeChat ? "" : "hover-elevate"}`}
       style={activeChat ? {
         background: LULOU_ACTIVE_CHAT_SURFACE,
-        borderColor: "rgba(255, 231, 223, 0.14)",
-        boxShadow: "0 4px 14px rgba(53, 21, 32, 0.12)",
+        borderColor: LULOU_ACTIVE_CHAT_BORDER,
+        boxShadow: "0 4px 14px rgba(53, 21, 32, 0.07)",
       } : undefined}
       onClick={() => onOpen(match.id)}
       data-testid={`button-expand-match-${match.id}`}
