@@ -52,7 +52,7 @@ describe("Halo photo and Active Chats presentation regressions", () => {
   });
 
   it("applies the premium dark-wine treatment only to Active Chats cards", () => {
-    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_SURFACE = "#351520"');
+    expect(actionStyle).toContain('export const LULOU_ACTIVE_CHAT_SURFACE = "#773846"');
     expect(matchesPage).toContain("activeChat?: boolean");
     expect(matchesPage).toContain("background: LULOU_ACTIVE_CHAT_SURFACE");
     expect(matchesPage).toContain("color: LULOU_ACTIVE_CHAT_NAME");
