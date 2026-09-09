@@ -1,0 +1,145 @@
+Refine ONLY the Active Chats user-card background colour shown in the attached REAL iPhone screenshot.
+
+The current warm ivory / yellow-ish card surface is too creamy.
+
+I want the cards to feel softer, cleaner, and more feminine while still staying premium.
+
+## NEW CARD BACKGROUND DIRECTION
+
+Change ONLY the Active Chats card background from the current yellow/ivory tone to a:
+
+- very light blush pink
+- almost translucent-looking pink
+- extremely soft
+- low saturation
+- airy
+- premium
+- subtle enough that it nearly blends into the page
+
+Think:
+
+soft sheer blush / barely-there rose tint
+
+NOT:
+
+- bright pink
+- bubblegum
+- salmon
+- peach
+- yellow cream
+- solid dusty rose
+
+The effect should feel like a very pale pink wash over the existing warm Lulou background.
+
+## VISUAL TARGET
+
+The cards should look approximately like:
+
+warm off-white base
++ a very subtle pink tint
+
+They should still clearly be separate cards, but the colour should not dominate.
+
+The page should feel:
+
+- light
+- elegant
+- breathable
+- premium
+- soft
+- consistent with Lulou
+
+## KEEP THE CURRENT WINE ACCENTS
+
+Do NOT change:
+
+- “Active Chats” selected text
+- Active Chats underline
+- selected Connections bottom-nav colour
+- wine chevrons
+- Open / Close buttons
+
+Those colours are already approved.
+
+## CARD BORDER
+
+Keep the current subtle wine/pink border, but make sure it remains delicate against the new pale pink surface.
+
+Do not make the border thicker.
+
+If needed, slightly reduce border opacity so the card feels refined rather than outlined.
+
+## TEXT
+
+Keep:
+
+Names:
+- dark charcoal / deep warm brown
+
+Message previews:
+- taupe / warm grey
+
+Chevrons:
+- muted Lulou wine
+
+Avatars:
+- completely unchanged
+
+## TRANSLUCENT FEEL
+
+The card does not need literal transparency if that creates readability or performance problems.
+
+The goal is the APPEARANCE of a very light translucent blush.
+
+If safe, a very low-opacity Lulou rose over the existing page background is appropriate.
+
+Otherwise use a dedicated very pale blush solid colour.
+
+Do not use backdrop blur unless already supported in this component.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- card dimensions
+- spacing
+- corner radius
+- avatar sizing
+- text positioning
+- routing
+- Active Chats logic
+- New Connections
+- any other page
+
+This is a card-background colour refinement only.
+
+## VERIFY
+
+Confirm:
+
+1. The yellow/cream tone is gone.
+2. Cards now have a very light blush-pink appearance.
+3. Pink is subtle enough to feel almost translucent.
+4. Cards remain clearly distinguishable from the page background.
+5. Text contrast remains strong.
+6. Wine accents remain unchanged.
+7. Open / Close remain unchanged.
+8. No other page is recoloured.
+
+After implementation:
+
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. old card background token/hex
+2. new pale-blush token/hex
+3. border token/opacity
+4. files changed
+5. confirmation wine accents/Open-Close were not modified
+6. production commit
+7. live deployment verification
