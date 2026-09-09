@@ -1,0 +1,142 @@
+Refine ONLY the Active Chats user-card background colour shown in the attached REAL iPhone screenshot.
+
+The current lighter wine is better than the previous dark burgundy, but it still feels a little too heavy.
+
+I want ONE more lighter pass before considering going back to white.
+
+## CHANGE ONLY THE ACTIVE CHAT CARD BACKGROUND
+
+Do not redesign anything else.
+
+Keep exactly as-is:
+
+- card layout
+- card size
+- card spacing
+- corner radius
+- avatars
+- names
+- message previews
+- chevrons
+- “Active Chats” selected text
+- Active Chats underline
+- bottom navigation
+- Open / Close button colour
+- all behavior
+
+Only lighten the Active Chats card surface.
+
+## NEW COLOUR DIRECTION
+
+Move from the current medium wine toward a softer:
+
+- dusty rose-wine
+- muted mauve
+- softened burgundy
+- warm desaturated rose
+- premium
+- elegant
+- lighter and more breathable
+
+Do NOT go:
+
+- bright pink
+- bubblegum
+- coral
+- neon
+- cherry red
+
+Do NOT return to pure white yet.
+
+## VISUAL TARGET
+
+The cards should still clearly belong to Lulou’s wine palette, but they should no longer dominate the page.
+
+Think:
+
+current card colour
+→ lighten another obvious step
+→ reduce visual weight
+→ keep brand identity
+
+The result should feel closer to a soft muted wine/mauve surface than a burgundy block.
+
+## TEXT
+
+Keep:
+
+- names = warm ivory / near-white
+- message previews = softer ivory/taupe
+- chevrons = muted warm ivory
+
+Do not change text colours unless contrast genuinely requires a tiny adjustment.
+
+## IMPORTANT
+
+Do NOT change the selected “Active Chats” tab colour.
+
+Do NOT change the underline.
+
+Do NOT change the selected Connections bottom-nav colour.
+
+Do NOT change the Open / Close buttons.
+
+Those are already approved references.
+
+## IMPLEMENTATION
+
+Inspect the exact current Active Chats card background token/hex.
+
+Lighten ONLY that surface.
+
+Prefer a dedicated Active Chats surface token so other approved wine components do not move.
+
+Do not edit a shared global wine token if it would unintentionally recolour other parts of the app.
+
+## VERIFY
+
+Confirm:
+
+1. Active Chats cards are visibly lighter than the current screenshot.
+2. They still read as wine / dusty mauve.
+3. They do not look bright pink.
+4. The page feels more open and less heavy.
+5. Ivory names remain readable.
+6. Avatars remain unchanged.
+7. Active Chats selected tab remains unchanged.
+8. Bottom navigation remains unchanged.
+9. Open / Close remain unchanged.
+10. No other page is recoloured.
+
+## FALLBACK DECISION
+
+Do not automatically switch back to white.
+
+Make this lighter wine pass first.
+
+If this still feels too heavy after production review, the NEXT option can be:
+
+- warm ivory card
+- subtle wine border/accent
+
+But do not implement that fallback in this task.
+
+## DEPLOYMENT
+
+After implementation:
+
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. old Active Chats card token/hex
+2. new lighter token/hex
+3. files changed
+4. confirmation selected tab/nav colours were not modified
+5. confirmation Open / Close were not modified
+6. production commit
+7. live deployment verification
