@@ -1,0 +1,132 @@
+Refine ONLY the Active Chats user-card background colour shown in the attached REAL iPhone screenshot.
+
+The current Active Chats cards are too dark.
+
+They have gone too far into an almost-black burgundy and are making the Connections page feel heavy.
+
+Do NOT redesign the page.
+
+## CHANGE ONLY THE ACTIVE CHAT CARD BACKGROUND
+
+Keep the current:
+
+- card layout
+- card size
+- card spacing
+- corner radius
+- avatars
+- name typography
+- message preview styling
+- chevrons
+- “Active Chats” selected tab styling
+- bottom navigation
+
+Only lighten the dark wine card background.
+
+## NEW COLOUR DIRECTION
+
+Use a lighter, softer premium wine tone.
+
+Target:
+
+- mid-tone muted wine
+- dusty burgundy
+- softened claret
+- slightly rose-toned
+- elegant
+- premium
+- restrained
+
+Avoid:
+
+- near-black burgundy
+- very dark plum
+- bright pink
+- cherry red
+- neon
+- generic dating-app rose
+
+The cards should still clearly feel like Lulou, just less heavy.
+
+## IMPORTANT
+
+Do NOT change the Open / Close button colour.
+
+Do NOT change the selected “Active Chats” text/underline colour.
+
+Do NOT change the bottom-nav selected colour.
+
+Those should stay exactly as they are.
+
+This task is ONLY about lightening the Active Chats card surface.
+
+## TEXT
+
+Keep:
+
+- names = warm ivory / near-white
+- message previews = softer ivory / taupe
+- chevrons = muted warm ivory
+
+Do not darken the text.
+
+## VISUAL TARGET
+
+The cards should still stand out from the warm ivory page background, but should feel softer and more breathable.
+
+Think:
+
+current card colour
+→ lighten by roughly one noticeable step
+
+Not:
+
+dark brown-black wine
+
+More:
+
+soft medium wine / dusty burgundy
+
+## IMPLEMENTATION
+
+Inspect the current card background token/hex.
+
+Create or use the nearest existing lighter wine token in the Lulou palette.
+
+Prefer an existing token if one exists.
+
+Do not alter shared tokens if that would unintentionally recolour Open / Close or other approved components.
+
+If necessary, use a dedicated Active Chats card-surface token.
+
+## VERIFY
+
+Confirm:
+
+1. Active Chats cards are visibly lighter than the current screenshot.
+2. They still look premium and wine-toned.
+3. They are not bright pink.
+4. Ivory text remains readable.
+5. Avatars remain unchanged.
+6. “Active Chats” selected text/underline remains unchanged.
+7. Open / Close remain unchanged.
+8. Bottom-nav selected colour remains unchanged.
+9. No other page is recoloured.
+
+After implementation:
+
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. old Active Chats card colour/token
+2. new lighter card colour/token
+3. files changed
+4. confirmation Open / Close were not modified
+5. confirmation selected tab/nav colours were not modified
+6. production commit
+7. live deployment verification
