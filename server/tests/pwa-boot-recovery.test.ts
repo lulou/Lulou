@@ -33,6 +33,13 @@ describe("installed PWA boot recovery", () => {
     expect(html).toContain('recoverOnce(isBootAsset ? "startup_asset_load"');
   });
 
+  it("recovers once from stale lazy chunks even after React has mounted", () => {
+    expect(html).toContain("function isChunkLoadFailure(value)");
+    expect(html).toContain("Failed to fetch dynamically imported module");
+    expect(html).toContain('recoverOnce("dynamic_chunk_load", true)');
+    expect(html).toContain("if (!afterMount && !bootIsPending()) return");
+  });
+
   it("resets the recovery guard only after React replaces the boot shell", () => {
     expect(html).toContain('new MutationObserver(function (_, observer)');
     expect(html).toContain("if (!bootIsPending())");

@@ -125,8 +125,13 @@
           location.replace(url.toString());
         }
 
-        function recoverOnce(reason) {
-          if (!bootIsPending()) return;
+        function isChunkLoadFailure(value) {
+          var message = value instanceof Error ? value.message : String(value || "");
+          return /ChunkLoadError|Loading chunk|Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(message);
+        }
+
+        function recoverOnce(reason, afterMount) {
+          if (!afterMount && !bootIsPending()) return;
           var attempted = false;
           try {
             attempted = sessionStorage.getItem(recoveryKey) === "1";
@@ -172,13 +177,19 @@
           var isSameOrigin = false;
           try { isSameOrigin = !!assetUrl && new URL(assetUrl, location.href).origin === location.origin; } catch (_) {}
           var isBootAsset = isSameOrigin && (isScript || isStylesheet);
-          if (bootIsPending() && (isBootAsset || e.message)) {
+          if (isChunkLoadFailure(e.error || e.message)) {
+            recoverOnce("dynamic_chunk_load", true);
+          } else if (bootIsPending() && (isBootAsset || e.message)) {
             recoverOnce(isBootAsset ? "startup_asset_load" : "startup_exception");
           }
         }, true);
 
         window.addEventListener("unhandledrejection", function (e) {
-          if (bootIsPending()) recoverOnce("startup_rejection");
+          if (isChunkLoadFailure(e.reason)) {
+            recoverOnce("dynamic_chunk_load", true);
+          } else if (bootIsPending()) {
+            recoverOnce("startup_rejection");
+          }
         });
 
         // Safari does not reliably dispatch an error when an installed PWA's
