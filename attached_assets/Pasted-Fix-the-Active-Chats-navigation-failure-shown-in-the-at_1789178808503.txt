@@ -1,0 +1,280 @@
+Fix the Active Chats navigation failure shown in the attached REAL iPhone screenshot.
+
+Current symptom:
+
+On Connections → Active Chats, tapping ANY chat card causes a generic:
+
+“Something went wrong”
+
+message/button to appear instead of opening the conversation.
+
+This affects multiple active chats, so treat this as a shared chat-opening/navigation/data-resolution bug, not a single broken user record.
+
+## PRIMARY GOAL
+
+Tapping an Active Chat card must reliably open the correct conversation.
+
+Expected:
+
+Connections
+→ tap user card
+→ correct chat room opens
+→ correct match/user loads
+→ latest messages render
+→ stage/call/voice-note state loads
+
+No generic error.
+
+## 1. TRACE THE EXACT FAILURE
+
+Inspect the complete tap path:
+
+Active Chats card
+→ click handler
+→ route/navigation target
+→ route params
+→ match/conversation ID resolution
+→ chat loader
+→ API fetch
+→ stage/entitlement fetch
+→ message history fetch
+→ render
+
+Find the FIRST failing point.
+
+Do not just suppress the “Something went wrong” UI.
+
+Report the actual root cause.
+
+## 2. CHECK THE CARD DATA
+
+Audit the data object used for each Active Chat card.
+
+Verify every card has the correct authoritative identifiers required to open chat, such as:
+
+- matchId
+- conversationId
+- connectionId
+- otherUserId
+- profileId
+- route slug/id
+
+Do not use display name or array index as routing identity.
+
+If one field was renamed or changed recently, update the Connections card to use the current canonical field.
+
+## 3. CHECK ROUTE FORMAT
+
+Audit the exact route being generated on tap.
+
+Compare it with the route the working chat page expects.
+
+Examples to verify:
+
+- `/matches/:id`
+- `/messages/:id`
+- `/connections/:id`
+- query param version
+- route state object
+
+Do not guess.
+
+Make the Active Chats card route match the actual production chat route contract exactly.
+
+## 4. CHECK ACTIVE CHAT SOURCE VS CHAT LOADER SOURCE
+
+If Active Chats now loads from one endpoint/table and chat page loads from another, verify the identifier domains match.
+
+Common bug to check:
+
+Connections card passes a USER ID
+but chat page expects MATCH ID.
+
+Or:
+
+Connections card passes CONNECTION ID
+but chat page expects CONVERSATION ID.
+
+Or:
+
+API returns `match_id`
+but client reads `id`.
+
+Trace this explicitly.
+
+## 5. GENERIC ERROR MUST HAVE A REAL CAUSE
+
+Find where “Something went wrong” is triggered.
+
+Identify whether it comes from:
+
+- route param missing
+- fetch 404
+- fetch 401/403
+- invalid UUID
+- null profile
+- missing match
+- stale session
+- parser failure
+- chat component exception
+- stage resolver exception
+- message fetch failure
+- deleted/ended match state
+
+Do not collapse all cases into one generic failure during debugging.
+
+Add safe diagnostic categories if needed.
+
+## 6. DO NOT BREAK ENDED CALL / ACTIVE CHAT STATE
+
+The screenshot shows one card preview:
+
+“Call ended”
+
+That chat should still open normally.
+
+A call ending must NOT make the conversation invalid.
+
+Verify:
+
+- ended call event remains just a message/preview state
+- match remains active unless explicitly ended
+- chat route is still valid
+- call history does not interfere with opening the room
+
+## 7. TEST ALL THREE VISIBLE CHATS
+
+Use the current production records represented by:
+
+- georgia, 26
+- Steph, 26
+- Flower, 25
+
+For each:
+
+tap card
+→ correct chat opens
+
+Do not fix only one data shape.
+
+## 8. DROPDOWN/CHEVRON
+
+The cards show a chevron.
+
+Make sure tapping the main card body opens chat.
+
+If the chevron has a separate expand action, preserve it only if intentional.
+
+Do not let an overlay/intercepting element swallow the tap.
+
+Audit:
+
+- z-index
+- pointer-events
+- nested button
+- stopPropagation
+- invisible overlay
+
+If the “Something went wrong” is caused by the wrong click target, fix that cleanly.
+
+## 9. IPHONE PWA
+
+Verify on installed iPhone PWA.
+
+Check for:
+
+- stale route state
+- cached JS mismatch
+- navigation after resume
+- touch event firing twice
+- history state corruption
+
+But do not blame PWA caching unless the actual logs support it.
+
+## 10. AUTH / SESSION
+
+If the chat open request is returning 401/403:
+
+verify:
+
+- Authorization header
+- X-Session-Id
+- current authenticated user
+- current match ownership
+- Railway CORS
+
+Do not convert auth/session failure into a fake “chat not found”.
+
+## 11. SAFE FALLBACK
+
+If a specific chat record is genuinely invalid/deleted:
+
+show a precise message such as:
+
+“This conversation is no longer available.”
+
+Do not use that for normal valid active chats.
+
+But the main fix is to make valid chats open correctly.
+
+## 12. DO NOT CHANGE
+
+Do not redesign:
+
+- Connections page
+- Active Chats card styling
+- colours
+- avatars
+- message preview text
+- bottom navigation
+- chat UI
+- call UI
+- voice-note UI
+
+Do not change:
+
+- stage logic
+- match logic
+- payment logic
+- call completion rules
+
+This task is ONLY Active Chats → chat opening reliability.
+
+## 13. TEST EXACTLY
+
+1. Open Connections → Active Chats.
+2. Tap georgia.
+3. Correct georgia chat opens.
+4. Back.
+5. Tap Steph.
+6. Correct Steph chat opens.
+7. Back.
+8. Tap Flower.
+9. Correct Flower chat opens.
+10. No “Something went wrong”.
+11. Reload app and repeat.
+12. Kill/reopen installed PWA and repeat.
+13. Verify card previews still show correctly after returning from chat.
+
+## 14. DEPLOYMENT
+
+After implementation:
+
+- run focused navigation tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- wait for Vercel/Railway
+- verify live route/API behavior
+
+At the end report only:
+
+1. exact root cause
+2. failing route/identifier before
+3. correct identifier/route now used
+4. files changed
+5. auth/session involvement if any
+6. tests for georgia/Steph/Flower
+7. production commit
+8. live deployment verification
