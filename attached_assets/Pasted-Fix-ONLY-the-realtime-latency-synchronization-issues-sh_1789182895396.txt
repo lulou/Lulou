@@ -1,0 +1,411 @@
+Fix ONLY the realtime latency/synchronization issues shown in the attached REAL screenshots.
+
+There are TWO related problems:
+
+1. Unread message / activity counts are taking too long to appear.
+2. Conversation-stage progress is taking too long to synchronize between the two users.
+
+The app eventually becomes correct, but it is too slow.
+
+I want these updates to feel immediate.
+
+IMPORTANT:
+Do NOT change any product rules, quotas, stage logic, call rules, read/unread logic, or message delivery semantics.
+
+This task is ONLY about making existing state propagate faster and more reliably.
+
+## PROBLEM 1 — MESSAGE/ACTIVITY COUNT IS TOO SLOW
+
+When User A receives messages from User B while not inside that exact chat:
+
+the Connections badge should update almost instantly.
+
+Current issue:
+
+message arrives
+→ noticeable delay
+→ badge/count appears later
+
+That is too slow.
+
+Target:
+
+new message persisted
+→ realtime event received
+→ unread count updates immediately
+
+No manual refresh.
+No tab change.
+No waiting several seconds.
+
+## MESSAGE BADGE TARGET LATENCY
+
+Aim for perceived update within roughly:
+
+< 500ms after realtime event reaches the client
+
+Do not introduce polling delays like:
+
+- 2 second interval
+- 5 second interval
+- delayed refetch timer
+
+If a realtime event already contains enough information to increment safely, update the shared unread count immediately, then reconcile with server truth in the background.
+
+## IMPORTANT
+
+Do NOT rely purely on optimistic local increments if that risks drift.
+
+Best pattern:
+
+realtime event
+→ immediate UI update
+→ background authoritative reconciliation
+
+This gives instant feedback without sacrificing correctness.
+
+## PROBLEM 2 — STAGE PROGRESS IS STALE BETWEEN USERS
+
+The screenshots show:
+
+one user had already finished the message stage
+
+but the other device still said:
+
+“You’ve completed your messages”
+“Waiting for Leo to finish — 2 messages remaining”
+
+even though Leo had already completed them.
+
+Then later the other screen correctly showed:
+
+“You’ve reached your call stage.”
+
+That delay is the bug.
+
+## REQUIRED STAGE BEHAVIOR
+
+When either participant sends a message that changes stage progress:
+
+both users should see the updated counts/state immediately.
+
+Example:
+
+User A has completed their quota.
+User B has 2 messages left.
+
+B sends one:
+→ A should immediately show 1 remaining.
+
+B sends final one:
+→ both clients should immediately transition to the next correct state.
+
+No stale:
+
+“2 messages remaining”
+
+after those messages already exist.
+
+## SINGLE AUTHORITATIVE PROGRESS SOURCE
+
+Audit how stage progress is currently calculated.
+
+Check whether it depends on:
+
+- stale React Query cache
+- delayed refetch
+- page-only polling
+- local counters
+- server aggregation endpoint
+- realtime message subscription
+- stage endpoint that is not invalidated
+- separate message/state queries becoming out of sync
+
+Use one authoritative stage calculation.
+
+## REALTIME MESSAGE EVENT SHOULD INVALIDATE STAGE STATE
+
+When a new message arrives for a match:
+
+immediately update or invalidate/re-fetch:
+
+- message count
+- stage progress
+- remaining messages
+- call-stage eligibility
+- any “waiting for other user” copy
+- unread badge
+
+Do NOT wait for page reload or scheduled polling.
+
+## BETTER PATTERN
+
+Preferred architecture:
+
+new message inserted
+→ realtime event
+→ update chat message list
+→ update local per-user message count
+→ recompute stage state immediately if safe
+→ invalidate/reconcile authoritative stage query
+→ transition UI if threshold reached
+
+This should happen for BOTH sender and recipient.
+
+## SENDER SIDE TOO
+
+Do not only update the recipient.
+
+When a user sends a message successfully:
+
+their own stage progress should update immediately from the confirmed insert response.
+
+Do not wait for their own realtime echo if avoidable.
+
+## RECIPIENT SIDE
+
+Recipient should update immediately from realtime.
+
+No need to wait for a full page refresh.
+
+## CALL-STAGE TRANSITION
+
+When both users have satisfied Stage 1 quota:
+
+transition immediately to:
+
+“Call stage unlocked”
+
+and activate the correct call control.
+
+Do not leave stale messaging-stage UI visible for seconds after the threshold is met.
+
+## DO NOT DOUBLE-ADVANCE
+
+Speeding this up must NOT create:
+
+- duplicate stage transitions
+- duplicate call eligibility
+- duplicate milestone modals
+- double message counts
+- race conditions between optimistic and realtime events
+
+Use idempotent stage resolution.
+
+## CACHE INVALIDATION AUDIT
+
+Inspect all relevant queries/state:
+
+- messages
+- match
+- stage/progression
+- call eligibility
+- unread counts
+- active chat preview
+- Connections badge
+
+If using React Query/TanStack Query:
+
+make sure the realtime event invalidates the correct exact query keys.
+
+Common bug to check:
+
+message list invalidates
+but
+stage-status query does NOT
+
+or
+
+wrong match ID is used in query key.
+
+## CONNECTIONS PREVIEW
+
+When a new message arrives:
+
+Active Chats preview should update quickly too.
+
+Example:
+
+latest message text / call event
+→ update immediately
+
+Do not leave old preview text for several seconds.
+
+## GLOBAL BADGE SPEED
+
+For Connections badge:
+
+if a new unread message arrives and recipient is not inside exact chat:
+
+increment immediately from realtime.
+
+Then reconcile total unread count in background.
+
+Do not block badge update on a full unread-count API round trip if not necessary.
+
+## LIKES SPEED TOO
+
+Apply the same principle to Likes/Halos:
+
+incoming like/Halo
+→ Likes badge updates immediately from realtime
+→ reconcile server truth in background
+
+Do not redesign the badge system.
+
+## NETWORK / BACKEND
+
+Check whether latency is caused by:
+
+- Railway API response time
+- Supabase realtime subscription lag
+- delayed DB transaction commit
+- unnecessary sequential API calls
+- debounce/throttle
+- polling interval
+- cache staleTime
+- retry delay
+- service worker caching API responses
+
+Do not guess.
+
+Measure the actual stages.
+
+## ADD SAFE LATENCY DIAGNOSTICS
+
+Add temporary/production-safe timing logs around:
+
+message send:
+- send start
+- server insert complete
+- realtime event received
+- badge updated
+- stage recalculated
+
+Do not log message contents.
+
+Useful output:
+
+message_insert_ms
+realtime_delivery_ms
+badge_update_ms
+stage_reconcile_ms
+
+This will show where the delay actually is.
+
+## DO NOT CACHE LIVE CHAT STATE
+
+Make sure service worker / HTTP cache does NOT cache:
+
+- message list
+- unread counts
+- stage progress
+- call eligibility
+- active chat preview
+
+These must be network/realtime authoritative.
+
+## NO POLLING DEPENDENCY
+
+If current correctness relies on:
+
+setInterval
+or
+slow periodic refetch
+
+keep a low-frequency reconciliation fallback if desired, but realtime should be the primary path.
+
+User-visible updates should not wait for polling.
+
+## EXACT TESTS
+
+### MESSAGE BADGE
+1. User A on Discover.
+2. User B sends A one message.
+3. Connections badge updates almost instantly.
+4. B sends 4 more.
+5. Count increments with each message without delay.
+
+### STAGE PROGRESS
+6. A has completed their quota.
+7. B has 2 remaining.
+8. B sends one.
+9. A changes from “2 remaining” to “1 remaining” immediately.
+
+10. B sends final message.
+11. A immediately leaves waiting state.
+12. Both clients show Call stage unlocked.
+
+### SENDER
+13. Sender’s own remaining count updates immediately after successful send.
+
+### ACTIVE CHAT
+14. recipient is inside exact chat.
+15. incoming message appears realtime.
+16. stage progress updates at same time.
+
+### CONNECTIONS LIST
+17. recipient is on Connections list.
+18. new message arrives.
+19. preview text updates quickly.
+20. badge increments.
+
+### LIKES
+21. incoming like.
+22. Likes badge updates immediately.
+
+### RELOAD
+23. reload app.
+24. all counts/stage state reconcile correctly from server truth.
+
+### DUPLICATE SAFETY
+25. realtime reconnect occurs.
+26. no duplicate unread increments.
+27. no duplicate stage advancement.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- Stage 1 quota
+- Stage 2 quota
+- call durations
+- call completion rules
+- voice-note unlock rule
+- payment logic
+- chat layout
+- badge design
+- notification design
+- message send semantics
+
+This is a SPEED + REALTIME SYNCHRONIZATION task only.
+
+## DEPLOYMENT
+
+After implementation:
+
+- measure before/after latency
+- run realtime message tests
+- run stage-progression tests
+- run unread badge tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify Vercel/Railway
+- test with two real accounts simultaneously
+
+At the end report only:
+
+1. exact source of message-count latency
+2. exact source of stage-progress latency
+3. realtime event flow after fix
+4. cache/query invalidation changes
+5. immediate badge update behavior
+6. immediate stage-transition behavior
+7. duplicate/race protection
+8. before/after measured latency
+9. files changed
+10. tests
+11. production commit
+12. live two-device verification
