@@ -14,6 +14,7 @@ export function useRealtimeMessages(
   enabled: boolean,
   onVoiceNoteUnlock?: () => void,
   onFirstCallUnlock?: () => void,
+  onNewMessage?: (message: Message) => void,
   // onTeaserEvent removed — 5-msg teaser is no longer part of the progression
 ) {
   const queryClient = useQueryClient();
@@ -25,6 +26,9 @@ export function useRealtimeMessages(
   useEffect(() => { onVoiceNoteUnlockRef.current = onVoiceNoteUnlock; }, [onVoiceNoteUnlock]);
   const onFirstCallUnlockRef = useRef(onFirstCallUnlock);
   useEffect(() => { onFirstCallUnlockRef.current = onFirstCallUnlock; }, [onFirstCallUnlock]);
+  const onNewMessageRef = useRef(onNewMessage);
+  useEffect(() => { onNewMessageRef.current = onNewMessage; }, [onNewMessage]);
+  const handledMessageIdsRef = useRef<Set<string>>(new Set());
 
   // Shared handler — called by both broadcast and postgres_changes.
   // Writes to TWO caches:
@@ -43,6 +47,13 @@ export function useRealtimeMessages(
       createdAt: row.created_at ?? row.createdAt,
       voiceTranscript: row.voice_transcript ?? row.voiceTranscript ?? null,
     };
+    if (handledMessageIdsRef.current.has(newMsg.id)) return;
+    handledMessageIdsRef.current.add(newMsg.id);
+    if (handledMessageIdsRef.current.size > 500) {
+      const first = handledMessageIdsRef.current.values().next().value;
+      if (first) handledMessageIdsRef.current.delete(first);
+    }
+    onNewMessageRef.current?.(newMsg);
 
     console.log("[CHAT_REALTIME] message received realtime", {
       matchId: matchId.slice(0, 8),

@@ -490,14 +490,13 @@ export default function Messaging() {
     if (!matchId) return;
     (async () => {
       try {
-        const res = await fetch(`/api/messages/${matchId}/mark-read`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-        });
+        const res = await apiRequest("POST", `/api/messages/${matchId}/mark-read`);
         if (res.ok) {
           const { total } = await res.json();
           setBadge(typeof total === "number" ? Math.max(0, total) : 0);
+          if (typeof total === "number") {
+            queryClient.setQueryData(["/api/messages/unread-count"], { total });
+          }
         }
       } catch {
         // Non-fatal — badge just won't update immediately
@@ -999,7 +998,25 @@ export default function Messaging() {
     enabled: !!matchId,
   });
 
-  const { broadcastNewMessage } = useRealtimeMessages(matchId, !!matchId, onVoiceNoteUnlock, onFirstCallUnlock);
+  const handleVisibleRealtimeMessage = useCallback((incoming: Message) => {
+    if (!matchId || incoming.senderId === user?.id) return;
+    apiRequest("POST", `/api/messages/${matchId}/mark-read`)
+      .then(res => res.json())
+      .then(({ total }) => {
+        if (typeof total !== "number") return;
+        setBadge(Math.max(0, total));
+        queryClient.setQueryData(["/api/messages/unread-count"], { total });
+      })
+      .catch(() => {});
+  }, [matchId, user?.id, setBadge]);
+
+  const { broadcastNewMessage } = useRealtimeMessages(
+    matchId,
+    !!matchId,
+    onVoiceNoteUnlock,
+    onFirstCallUnlock,
+    handleVisibleRealtimeMessage,
+  );
 
   const sendMessage = useMutation({
     mutationFn: async (vars: { content: string; tempId: string }) => {

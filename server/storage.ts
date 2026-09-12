@@ -4018,8 +4018,8 @@ export async function removeBlockedContactForUser(
 }
 
 // ── Badge count helpers (local Drizzle DB) ────────────────────────────────────
-// Tracks per-match unread counts for the iOS Home Screen badge.
-// Server increments when a push is sent; client decrements when chat is opened.
+// Tracks per-match unread counts for navigation and the iOS Home Screen badge.
+// Server increments every recipient message; client clears one match when it is read.
 
 /**
  * Increment the badge count for (userId, matchId) by 1.

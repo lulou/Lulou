@@ -3771,6 +3771,11 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { matchId } = req.params;
       const total = await resetMatchBadge(userId, matchId);
+      await broadcastViaHttpApi(`unread:${userId}`, "unread-count-changed", {
+        total,
+        matchId,
+        read: true,
+      });
       res.json({ total });
     } catch (err: any) {
       console.error("BADGE_MARK_READ_ERROR", err?.message);
@@ -3962,12 +3967,33 @@ export async function registerRoutes(
 
       // ── Step 4: Insert message (AFTER counter so WAL refetch sees updated count) ─
       const tInsert0 = Date.now();
+      const recipientId = match.user1Id === userId ? match.user2Id : match.user1Id;
       const message = await adminStorage.createMessage({
         matchId,
         senderId: userId,
         content: content.trim(),
       });
       if (IS_DEV) console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
+
+      // Persist recipient unread state for every successful insert, independently
+      // of whether a lock-screen push is suppressed. The client uses this same
+      // server total on startup and receives the new total over one user channel.
+      let unreadTotal: number | null = null;
+      try {
+        unreadTotal = await incrementMatchBadge(recipientId, matchId);
+        await broadcastViaHttpApi(`unread:${recipientId}`, "unread-count-changed", {
+          total: unreadTotal,
+          matchId,
+          messageId: message.id,
+        });
+      } catch (err: any) {
+        console.error("[UNREAD] persist/broadcast failed", {
+          recipientId: recipientId.slice(0, 8),
+          matchId: matchId.slice(0, 8),
+          messageId: message.id.slice(0, 8),
+          error: err?.message,
+        });
+      }
 
       // Progression diagnostic — logged here so message.id is available.
       if (isCountedMessage) {
@@ -4034,8 +4060,6 @@ export async function registerRoutes(
       (async () => {
         try {
           const senderId    = userId; // authenticated author of this message
-          const recipientId = match.user1Id === userId ? match.user2Id : match.user1Id;
-
           // ── Hard safety guard: never push to the sender ────────────────────
           // Prevents self-notifications even if upstream logic ever passes wrong
           // IDs.  recipientId must differ from senderId in every match.
@@ -4052,7 +4076,7 @@ export async function registerRoutes(
             //         → suppress lock-screen push — in-app unread badge updates
             //           via Supabase Realtime subscription (already live)
             // Case 3: Recipient is inactive / app closed / phone locked
-            //         → send full push notification with badge increment
+            //         → send full push notification with the persisted unread total
 
             const [activeInSameChat, activeInApp] = await Promise.all([
               isUserActiveInChat(recipientId, matchId),
@@ -4075,7 +4099,7 @@ export async function registerRoutes(
               // Case 3: recipient is outside the app — send full push
               const senderProfile = await adminStorage.getProfileMeta(senderId);
               const senderName    = senderProfile?.firstName || "Someone";
-              const badgeTotal    = await incrementMatchBadge(recipientId, matchId);
+              const badgeTotal    = unreadTotal ?? await getTotalBadge(recipientId);
               console.log(`[PUSH_AUDIT] SENDING push — recipient inactive senderId=${sid8} recipientId=${rid8} matchId=${mid8} senderName="${senderName}" badgeTotal=${badgeTotal}`);
               sendPushToUser(
                 recipientId,

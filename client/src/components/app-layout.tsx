@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation, Link } from "wouter";
 import { Compass, Heart, MessageCircle, User, CircleDot, LogOut } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { LULOU_SELECTED_ACCENT } from "@/lib/lulou-action-style";
@@ -9,15 +9,15 @@ import { decodedPhotos } from "@/lib/image-utils";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { getAppLayoutScrollPolicy } from "@/lib/app-layout-scroll-policy";
 import { useLanguageContext } from "@/contexts/language-context";
+import { supabase } from "@/lib/supabase";
 
 interface IncomingOpen {
   id: string;
   fromUserId: string;
 }
 
-interface MatchItem {
+interface IncomingSpark {
   id: string;
-  lastMessage?: string | null;
 }
 
 /**
@@ -96,7 +96,8 @@ export function ProfileAvatar({
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { logout, isLoggingOut } = useAuth();
+  const { user, logout, isLoggingOut } = useAuth();
+  const queryClient = useQueryClient();
   const { t } = useLanguageContext();
   // Gate background polling on tab visibility — stops network + GC pressure
   // when the user has the app open in a background tab.
@@ -114,31 +115,71 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // [PERF_FIX] Use `select` on both queries so AppLayout only re-renders when
   // a badge COUNT changes — not on every poll response when the underlying
   // array reference changes but the count stays the same.
-  const { data: likesCount = 0 } = useQuery<IncomingOpen[], Error, number>({
+  const { data: normalLikesCount = 0 } = useQuery<IncomingOpen[], Error, number>({
     queryKey: ["/api/who-liked-you"],
     refetchInterval: isTabActive ? 10000 : false,
     select: (data) => data.length,
   });
 
-  const { data: newConnectionsCount = 0 } = useQuery<MatchItem[], Error, number>({
-    queryKey: ["/api/matches"],
-    select: (data) => data.filter(m => !m.lastMessage).length,
+  const { data: haloCount = 0 } = useQuery<IncomingSpark[], Error, number>({
+    queryKey: ["/api/wheel/sparks"],
+    refetchInterval: isTabActive ? 10000 : false,
+    select: (data) => data.length,
   });
 
-  // Track how many new connections the user has acknowledged (persisted across refresh)
-  const [seenConnectionsCount, setSeenConnectionsCount] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem("lulou_seen_connections") ?? "0", 10) || 0; } catch { return 0; }
+  const { data: unreadData } = useQuery<{ total: number }>({
+    queryKey: ["/api/messages/unread-count"],
+    refetchInterval: isTabActive ? 10000 : false,
   });
+  const likesCount = normalLikesCount + haloCount;
+  const unreadMessageCount = Math.max(0, unreadData?.total ?? 0);
+  const seenUnreadEventIdsRef = useRef<Set<string>>(new Set());
 
-  // When user visits /matches, mark all current new connections as seen
+  // One app-level channel keeps pending incoming Likes and Halos current on every
+  // route. The list endpoints remain authoritative and prevent double-counting.
   useEffect(() => {
-    if (!location.startsWith("/matches")) return;
-    try { localStorage.setItem("lulou_seen_connections", String(newConnectionsCount)); } catch { /* noop */ }
-    setSeenConnectionsCount(newConnectionsCount);
-  }, [location, newConnectionsCount]);
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`nav-interest:${user.id}`)
+      .on("postgres_changes" as any, {
+        event: "*",
+        schema: "public",
+        table: "interactions",
+        filter: `to_user_id=eq.${user.id}`,
+      }, (payload: any) => {
+        const type = payload?.new?.type ?? payload?.old?.type;
+        if (type === "open") queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
+        if (type === "wheel_connection") queryClient.invalidateQueries({ queryKey: ["/api/wheel/sparks"] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id, queryClient]);
 
-  // Badge count = how many new connections appeared since user last visited
-  const newConnectionsBadge = Math.max(0, newConnectionsCount - seenConnectionsCount);
+  // Message writes publish the persisted total on a user-specific channel.
+  // Replayed/duplicate events are ignored by messageId; periodic query refresh
+  // reconciles the value with server truth after reconnects.
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`unread:${user.id}`)
+      .on("broadcast", { event: "unread-count-changed" }, ({ payload }) => {
+        if (!payload || typeof payload.total !== "number") return;
+        const eventId = payload.messageId as string | undefined;
+        if (eventId) {
+          if (seenUnreadEventIdsRef.current.has(eventId)) return;
+          seenUnreadEventIdsRef.current.add(eventId);
+          if (seenUnreadEventIdsRef.current.size > 500) {
+            const first = seenUnreadEventIdsRef.current.values().next().value;
+            if (first) seenUnreadEventIdsRef.current.delete(first);
+          }
+        }
+        queryClient.setQueryData(["/api/messages/unread-count"], {
+          total: Math.max(0, payload.total),
+        });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id, queryClient]);
 
   const navItems = [
     { path: "/discover", icon: Compass, label: t("discover") },
@@ -233,15 +274,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
                       data-testid="badge-likes-count"
                     >
-                      +{likesCount}
+                      {likesCount > 99 ? "99+" : likesCount}
                     </span>
                   )}
-                  {isConnections && newConnectionsBadge > 0 && (
+                  {isConnections && unreadMessageCount > 0 && (
                     <span
                       className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
                       data-testid="badge-connections-count"
                     >
-                      +{newConnectionsBadge}
+                      {unreadMessageCount > 99 ? "99+" : unreadMessageCount}
                     </span>
                   )}
                 </div>

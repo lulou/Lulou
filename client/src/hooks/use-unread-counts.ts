@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 type UnreadState = Record<string, number>;
 
@@ -55,13 +56,7 @@ export function useUnreadCounts(
     if (!userId) return;
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token) return;
-        const res = await fetch("/api/messages/badge-counts", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return;
+        const res = await apiRequest("GET", "/api/messages/badge-counts");
         const serverCounts: Record<string, number> = await res.json();
         setUnreadCounts(prev => {
           const merged: Record<string, number> = { ...serverCounts };
@@ -98,7 +93,19 @@ export function useUnreadCounts(
       }
     }
 
-    if (activeMatchIdRef.current === matchId) return;
+    if (activeMatchIdRef.current === matchId) {
+      // The message is already visible. Clear only this match's persisted unread
+      // count; the server broadcasts the resulting authoritative global total.
+      apiRequest("POST", `/api/messages/${matchId}/mark-read`)
+        .then(res => res.json())
+        .then(({ total }) => {
+          if (typeof total === "number") {
+            queryClient.setQueryData(["/api/messages/unread-count"], { total });
+          }
+        })
+        .catch(() => {});
+      return;
+    }
 
     setUnreadCounts(prev => ({ ...prev, [matchId]: (prev[matchId] || 0) + 1 }));
     onNewBackgroundMessageRef.current?.(matchId);

@@ -5825,11 +5825,12 @@ export default function Matches() {
           unreadCount={unreadCounts[selectedMatch.id] || 0}
           onMarkRead={() => {
             markRead(selectedMatch.id);
-            fetch(`/api/messages/${selectedMatch.id}/mark-read`, {
-              method: "POST", credentials: "include",
-              headers: { "Content-Type": "application/json" },
-            }).then(r => r.json()).then(({ total }) => {
+            apiRequest("POST", `/api/messages/${selectedMatch.id}/mark-read`)
+            .then(r => r.json()).then(({ total }) => {
               setBadge(typeof total === "number" ? Math.max(0, total) : 0);
+              if (typeof total === "number") {
+                queryClient.setQueryData(["/api/messages/unread-count"], { total });
+              }
             }).catch(() => {});
           }}
         />
