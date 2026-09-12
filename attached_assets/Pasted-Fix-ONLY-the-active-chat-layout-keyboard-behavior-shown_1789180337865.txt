@@ -1,0 +1,264 @@
+Fix ONLY the active chat layout/keyboard behavior shown in the attached REAL iPhone screenshots.
+
+The current composer is behaving badly when the iOS keyboard opens.
+
+Visible problems:
+
+- when the keyboard opens, the composer jumps too high and becomes oversized
+- the message area gets crushed
+- latest messages are partially hidden / clipped
+- the composer height is much larger than it needs to be
+- there is too much empty vertical padding inside the composer
+- the whole chat feels unstable when focusing the text field
+- in one screenshot the top chat/header area is mostly pushed off-screen
+- the keyboard accessory row + composer + chat content are fighting for space
+
+I want the chat to behave like a polished iOS messaging app.
+
+## PRIMARY GOAL
+
+When the user taps the message field:
+
+- keyboard opens smoothly
+- composer stays compact
+- latest message remains visible above composer
+- chat automatically anchors to bottom
+- header stays stable
+- no giant composer jump
+- no layout collapse
+- no hidden messages
+
+## 1. COMPOSER HEIGHT
+
+The empty composer should be compact.
+
+Target:
+
+- compact resting height
+- only grow vertically as text wraps onto additional lines
+- no large fixed/min-height creating a giant empty box
+- no excessive top/bottom padding
+
+The composer should feel closer to ChatGPT / iMessage:
+
+text area
++
+single icon row
+
+not a large card occupying a huge portion of the screen.
+
+## 2. TEXTAREA
+
+Use dynamic auto-grow.
+
+Rules:
+
+- one-line message = compact
+- 2–4 lines = grow naturally
+- cap max height
+- after max height, textarea scrolls internally
+
+Do NOT lock the composer to a large fixed height.
+
+Do NOT let focusing alone increase its height.
+
+## 3. KEYBOARD OPEN BEHAVIOR
+
+When keyboard appears:
+
+- recompute available viewport height using `visualViewport` where supported
+- keep composer pinned immediately above keyboard
+- do not add duplicate keyboard offset/padding
+- do not apply both safe-area bottom AND keyboard height twice
+
+Audit for double compensation such as:
+
+- `100vh` + keyboard offset
+- `dvh` + visualViewport translation
+- safe-area padding added twice
+- bottom inset plus keyboard inset simultaneously
+
+There should be ONE authoritative keyboard positioning strategy.
+
+## 4. CHAT MUST STAY BOTTOM-ANCHORED
+
+When user focuses the composer:
+
+- scroll to the latest message
+- keep latest message visible above composer
+- do not make user manually scroll down
+
+When composer grows because text wraps:
+
+- preserve bottom anchor if user is already near the bottom
+
+Do not yank the user downward if they are intentionally reading old messages far above.
+
+Use a sensible “near bottom” threshold.
+
+## 5. HEADER STABILITY
+
+The chat header should remain visible and stable.
+
+Do not let keyboard opening:
+
+- push the header off-screen
+- scale the whole page
+- move the entire chat container upward incorrectly
+
+Use a layout where:
+
+header = fixed/stable top region
+messages = flexible scroll area
+composer = bottom region above keyboard
+
+## 6. MESSAGE AREA
+
+The messages area should use remaining flexible height.
+
+Use proper flex layout:
+
+chat page:
+- header: fixed height
+- messages: `flex: 1; min-height: 0; overflow-y: auto`
+- composer: intrinsic height
+
+Avoid absolute heights that fight the keyboard.
+
+## 7. COMPOSER VISUAL DESIGN
+
+Keep the current Lulou style, but tighten it.
+
+Preserve:
+
+- rounded surface
+- placeholder
+- mic
+- conversation starter icon
+- call icon
+- video icon
+
+But reduce:
+
+- excessive empty padding
+- excessive vertical space
+- large blank area above icons
+
+Keep icon row compact and evenly aligned.
+
+## 8. KEYBOARD ACCESSORY ROW
+
+The iOS accessory row shown above the keyboard is system UI.
+
+Do NOT try to hide or recreate it.
+
+Just make Lulou layout correctly above it.
+
+## 9. IPHONE PWA
+
+Test specifically in installed iPhone PWA.
+
+Audit:
+
+- `window.innerHeight`
+- `visualViewport.height`
+- `visualViewport.offsetTop`
+- `100vh`
+- `100dvh`
+- safe-area env values
+- focus/blur listeners
+- resize listeners
+
+Avoid stale viewport values after:
+
+- keyboard open
+- keyboard close
+- app background/resume
+- orientation change
+
+## 10. DO NOT CHANGE CHAT PRODUCT BEHAVIOR
+
+Do not change:
+
+- message quotas
+- message send logic
+- call gating
+- mic gating
+- conversation starters logic
+- stage progression
+- profile tab
+- colors
+- header content
+
+This task is layout/keyboard behavior only.
+
+## 11. TEST EXACTLY
+
+1. Open chat, keyboard closed:
+  - composer compact
+  - latest message visible
+
+2. Tap composer:
+  - keyboard opens
+  - composer stays compact
+  - latest message stays visible
+
+3. Type one line:
+  - composer does not become oversized
+
+4. Type 3–4 lines:
+  - composer grows naturally
+
+5. Type beyond max height:
+  - textarea scrolls internally
+
+6. Dismiss keyboard:
+  - layout returns cleanly
+  - no jump
+  - no stale bottom gap
+
+7. Reopen keyboard:
+  - same stable behavior
+
+8. Scroll far up in history, then focus:
+  - do not violently snap to bottom unless user is already near bottom
+
+9. While already at bottom, focus:
+  - remain bottom-anchored
+
+10. Test on 375px and 390px iPhone widths.
+
+## 12. IMPORTANT SCREENSHOT-SPECIFIC FIX
+
+The exact state shown in the screenshots must no longer happen.
+
+Specifically:
+
+- no huge composer occupying most of the visible chat
+- no messages clipped behind composer
+- no chat header disappearing
+- no giant empty space inside composer
+- no content shifting unpredictably when keyboard opens
+
+## DEPLOYMENT
+
+After implementation:
+
+- run production build
+- inspect diff
+- test real iPhone/PWA viewport behavior if possible
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. exact root cause of the keyboard/composer jump
+2. exact viewport strategy now used
+3. composer resting height behavior
+4. textarea max-growth behavior
+5. bottom-anchor behavior
+6. files changed
+7. tests
+8. production commit
+9. live deployment verification
