@@ -1187,7 +1187,7 @@ export default function Discover() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
-          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+          <div className="discover-empty-logo-pulse w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
             <LulouFlowerIcon className="w-8 h-8 text-primary" />
           </div>
           {profilesData?.emptyReason === "distance" ? (

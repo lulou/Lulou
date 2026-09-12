@@ -7,6 +7,7 @@ import {
   userElevates, blockedContacts, callCredits, savedWheelProfiles,
   membershipSubscriptions, userBenefits, sparkBalances, sparkPurchases,
 } from "@shared/schema";
+import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db, pool as localPool } from "./db";
@@ -778,6 +779,7 @@ export interface IStorage {
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getProfilePhotos(userId: string): Promise<string[]>;
+  getUserIdsWithUsableProfilePhotos(userIds: string[]): Promise<Set<string>>;
   getPopularProfiles(limit?: number, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null, ageMin?: number, ageMax?: number, userDatingIntent?: string | null, userConnectionStyle?: string | null, userSignals?: string[]): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
@@ -1388,14 +1390,11 @@ export class SupabaseStorage implements IStorage {
       return [];
     }
     const raw: string[] = data.photos || [];
-    // Filter out HEIC/HEIF data-URLs — most browsers (Chrome, Firefox) cannot decode them.
-    // These are leftover from iPhone uploads before the JPEG conversion fix.
-    const photos = raw.filter((url) => {
-      const lower = url.substring(0, 30).toLowerCase();
-      const isHeic = lower.startsWith("data:image/heic") || lower.startsWith("data:image/heif");
-      if (isHeic) console.warn("[PHOTOS] Filtered HEIC photo for userId:", userId, "url prefix:", url.substring(0, 35));
-      return !isHeic;
-    });
+    // Keep every valid profile photo in canonical order. This rejects legacy
+    // HEIC files and known app/placeholder artwork before any discovery surface
+    // can use them, while allowing the client to try the next real photo if an
+    // earlier URL no longer loads.
+    const photos = getUsableProfilePhotos(raw);
     if (raw.length > 0 && photos.length === 0) {
       console.warn("[PHOTOS] All photos for userId:", userId, "were HEIC format — returning empty. User should re-upload photos.");
     } else if (photos.length === 0) {
@@ -1404,6 +1403,29 @@ export class SupabaseStorage implements IStorage {
       if (IS_DEV) console.log(`[PHOTOS] userId=${userId} returning ${photos.length}/${raw.length} photo(s) (first url length: ${photos[0].length})`);
     }
     return photos;
+  }
+
+  async getUserIdsWithUsableProfilePhotos(userIds: string[]): Promise<Set<string>> {
+    const uniqueIds = [...new Set(userIds)].slice(0, 60);
+    if (uniqueIds.length === 0) return new Set();
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      const { data, error } = await (this.sb
+        .from("profiles")
+        .select("user_id, photos")
+        .in("user_id", uniqueIds)
+        .abortSignal(controller.signal) as any);
+      if (error) throw error;
+      return new Set(
+        (data || [])
+          .filter((row: any) => getUsableProfilePhotos(row.photos).length > 0)
+          .map((row: any) => row.user_id),
+      );
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

@@ -51,6 +51,7 @@ import {
   getFreeSpinEntitlementKey,
   isDailySpinEntitlement,
 } from "./spinEligibility";
+import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -60,6 +61,21 @@ const LAST_ACTIVE_TTL_MS = 2 * 60 * 1000;
 // Seed user IDs all start with this UUID prefix (see server/seed.ts)
 const SEED_UUID_PREFIX = "10000000-0000-4000-a000-";
 const isSeedUser = (id: string) => id.startsWith(SEED_UUID_PREFIX);
+
+function isExplicitlyIneligibleWheelProfile(profile: Profile): boolean {
+  const candidate = profile as Profile & {
+    isPaused?: boolean | null;
+    isDiscoverable?: boolean | null;
+    emailVerified?: boolean | null;
+  };
+  return (
+    isSeedUser(profile.userId) ||
+    candidate.onboardingComplete !== true ||
+    candidate.isPaused === true ||
+    candidate.isDiscoverable === false ||
+    candidate.emailVerified === false
+  );
+}
 
 // ── Availability compatibility ─────────────────────────────────────────────
 // Normalised availability keys map to an approximate offset from "right now".
@@ -4885,8 +4901,15 @@ export async function registerRoutes(
       );
       // Safety guard: storage already excludes self for normal data, but route
       // output and empty-state reasoning must use the final visible candidate set.
-      const selfFiltered = popular.filter(p => p.userId !== userId);
-      const result = selfFiltered.slice(0, 10);
+      const selfFiltered = popular.filter(
+        p => p.userId !== userId && !isExplicitlyIneligibleWheelProfile(p),
+      );
+      const photoEligibleUserIds = await storage.getUserIdsWithUsableProfilePhotos(
+        selfFiltered.map(profile => profile.userId),
+      );
+      const result = selfFiltered
+        .filter(profile => photoEligibleUserIds.has(profile.userId))
+        .slice(0, 10);
       let emptyReason: "distance" | "none" | null = null;
       const radiusActive =
         (myProfile.locationRadius ?? 0) > 0 &&
@@ -5762,7 +5785,11 @@ export async function registerRoutes(
       const saved = await storage.getSavedWheelProfile(req.user.id);
       if (!saved) return res.json({ profile: null });
       const profile = await storage.getProfile(saved.savedProfileId);
-      res.json({ profile: profile ?? null });
+      if (!profile || isExplicitlyIneligibleWheelProfile(profile)) {
+        return res.json({ profile: null });
+      }
+      const photos = getUsableProfilePhotos(await storage.getProfilePhotos(profile.userId));
+      res.json({ profile: photos.length > 0 ? sanitizeOtherProfile(profile) : null });
     } catch (err: any) {
       console.error("[SPIN_RESULT_GET]", err.message);
       res.status(500).json({ message: err.message || "Failed to fetch spin result" });

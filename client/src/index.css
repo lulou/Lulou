@@ -29,6 +29,17 @@ body.chat-open {
   to   { opacity: 1; }
 }
 
+@keyframes discoverEmptyLogoBreath {
+  0%, 100% { transform: scale(0.96); }
+  50% { transform: scale(1.04); }
+}
+
+.discover-empty-logo-pulse {
+  animation: discoverEmptyLogoBreath 2.6s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
 @keyframes tutorialSlideIn {
   from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: translateX(0); }
@@ -39,7 +50,8 @@ body.chat-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tutorial-slide-in { animation: none; }
+  .tutorial-slide-in,
+  .discover-empty-logo-pulse { animation: none; }
 }
 
 @keyframes photoEnterRight {

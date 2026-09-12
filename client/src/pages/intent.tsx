@@ -19,6 +19,7 @@ import {
 import { startPurchase, restorePurchases, subscribeDebug, type PurchaseDebugInfo } from "@/lib/purchase-service";
 import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
+import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
@@ -309,23 +310,18 @@ function ProfileAvatarFallback({ className }: { className?: string }) {
 }
 
 /**
- * ProfilePhoto — shows a user's primary uploaded photo (photos[0]).
- *
- * Only the first (primary) photo is shown.  Secondary photos are never cycled
- * through in wheel surfaces — they may contain arbitrary content that has not
- * been individually moderated.  If the primary photo is absent or fails to
- * load, the Lulou fallback avatar is rendered instead.
+ * ProfilePhoto — shows the first usable profile photo in canonical order.
+ * If a stored URL fails to load, advance to the next valid profile photo.
  */
 function ProfilePhoto({ userId, className }: { userId: string; className?: string }) {
   const { data, isLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
-  const [photoFailed, setPhotoFailed] = useState(false);
-  useEffect(() => { setPhotoFailed(false); }, [userId]);
-
-  // Always show primary (photos[0]) — never rotate to secondary photos.
-  const photo = (data?.photos ?? [])[0] ?? null;
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const photos = useMemo(() => getUsableProfilePhotos(data?.photos), [data?.photos]);
+  useEffect(() => { setPhotoIndex(0); }, [userId, data?.photos]);
+  const photo = photos[photoIndex] ?? null;
 
   if (isLoading) {
     return (
@@ -340,7 +336,7 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
     );
   }
 
-  if (!photo || photoFailed) return <ProfileAvatarFallback className={className} />;
+  if (!photo) return <ProfileAvatarFallback className={className} />;
 
   return (
     <img
@@ -348,7 +344,7 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
       alt=""
       className={`object-cover ${className ?? ""}`}
       draggable={false}
-      onError={() => setPhotoFailed(true)}
+      onError={() => setPhotoIndex(index => index + 1)}
     />
   );
 }
@@ -869,11 +865,12 @@ function CandidateThumbnail({
     queryKey: ["/api/profiles", profile.userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
-  const [photoFailed, setPhotoFailed] = useState(false);
-  useEffect(() => setPhotoFailed(false), [profile.userId]);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const photos = useMemo(() => getUsableProfilePhotos(data?.photos), [data?.photos]);
+  useEffect(() => setPhotoIndex(0), [profile.userId, data?.photos]);
 
-  const photo = data?.photos?.[0]?.trim();
-  if (isLoading || !photo || photoFailed) return null;
+  const photo = photos[photoIndex];
+  if (isLoading || !photo) return null;
 
   return (
     <button
@@ -900,7 +897,7 @@ function CandidateThumbnail({
         src={photo}
         alt=""
         draggable={false}
-        onError={() => setPhotoFailed(true)}
+        onError={() => setPhotoIndex(current => current + 1)}
         style={{ display: "block", width: "100%", height: "100%", objectFit: "cover" }}
       />
     </button>
