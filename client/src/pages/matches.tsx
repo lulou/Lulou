@@ -3144,11 +3144,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // localStorage is a fast local cache to prevent a flash before the next query response.
   useEffect(() => {
     if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
-      if (!localStorage.getItem(`vn_popup_${match.id}_${userId ?? "anonymous"}`)) {
+      if (!localStorage.getItem(`vn_popup_${match.id}_${user?.id ?? "anonymous"}`)) {
         setVoiceNotePopupOpen(true);
       }
     }
-  }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, match.id, userId]);
+  }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, match.id, user?.id]);
 
   // First-call popup intentionally disabled: the inline "Call stage unlocked" CTA card
   // in the chat composer area handles the same moment. No popup overlay is shown.
@@ -5380,7 +5380,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           testId={`dialog-voice-note-unlock-${match.id}`}
           buttonTestId={`button-voice-note-popup-continue-${match.id}`}
           onContinue={() => {
-            localStorage.setItem(`vn_popup_${match.id}_${userId ?? "anonymous"}`, "1");
+            localStorage.setItem(`vn_popup_${match.id}_${user?.id ?? "anonymous"}`, "1");
             setVoiceNotePopupOpen(false);
             queryClient.setQueryData(
               ["/api/voice-notes/entitlement", match.id],

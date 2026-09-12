@@ -34,7 +34,10 @@ describe("post-call voice-note milestone regressions", () => {
   it("persists acknowledgement per user and match without gating entitlement", () => {
     expect(schema).toContain('pgTable("voice_note_popup_seen"');
     expect(schema).toContain("primaryKey({ columns: [table.matchId, table.userId] })");
-    expect(matchesPage).toContain('`vn_popup_${match.id}_${userId ?? "anonymous"}`');
+    expect(
+      matchesPage.split('`vn_popup_${match.id}_${user?.id ?? "anonymous"}`').length - 1,
+    ).toBe(2);
+    expect(matchesPage).not.toContain('`vn_popup_${match.id}_${userId ?? "anonymous"}`');
     expect(
       messagingPage.split('`vn_popup_${matchId}_${user?.id ?? "anonymous"}`').length - 1,
     ).toBe(3);
