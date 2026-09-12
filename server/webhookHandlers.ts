@@ -102,43 +102,51 @@ function getProductName(itemId?: string, packId?: string): string {
 
 // ── grantMembershipBundle ─────────────────────────────────────────────────────
 
-async function grantMembershipBundle(userId: string, invoiceId: string): Promise<boolean> {
+async function grantMembershipBundle(
+  userId: string,
+  invoiceId: string,
+  periodEnd?: number,
+): Promise<boolean> {
   try {
-    await db.insert(processedStripeSessions).values({
-      sessionId: invoiceId,
-      userId,
-      itemRef: "membership_renewal",
+    await db.transaction(async (tx) => {
+      await tx.insert(processedStripeSessions).values({
+        sessionId: invoiceId,
+        userId,
+        itemRef: "membership_renewal",
+      });
+
+      const benefitRows = [
+        ...Array.from({ length: MEMBERSHIP_BUNDLE.messageExtensions }, () => ({ userId, type: "message_extension" })),
+        ...Array.from({ length: MEMBERSHIP_BUNDLE.undoClose },         () => ({ userId, type: "undo_close" })),
+      ];
+      await tx.insert(userBenefits).values(benefitRows);
+
+      await tx
+        .insert(callCredits)
+        .values({ userId, phoneCredits: MEMBERSHIP_BUNDLE.phoneCredits, videoCredits: MEMBERSHIP_BUNDLE.videoCredits })
+        .onConflictDoUpdate({
+          target: callCredits.userId,
+          set: {
+            phoneCredits: sql`${callCredits.phoneCredits} + ${MEMBERSHIP_BUNDLE.phoneCredits}`,
+            videoCredits: sql`${callCredits.videoCredits} + ${MEMBERSHIP_BUNDLE.videoCredits}`,
+            updatedAt: sql`now()`,
+          },
+        });
+
+      if (periodEnd) {
+        await tx
+          .update(membershipSubscriptions)
+          .set({ currentPeriodEnd: new Date(periodEnd * 1000), updatedAt: new Date() })
+          .where(eq(membershipSubscriptions.userId, userId));
+      }
     });
   } catch (err: any) {
-    const isUnique =
-      err.code === "23505" ||
-      (err.cause as any)?.code === "23505" ||
-      String(err?.message ?? "").toLowerCase().includes("unique") ||
-      String(err?.message ?? "").toLowerCase().includes("duplicate");
-    if (isUnique) {
+    if (isUniqueViolation(err)) {
       console.log(`[WEBHOOK] membership_renewal: invoice ${invoiceId} already processed for ${userId} — skipping`);
       return false;
     }
     throw err;
   }
-
-  const benefitRows = [
-    ...Array.from({ length: MEMBERSHIP_BUNDLE.messageExtensions }, () => ({ userId, type: "message_extension" })),
-    ...Array.from({ length: MEMBERSHIP_BUNDLE.undoClose },         () => ({ userId, type: "undo_close" })),
-  ];
-  await db.insert(userBenefits).values(benefitRows);
-
-  await db
-    .insert(callCredits)
-    .values({ userId, phoneCredits: MEMBERSHIP_BUNDLE.phoneCredits, videoCredits: MEMBERSHIP_BUNDLE.videoCredits })
-    .onConflictDoUpdate({
-      target: callCredits.userId,
-      set: {
-        phoneCredits: sql`${callCredits.phoneCredits} + ${MEMBERSHIP_BUNDLE.phoneCredits}`,
-        videoCredits: sql`${callCredits.videoCredits} + ${MEMBERSHIP_BUNDLE.videoCredits}`,
-        updatedAt: sql`now()`,
-      },
-    });
 
   console.log(
     `[WEBHOOK] Membership bundle granted → user=${userId} invoice=${invoiceId}: ` +
@@ -180,17 +188,10 @@ async function handleInvoicePaymentSucceeded(invoice: any): Promise<void> {
 
   console.log(`[WEBHOOK] PAYMENT_CONFIRMED product=membership_renewal user=${sub.userId} invoice=${invoice.id} customer=${customerId}`);
 
-  const granted = await grantMembershipBundle(sub.userId, invoice.id);
+  const periodEnd: number | undefined = invoice.lines?.data?.[0]?.period?.end;
+  const granted = await grantMembershipBundle(sub.userId, invoice.id, periodEnd);
 
   if (granted) {
-    const periodEnd: number | undefined = invoice.lines?.data?.[0]?.period?.end;
-    if (periodEnd) {
-      await db
-        .update(membershipSubscriptions)
-        .set({ currentPeriodEnd: new Date(periodEnd * 1000), updatedAt: new Date() })
-        .where(eq(membershipSubscriptions.userId, sub.userId));
-    }
-
     // Send subscription renewal email (fire-and-forget)
     void (async () => {
       try {
@@ -271,9 +272,8 @@ async function handleCheckoutSessionCompleted(session: any): Promise<void> {
   }
 
   const isPaid =
-    session.mode === "subscription"
-      ? session.status === "complete"
-      : session.payment_status === "paid";
+    session.payment_status === "paid" ||
+    session.payment_status === "no_payment_required";
 
   if (!isPaid) {
     console.log(
@@ -285,49 +285,39 @@ async function handleCheckoutSessionCompleted(session: any): Promise<void> {
 
   console.log(`[WEBHOOK] PAYMENT_CONFIRMED session=${session.id} user=${userId} product=${itemId ?? packId ?? "unknown"} mode=${session.mode}`);
 
-  // ── Idempotency guard ──────────────────────────────────────────────────────
-  try {
-    await db.insert(processedStripeSessions).values({
-      sessionId: session.id,
-      userId,
-      itemRef: itemId ?? packId ?? "",
-    });
-  } catch (insertErr: any) {
-    if (isUniqueViolation(insertErr)) {
-      console.log(`[WEBHOOK] checkout.session.completed: session ${session.id} already processed — idempotent skip`);
-      return;
-    }
-    throw insertErr;
-  }
-
-  // ── Grant the entitlement ──────────────────────────────────────────────────
   let grantedProductName = getProductName(itemId, packId);
   let isElevate          = false;
   let isSuperElevate     = false;
   let sparksQty          = 0;
 
   try {
-    if (itemId && EXTRAS_ITEMS[itemId as ExtrasItemId]) {
-      const grantedTypes = await grantExtras(userId, session.id, itemId as ExtrasItemId, session);
-      console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=webhook user=${userId} product=${itemId} granted=${grantedTypes.join(", ")}`);
-      if ((itemId as string).startsWith("sparks-")) {
-        sparksQty = EXTRAS_ITEMS[itemId as ExtrasItemId].quantity;
+    await db.transaction(async (tx) => {
+      await tx.insert(processedStripeSessions).values({
+        sessionId: session.id,
+        userId,
+        itemRef: itemId ?? packId ?? "",
+      });
+
+      if (itemId && EXTRAS_ITEMS[itemId as ExtrasItemId]) {
+        const grantedTypes = await grantExtras(userId, session.id, itemId as ExtrasItemId, session, tx);
+        console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=webhook user=${userId} product=${itemId} granted=${grantedTypes.join(", ")}`);
+        if ((itemId as string).startsWith("sparks-")) {
+          sparksQty = EXTRAS_ITEMS[itemId as ExtrasItemId].quantity;
+        }
+      } else if (packId && ELEVATE_PACKS[packId as ElevatePackId]) {
+        const result = await grantElevate(userId, packId as ElevatePackId, tx);
+        console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=webhook user=${userId} product=${packId} granted=${result.grantedTypes.join(", ")} autoActivated=${result.autoActivated}`);
+        isSuperElevate = ELEVATE_PACKS[packId as ElevatePackId].type === "super_elevate";
+        isElevate      = !isSuperElevate;
+      } else {
+        console.log(`[WEBHOOK] checkout.session.completed: no recognised itemId/packId in metadata session=${session.id} itemId=${itemId} packId=${packId} — no app grant needed`);
       }
-
-    } else if (packId && ELEVATE_PACKS[packId as ElevatePackId]) {
-      const result = await grantElevate(userId, packId as ElevatePackId);
-      console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=webhook user=${userId} product=${packId} granted=${result.grantedTypes.join(", ")} autoActivated=${result.autoActivated}`);
-      isSuperElevate = ELEVATE_PACKS[packId as ElevatePackId].type === "super_elevate";
-      isElevate      = !isSuperElevate;
-
-    } else {
-      console.log(`[WEBHOOK] checkout.session.completed: no recognised itemId/packId in metadata session=${session.id} itemId=${itemId} packId=${packId} — no app grant needed`);
-    }
+    });
   } catch (grantErr: any) {
-    try {
-      await db.delete(processedStripeSessions)
-        .where(eq(processedStripeSessions.sessionId, session.id));
-    } catch {}
+    if (isUniqueViolation(grantErr)) {
+      console.log(`[WEBHOOK] checkout.session.completed: session ${session.id} already processed — idempotent skip`);
+      return;
+    }
     console.error(`[WEBHOOK] checkout.session.completed: grant failed for session=${session.id} user=${userId}`, grantErr?.message);
     throw grantErr;
   }
@@ -610,7 +600,10 @@ export class WebhookHandlers {
     const event  = stripe.webhooks.constructEvent(payload, signature, secret);
 
     try {
-      if (event.type === "checkout.session.completed") {
+      if (
+        event.type === "checkout.session.completed" ||
+        event.type === "checkout.session.async_payment_succeeded"
+      ) {
         await handleCheckoutSessionCompleted(event.data.object);
       } else if (event.type === "invoice.payment_succeeded") {
         await handleInvoicePaymentSucceeded(event.data.object);
@@ -623,6 +616,7 @@ export class WebhookHandlers {
       }
     } catch (err: any) {
       console.error(`[WEBHOOK] Application handler error for ${event.type}:`, err?.message);
+      throw err;
     }
   }
 }

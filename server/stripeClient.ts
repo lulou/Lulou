@@ -166,6 +166,8 @@ export type StripeAccountInfo = {
   displayName:     string | null;
   country:         string | null;
   livemode:        boolean;
+  chargesEnabled:  boolean;
+  cardPayments:    string | null;
   secretKeyPrefix: string;
   pubKeyPrefix:    string;
   source:          'env';
@@ -191,6 +193,8 @@ export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
                        ?? null,
     country:         account.country ?? null,
     livemode:        (account as any).livemode ?? !creds.secretKey.startsWith('sk_test'),
+    chargesEnabled:  account.charges_enabled ?? false,
+    cardPayments:    account.capabilities?.card_payments ?? null,
     secretKeyPrefix: creds.secretKey.slice(0, 12),
     pubKeyPrefix:    creds.publishableKey ? creds.publishableKey.slice(0, 12) : '(not set)',
     source:          'env',
@@ -201,6 +205,8 @@ export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
     displayName:     info.displayName,
     country:         info.country,
     livemode:        info.livemode,
+    chargesEnabled:  info.chargesEnabled,
+    cardPayments:    info.cardPayments,
     source:          info.source,
     secretKeyPrefix: info.secretKeyPrefix,
     pubKeyPrefix:    info.pubKeyPrefix,
@@ -210,6 +216,20 @@ export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
   _cachedAccountInfo = info;
   _cachedAccountAt   = now;
   return info;
+}
+
+export function checkStripeAccountReady(info: StripeAccountInfo): void {
+  if (!info.chargesEnabled) {
+    throw Object.assign(
+      new Error('Stripe live charges are disabled for the configured account.'),
+      {
+        statusCode: 503,
+        code: 'stripe_live_charges_disabled',
+        stripeMode: info.livemode ? 'live' : 'test',
+        cardPayments: info.cardPayments,
+      },
+    );
+  }
 }
 
 // ── Webhook secret ─────────────────────────────────────────────────────────
@@ -241,7 +261,7 @@ export async function getWebhookSecret(): Promise<string> {
     if (secret) {
       _cachedWebhookSecret = secret;
       console.log(`[STRIPE_WEBHOOK] Secret loaded from _managed_webhooks (livemode=${isLive})`);
-      return _cachedWebhookSecret;
+      return secret;
     }
   } catch (err: any) {
     console.warn('[STRIPE_WEBHOOK] Could not read secret from _managed_webhooks:', err.message);

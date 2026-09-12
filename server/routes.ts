@@ -35,7 +35,7 @@ import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, gra
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull, gt, or, inArray, desc, sql as sqlExpr } from "drizzle-orm";
-import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo, checkStripeReady } from "./stripeClient";
+import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo, checkStripeReady, checkStripeAccountReady } from "./stripeClient";
 import { tryGetPriceId } from "./stripePrices";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 import { sendEmail, getEmailLog } from "./emailService";
@@ -6401,6 +6401,7 @@ export async function registerRoutes(
       // Fetch the real Stripe account identity before creating the session.
       // This is the ground truth — compare accountId against dashboard URL.
       const acctInfo = await getStripeAccountInfo();
+      checkStripeAccountReady(acctInfo);
       console.log(`[CHECKOUT_ACCOUNT]`, {
         accountId:      acctInfo.accountId,
         livemode:       acctInfo.livemode,
@@ -6485,7 +6486,7 @@ export async function registerRoutes(
         statusCode: err.statusCode ?? err.raw?.statusCode,
         stack: err.stack?.split("\n").slice(0, 4).join(" | "),
       });
-      res.status(500).json({ message: detail, code: err.code ?? err.raw?.code, type: err.type });
+      res.status(err.statusCode ?? 500).json({ message: detail, code: err.code ?? err.raw?.code, type: err.type });
     }
   });
 
@@ -6500,9 +6501,9 @@ export async function registerRoutes(
 
       console.log(`[STRIPE] CONFIRM_SESSION extras sessionId=${sessionId} session_user=${session.metadata?.userId} stripe_user=${userId} paid=${session.payment_status}`);
 
-      const isPaid = session.mode === "subscription"
-        ? session.status === "complete"
-        : session.payment_status === "paid";
+      const isPaid =
+        session.payment_status === "paid" ||
+        session.payment_status === "no_payment_required";
 
       if (!isPaid) {
         return res.status(402).json({ message: "Payment not completed", status: session.status, paymentStatus: session.payment_status });
@@ -6517,33 +6518,26 @@ export async function registerRoutes(
       const item = itemId ? EXTRAS_ITEMS[itemId] : undefined;
       if (!item) return res.status(400).json({ message: "Unknown item in session metadata" });
 
-      // ── Idempotency guard ─────────────────────────────────────────────────
-      // Try to claim this session ID. The primary key on processed_stripe_sessions
-      // guarantees exactly-once granting even if the user refreshes the success
-      // page, retries over a network blip, or a webhook races the polling loop.
+      let grantedTypes: string[];
       try {
-        await db.insert(processedStripeSessions).values({
-          sessionId,
-          userId,
-          itemRef: itemId ?? "",
+        grantedTypes = await db.transaction(async (tx) => {
+          await tx.insert(processedStripeSessions).values({
+            sessionId,
+            userId,
+            itemRef: itemId ?? "",
+          });
+          return grantExtras(userId, sessionId, itemId as ExtrasItemId, session, tx);
         });
       } catch (insertErr: any) {
-        const isUniqueViolation =
-          insertErr.code === "23505" ||
-          (insertErr.cause as any)?.code === "23505" ||
-          String(insertErr?.message ?? "").toLowerCase().includes("unique") ||
-          String(insertErr?.message ?? "").toLowerCase().includes("duplicate");
-        if (isUniqueViolation) {
+        if (isUniqueViolation(insertErr)) {
           console.log(`[STRIPE] extras-activate: session ${sessionId} already processed for ${userId} — returning idempotent success`);
           return res.json({ success: true, itemId, name: item.name, granted: [], mode: item.mode, alreadyProcessed: true });
         }
         throw insertErr;
       }
-      // ─────────────────────────────────────────────────────────────────────
 
       // Webhook didn't fire in time — grant as verified Stripe API fallback
       console.log(`[PURCHASE] WEBHOOK_FALLBACK_GRANT user=${userId} product=${itemId} session=${sessionId}`);
-      const grantedTypes = await grantExtras(userId, sessionId, itemId as ExtrasItemId, session);
       console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=activate_fallback user=${userId} product=${itemId} granted=${grantedTypes.join(", ")}`);
       res.json({ success: true, itemId, name: item.name, granted: grantedTypes, mode: item.mode });
     } catch (err: any) {
@@ -6567,7 +6561,10 @@ export async function registerRoutes(
       const [row] = await db
         .select({ itemRef: processedStripeSessions.itemRef })
         .from(processedStripeSessions)
-        .where(eq(processedStripeSessions.sessionId, sessionId))
+        .where(and(
+          eq(processedStripeSessions.sessionId, sessionId),
+          eq(processedStripeSessions.userId, userId),
+        ))
         .limit(1);
 
       if (row) {
@@ -6658,24 +6655,19 @@ export async function registerRoutes(
         const item = EXTRAS_ITEMS[itemId as ExtrasItemId];
         if (!item) continue;
 
-        // Claim idempotency slot — PK violation means a concurrent restore already
-        // processed this session; skip silently.
         try {
-          await db.insert(processedStripeSessions).values({ sessionId, userId, itemRef: itemId });
+          await db.transaction(async (tx) => {
+            await tx.insert(processedStripeSessions).values({ sessionId, userId, itemRef: itemId });
+            await grantExtras(userId, sessionId, itemId as ExtrasItemId, {}, tx);
+          });
         } catch (insertErr: any) {
-          const isDup =
-            insertErr.code === "23505" ||
-            (insertErr.cause as any)?.code === "23505" ||
-            String(insertErr?.message ?? "").toLowerCase().includes("unique") ||
-            String(insertErr?.message ?? "").toLowerCase().includes("duplicate");
-          if (isDup) {
+          if (isUniqueViolation(insertErr)) {
             console.log(`[RESTORE] CONCURRENT_SKIP sessionId=${sessionId} user=${userId}`);
             continue;
           }
           throw insertErr;
         }
 
-        await grantExtras(userId, sessionId, itemId as ExtrasItemId, {});
         console.log(`[RESTORE] GRANTED sessionId=${sessionId} item=${itemId} user=${userId}`);
         restored.push({ sessionId, itemId, name: item.name });
       }
@@ -6810,6 +6802,7 @@ export async function registerRoutes(
 
       // Fetch real account identity before creating the session.
       const elevateAcctInfo = await getStripeAccountInfo();
+      checkStripeAccountReady(elevateAcctInfo);
       console.log(`[CHECKOUT_ACCOUNT]`, {
         accountId:      elevateAcctInfo.accountId,
         livemode:       elevateAcctInfo.livemode,
@@ -6873,7 +6866,7 @@ export async function registerRoutes(
         return res.status(402).json({ message: err.message, code: err.code });
       }
       // Put the real Stripe error in `message` so the client toast shows it
-      res.status(500).json({
+      res.status(err.statusCode ?? 500).json({
         message: stripeDetail,
         code: err.code ?? err.raw?.code,
         type: err.type,
@@ -6907,23 +6900,18 @@ export async function registerRoutes(
       const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
       if (!pack) return res.status(400).json({ message: "Unknown pack" });
 
-      // ── Idempotency guard ─────────────────────────────────────────────────
-      // Claim this session ID before touching credits. Duplicate calls (page
-      // refresh, double-tap, network retry) hit the unique PK and return the
-      // already-activated payload without re-granting any credits.
+      let result;
       try {
-        await db.insert(processedStripeSessions).values({
-          sessionId,
-          userId,
-          itemRef: packId,
+        result = await db.transaction(async (tx) => {
+          await tx.insert(processedStripeSessions).values({
+            sessionId,
+            userId,
+            itemRef: packId,
+          });
+          return grantElevate(userId, packId as ElevatePackId, tx);
         });
       } catch (insertErr: any) {
-        const isUniqueViolation =
-          insertErr.code === "23505" ||
-          (insertErr.cause as any)?.code === "23505" ||
-          String(insertErr?.message ?? "").toLowerCase().includes("unique") ||
-          String(insertErr?.message ?? "").toLowerCase().includes("duplicate");
-        if (isUniqueViolation) {
+        if (isUniqueViolation(insertErr)) {
           console.log(`[STRIPE] elevate-activate: session ${sessionId} already processed for ${userId} — returning idempotent success`);
           const statusResult = await getStorage(req).getElevateStatus(userId);
           return res.json({
@@ -6940,11 +6928,9 @@ export async function registerRoutes(
         }
         throw insertErr;
       }
-      // ─────────────────────────────────────────────────────────────────────
 
       // Webhook didn't fire in time — grant as verified Stripe API fallback
       console.log(`[PURCHASE] WEBHOOK_FALLBACK_GRANT user=${userId} product=${packId} session=${sessionId}`);
-      const result = await grantElevate(userId, packId as ElevatePackId);
       console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=activate_fallback user=${userId} product=${packId} granted=${result.grantedTypes.join(", ")} autoActivated=${result.autoActivated}`);
 
       res.json({

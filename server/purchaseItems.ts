@@ -25,6 +25,8 @@ import {
   userElevates,
 } from '@shared/schema';
 
+type PurchaseDb = typeof db | any;
+
 // ── Item / pack catalogues ────────────────────────────────────────────────────
 
 export const EXTRAS_ITEMS = {
@@ -79,6 +81,7 @@ export async function grantExtras(
   sessionId: string,
   itemId: ExtrasItemId,
   session: { customer?: unknown; subscription?: unknown },
+  purchaseDb: PurchaseDb = db,
 ): Promise<string[]> {
   const item = EXTRAS_ITEMS[itemId];
   const grantedTypes: string[] = [];
@@ -89,9 +92,9 @@ export async function grantExtras(
       { userId, type: "message_extension" as const },
       { userId, type: "undo_close"         as const },
     ];
-    await db.insert(userBenefits).values(membershipRows);
+    await purchaseDb.insert(userBenefits).values(membershipRows);
 
-    await db
+    await purchaseDb
       .insert(callCredits)
       .values({ userId, phoneCredits: 3, videoCredits: 1 })
       .onConflictDoUpdate({
@@ -113,7 +116,7 @@ export async function grantExtras(
         : (session.subscription as any)?.id ?? null;
 
     if (stripeCustomerId && stripeSubscriptionId) {
-      await db
+      await purchaseDb
         .insert(membershipSubscriptions)
         .values({ userId, stripeCustomerId, stripeSubscriptionId, status: "active" })
         .onConflictDoUpdate({
@@ -129,7 +132,7 @@ export async function grantExtras(
 
   } else if ((itemId as string).startsWith("sparks-")) {
     const qty = item.quantity;
-    await db.transaction(async (tx) => {
+    const grantSparks = async (tx: PurchaseDb) => {
       await tx
         .insert(sparkBalances)
         .values({ userId, balance: qty })
@@ -141,13 +144,18 @@ export async function grantExtras(
         .insert(sparkPurchases)
         .values({ userId, packType: itemId, quantity: qty, stripeSessionId: sessionId })
         .onConflictDoNothing();
-    });
+    };
+    if (purchaseDb === db) {
+      await db.transaction(grantSparks);
+    } else {
+      await grantSparks(purchaseDb);
+    }
     grantedTypes.push(...Array.from({ length: qty }, () => "spin_credit"));
 
   } else if (item.credits) {
     const { phone, video } = item.credits;
     if (phone > 0 || video > 0) {
-      await db
+      await purchaseDb
         .insert(callCredits)
         .values({ userId, phoneCredits: phone, videoCredits: video })
         .onConflictDoUpdate({
@@ -164,7 +172,7 @@ export async function grantExtras(
 
   } else if (item.benefitType) {
     const rows = Array.from({ length: item.quantity }, () => ({ userId, type: item.benefitType! }));
-    await db.insert(userBenefits).values(rows);
+    await purchaseDb.insert(userBenefits).values(rows);
     grantedTypes.push(...rows.map(r => r.type));
   }
 
@@ -185,12 +193,13 @@ export interface ElevateGrantResult {
 export async function grantElevate(
   userId: string,
   packId: ElevatePackId,
+  purchaseDb: PurchaseDb = db,
 ): Promise<ElevateGrantResult> {
   const pack = ELEVATE_PACKS[packId];
   const isSuper = pack.type === "super_elevate";
 
   // Add all credits from the pack
-  await db
+  await purchaseDb
     .insert(userElevates)
     .values({
       userId,
@@ -212,24 +221,14 @@ export async function grantElevate(
   const expiresAt = new Date(Date.now() + durationMs);
   const activatedAt = new Date();
 
-  try {
-    await db
-      .update(userElevates)
-      .set(
-        isSuper
-          ? { elevateType: pack.type, expiresAt, activatedAt, superElevateCredits: sql`GREATEST(super_elevate_credits - 1, 0)` }
-          : { elevateType: pack.type, expiresAt, activatedAt, elevateCredits:      sql`GREATEST(elevate_credits - 1, 0)` },
-      )
-      .where(eq(userElevates.userId, userId));
-  } catch (err) {
-    console.error("[PURCHASE] grantElevate: auto-activate failed:", err);
-    return {
-      grantedTypes: Array.from({ length: pack.quantity }, () => `${pack.type}_credit`),
-      autoActivated: false,
-      expiresAt: null,
-      durationMinutes,
-    };
-  }
+  await purchaseDb
+    .update(userElevates)
+    .set(
+      isSuper
+        ? { elevateType: pack.type, expiresAt, activatedAt, superElevateCredits: sql`GREATEST(super_elevate_credits - 1, 0)` }
+        : { elevateType: pack.type, expiresAt, activatedAt, elevateCredits:      sql`GREATEST(elevate_credits - 1, 0)` },
+    )
+    .where(eq(userElevates.userId, userId));
 
   return {
     grantedTypes: Array.from({ length: pack.quantity }, () => `${pack.type}_credit`),

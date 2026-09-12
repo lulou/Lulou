@@ -61,6 +61,18 @@ export interface StartPurchaseOpts {
 let checkoutInFlight = false;
 const CHECKOUT_FAILURE_MESSAGE = "Checkout couldn’t start. Please try again.";
 
+function getStripeCheckoutUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "checkout.stripe.com"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function startPurchase(opts: StartPurchaseOpts): Promise<void> {
   if (checkoutInFlight) {
     console.warn(`[PURCHASE] DUPLICATE_CLICK_IGNORED product=${opts.productId}`);
@@ -111,19 +123,22 @@ export async function startPurchase(opts: StartPurchaseOpts): Promise<void> {
     console.log(`[PURCHASE] RESPONSE_STATUS ${res.status}`);
     _emit({ status: res.status, body: bodyPreview, sessionId });
 
-    if (res.ok && parsed?.url) {
-      console.log(`[PURCHASE] REDIRECT_URL "${parsed.url}"`);
+    const checkoutUrl = getStripeCheckoutUrl(parsed?.url);
+    if (res.ok && checkoutUrl) {
+      console.log(`[PURCHASE] REDIRECT_URL "${checkoutUrl}"`);
       _emit({
-        redirectUrl:     parsed.url,
+        redirectUrl:     checkoutUrl,
         accountId:       parsed.accountId       ?? "",
         livemode:        parsed.livemode        ?? null,
         secretKeyPrefix: parsed.secretKeyPrefix ?? "",
         pubKeyPrefix:    parsed.pubKeyPrefix    ?? "",
       });
       sessionStorage.setItem("lulou_stripe_checkout", "1");
-      window.location.assign(parsed.url);
+      window.location.assign(checkoutUrl);
     } else {
-      const errMsg = parsed?.message ?? `HTTP ${res.status}: ${bodyPreview.slice(0, 120)}`;
+      const errMsg = res.ok && parsed?.url
+        ? "Checkout response contained an untrusted redirect URL"
+        : parsed?.message ?? `HTTP ${res.status}: ${bodyPreview.slice(0, 120)}`;
       console.error(`[PURCHASE] ERROR ${errMsg}`);
       _emit({ error: errMsg });
       opts.onError?.(CHECKOUT_FAILURE_MESSAGE);

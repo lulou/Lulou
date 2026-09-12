@@ -19,7 +19,8 @@ describe("shared Stripe checkout regressions", () => {
     expect(purchaseService).toContain("let checkoutInFlight = false");
     expect(purchaseService).toContain("DUPLICATE_CLICK_IGNORED");
     expect(purchaseService).toContain("Checkout couldn’t start. Please try again.");
-    expect(purchaseService).toContain("window.location.assign(parsed.url)");
+    expect(purchaseService).toContain('url.hostname === "checkout.stripe.com"');
+    expect(purchaseService).toContain("window.location.assign(checkoutUrl)");
   });
 
   it("requires only the secret key for server-hosted Checkout", () => {
@@ -82,10 +83,26 @@ describe("shared Stripe checkout regressions", () => {
 
   it("keeps webhook fulfillment payment-gated and exactly-once", () => {
     expect(webhookHandlers).toContain('session.payment_status === "paid"');
-    expect(webhookHandlers).toContain("await db.insert(processedStripeSessions)");
-    expect(webhookHandlers).toContain("if (isUniqueViolation(insertErr))");
+    expect(webhookHandlers).toContain("await db.transaction(async (tx)");
+    expect(webhookHandlers).toContain("await tx.insert(processedStripeSessions)");
+    expect(webhookHandlers).toContain("if (isUniqueViolation(grantErr))");
     expect(webhookHandlers).toContain("await grantExtras(");
     expect(webhookHandlers).toContain("await grantElevate(");
-    expect(webhookHandlers).toContain("await db.delete(processedStripeSessions)");
+    expect(webhookHandlers).toContain("throw err");
+    expect(webhookHandlers).toContain('event.type === "checkout.session.async_payment_succeeded"');
+    expect(webhookHandlers).toContain('session.payment_status === "no_payment_required"');
+    expect(routes).toContain('session.payment_status === "no_payment_required"');
+    expect(routes).toContain("await db.transaction(async (tx)");
+    expect(purchaseItems).not.toContain("grantElevate: auto-activate failed");
+  });
+
+  it("fails fast when the configured Stripe account cannot accept charges", () => {
+    expect(stripeClient).toContain("export function checkStripeAccountReady");
+    expect(stripeClient).toContain("stripe_live_charges_disabled");
+    expect(routes.match(/checkStripeAccountReady\(/g)).toHaveLength(2);
+  });
+
+  it("scopes purchase-status reads to the authenticated user", () => {
+    expect(routes).toContain("eq(processedStripeSessions.userId, userId)");
   });
 });
