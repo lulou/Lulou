@@ -1,0 +1,333 @@
+Fix ONLY the realtime activity notification/count behavior shown in the attached REAL laptop screenshot.
+
+Current problem:
+
+When a user receives a message, a browser-style notification/pop-up is appearing in the TOP-RIGHT corner of the screen.
+
+That is NOT the behavior I want for normal in-app activity.
+
+The expected Lulou behavior is:
+
+- new MESSAGE received while user is not inside that exact chat
+ → Connections bottom-nav icon gets a number badge above it immediately
+
+- new LIKE / Halo received
+ → Likes bottom-nav icon gets a number badge above it immediately
+
+Do not rely on a browser notification as the primary in-app indicator.
+
+## 1. REMOVE / STOP THE TOP-RIGHT IN-APP POPUP BEHAVIOR
+
+The screenshot shows a notification appearing in the browser corner.
+
+For ordinary in-app likes/messages, do NOT use a browser/system-style popup as the main feedback.
+
+If browser push notifications are intentionally supported for background/offline use, keep that separate.
+
+But while the user is actively inside Lulou in the browser/PWA:
+
+- do not show a distracting top-right browser notification for every message
+- update the bottom-nav badge instead
+
+The bottom navigation is the primary activity indicator.
+
+## 2. CONNECTIONS BADGE — EXACT RULE
+
+If User A receives a message from User B and User A is NOT currently inside that exact conversation:
+
+Connections badge should increment instantly.
+
+Examples:
+
+1 new unread message
+→ Connections badge = 1
+
+5 unread messages
+→ Connections badge = 5
+
+Chat A has 2 unread
+Chat B has 3 unread
+→ Connections badge = 5
+
+This must count unread MESSAGES, not just unread chats.
+
+## 3. LIKES BADGE — EXACT RULE
+
+If User A receives:
+
+- normal like
+- Halo
+- other existing incoming like-type interaction
+
+Likes badge should increment instantly.
+
+Examples:
+
+1 new like
+→ Likes badge = 1
+
+2 likes + 1 Halo
+→ Likes badge = 3
+
+Do not double-count the same interaction.
+
+## 4. INSTANT REALTIME UPDATE
+
+The count must appear immediately.
+
+No refresh.
+No tab change.
+No reopening app.
+No opening Connections/Likes first.
+
+Use the existing realtime/Supabase messaging infrastructure at the authenticated app-shell level.
+
+## 5. SAME-CHAT EXCEPTION
+
+If the recipient is ALREADY inside the exact chat that receives the message AND the app is visible:
+
+- message appears realtime
+- mark/read according to existing logic
+- do not leave that message counted as unread
+
+But if the user is:
+
+- on Discover
+- Intent
+- Likes
+- Connections list
+- Profile
+- another chat
+
+then the message must count.
+
+## 6. CONNECTIONS LIST DOES NOT CLEAR UNREAD
+
+Being on the Connections tab is NOT the same as opening the conversation.
+
+If a new message arrives while user is looking at the Connections list:
+
+- Connections badge still increments
+
+Only opening the exact chat should clear that chat’s unread messages.
+
+## 7. BADGE POSITION
+
+The number badge should appear directly above / slightly top-right of the relevant bottom-nav icon.
+
+Connections:
+- badge above Connections icon
+
+Likes:
+- badge above Likes icon
+
+Use the same compact badge style already used elsewhere in Lulou.
+
+Keep:
+
+- small circular/pill shape
+- current approved Lulou accent colour
+- white/ivory number
+- clear contrast
+
+Do not redesign bottom navigation.
+
+## 8. AUTHORITATIVE COUNTS
+
+Use persisted server/database unread/unseen state.
+
+Do not rely on local-only counters.
+
+Counts must survive:
+
+- reload
+- app restart
+- phone ↔ laptop
+- logout/login
+- PWA reopen
+
+## 9. GLOBAL REALTIME SUBSCRIPTION
+
+Audit whether the current realtime listeners only exist inside:
+
+- chat page
+- Likes page
+- Connections page
+
+If so, move/reuse them at the authenticated app-shell/global level.
+
+The nav badge system must listen for activity no matter what page the user is on.
+
+## 10. NO DUPLICATE COUNTING
+
+One message = +1 exactly once.
+
+One like/Halo = +1 exactly once.
+
+Guard against:
+
+- duplicate subscriptions
+- reconnect replay
+- optimistic + server event double count
+- multiple mounted navs
+- retry/reinsert duplication
+
+## 11. MARK AS READ
+
+When a user opens a conversation:
+
+- mark unread messages in THAT chat as read
+- subtract only those messages from total Connections badge
+
+Example:
+
+Chat A = 3 unread
+Chat B = 2 unread
+
+Connections badge = 5
+
+Open Chat A
+→ badge becomes 2
+
+## 12. LIKES ACKNOWLEDGEMENT
+
+Use real unseen state.
+
+Do not blindly zero Likes count just because Likes tab was opened unless that is already the established product rule.
+
+If possible:
+
+- viewed/handled interaction becomes seen
+- remaining unseen items stay counted
+
+## 13. APP BOOT
+
+On app start/login:
+
+fetch authoritative totals:
+
+- unreadMessagesTotal
+- unseenLikesTotal
+
+Then subscribe realtime.
+
+Do not initialize both badges at zero and wait for future events.
+
+## 14. TOP-RIGHT BROWSER NOTIFICATION POLICY
+
+Audit why the top-right notification is appearing.
+
+If it comes from:
+
+- Web Notifications API
+- push notification handler
+- service worker notification
+- Notification.requestPermission flow
+- `showNotification`
+
+then separate foreground vs background behavior.
+
+Expected:
+
+### FOREGROUND / APP OPEN
+- update in-app nav badge
+- no redundant top-right browser notification
+
+### BACKGROUND / APP CLOSED
+- push notification can still be used if intentionally supported
+
+Do not remove useful push notifications for background use unless necessary.
+
+The issue is that foreground activity should be represented inside Lulou.
+
+## 15. TEST EXACTLY
+
+### MESSAGE
+1. Account A on laptop, on Discover.
+2. Account B sends A one message.
+3. NO redundant top-right foreground browser popup.
+4. Connections badge instantly = 1.
+
+5. B sends 4 more.
+6. Connections badge instantly = 5.
+
+7. A opens Connections list only.
+8. Badge remains 5.
+
+9. A opens exact chat.
+10. messages mark read.
+11. badge becomes 0 if no other unread chats.
+
+### ANOTHER CHAT
+12. A is inside Chat C.
+13. B sends message to Chat B.
+14. Connections badge increments.
+
+### SAME CHAT
+15. A is inside B's exact chat.
+16. B sends message.
+17. message appears.
+18. no stuck unread count.
+
+### LIKE
+19. A on any other page.
+20. B likes A.
+21. Likes badge instantly = 1.
+
+22. another user sends Halo.
+23. Likes badge = 2.
+
+### RELOAD
+24. reload app.
+25. counts restore from server truth.
+
+### BACKGROUND
+26. app/background state.
+27. background push can still appear if supported.
+28. opening app shows correct badges.
+
+## 16. DO NOT CHANGE
+
+Do not change:
+
+- bottom-nav layout
+- nav icon design
+- message UI
+- Likes UI
+- matching logic
+- stage progression
+- calls
+- voice notes
+- payments
+
+This task is ONLY:
+
+1. stop redundant foreground browser-style activity popup
+2. make Connections badge count unread messages instantly
+3. make Likes badge count unseen incoming likes/Halos instantly
+
+## 17. DEPLOYMENT
+
+After implementation:
+
+- run focused realtime badge tests
+- inspect notification/service-worker foreground behavior
+- run production build
+- commit
+- push GitHub main
+- verify Vercel/Railway
+- test real phone → laptop activity
+
+At the end report only:
+
+1. exact source of the top-right notification
+2. foreground notification behavior after fix
+3. Connections unread count source
+4. Likes unseen count source
+5. global realtime subscription architecture
+6. mark-as-read behavior
+7. badge positioning
+8. files changed
+9. tests
+10. production commit
+11. live phone-to-laptop verification

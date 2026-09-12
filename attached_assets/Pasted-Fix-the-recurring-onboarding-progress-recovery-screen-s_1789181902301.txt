@@ -1,0 +1,311 @@
+Fix the recurring onboarding-progress recovery screen shown in the attached REAL iPhone screenshot.
+
+Current production symptom:
+
+The app randomly interrupts normal use and shows:
+
+“Taking a little longer than usual.”
+“We couldn't confirm your onboarding progress. Please try again.”
+
+with a “Try Again” button.
+
+This is happening even for users who have already completed onboarding and are already using the app normally.
+
+That is wrong.
+
+## PRIMARY GOAL
+
+A completed existing user should NOT randomly be thrown into an onboarding-progress recovery screen during normal app use.
+
+Once onboarding is complete, that state should be stable and persisted.
+
+Normal app navigation should not keep re-checking onboarding in a fragile way that can fail and block the whole app.
+
+## IMPORTANT CONTEXT
+
+Current intended onboarding order:
+
+sign up
+→ email verification
+→ profile setup
+→ required “How to use Lulou” guide
+→ Connection DNA
+→ main app
+
+Legacy/established users are already grandfathered correctly.
+
+Do NOT undo that.
+
+## 1. TRACE THE EXACT TRIGGER
+
+Find the exact component/state/condition that renders:
+
+“We couldn't confirm your onboarding progress.”
+
+Trace:
+
+- which endpoint failed
+- which promise rejected
+- whether it was `/api/settings`
+- profile completion
+- tutorial completion
+- DNA status
+- onboarding resolver
+- auth/session hydration
+- stale cached state
+- timeout
+- transient 401
+- network error
+- race condition
+
+Do not just suppress the screen.
+
+Find the actual root cause.
+
+## 2. COMPLETED USERS MUST NOT BE BLOCKED BY A TRANSIENT CHECK
+
+If a user has already successfully completed onboarding and the app has previously persisted that state, a temporary failure re-checking onboarding should NOT block the app.
+
+Use cached/persisted last-known-good onboarding completion state where safe.
+
+Example:
+
+previously confirmed:
+- profile complete
+- tutorial complete
+- DNA complete / legacyEstablished
+- main app access granted
+
+then later one onboarding-status request times out
+
+→ keep user in app
+→ retry quietly in background
+→ do NOT throw them onto a full-screen blocker
+
+Only block if there is a genuine unresolved onboarding requirement for that user.
+
+## 3. SEPARATE FIRST-TIME GATING FROM NORMAL APP USE
+
+The strict onboarding gate is critical for fresh/incomplete users.
+
+But once onboarding is complete:
+
+do NOT repeatedly treat every status fetch as if the user is still at first-launch gating.
+
+Use something like:
+
+- onboarding state resolved
+- completed
+- incomplete
+- legacyEstablished
+- unknown/transient_error
+
+For completed users:
+
+`unknown/transient_error`
+should NOT equal
+`must block app`.
+
+## 4. AUTH VS ONBOARDING
+
+Do not misclassify auth/session problems as onboarding failure.
+
+If the real problem is:
+
+- expired access token
+- stale `X-Session-Id`
+- transient 401
+- session refresh in progress
+
+then recover auth first.
+
+Do not show:
+
+“We couldn't confirm your onboarding progress.”
+
+for what is actually an auth/session issue.
+
+## 5. RETRY BEHAVIOR
+
+If a real onboarding-status check fails:
+
+- retry automatically once after auth is confirmed
+- use single-flight protection
+- do not fire multiple overlapping onboarding requests
+- do not create a retry loop
+
+Only show a recovery UI when:
+
+- user is genuinely not yet known to have completed onboarding
+AND
+- bounded retry failed
+
+## 6. TRY AGAIN MUST ACTUALLY RECOVER
+
+The “Try Again” button should:
+
+1. confirm current auth/session
+2. refresh if needed
+3. re-fetch onboarding state
+4. update centralized resolver
+5. route forward if completed
+
+It must NOT just repeat the same stale failing request with stale auth headers.
+
+## 7. PERSIST LAST-KNOWN-GOOD COMPLETION
+
+If the architecture allows it safely, persist a lightweight last-known-good onboarding completion marker client-side in addition to server truth.
+
+Important:
+- server remains authoritative
+- client cache is only for avoiding false full-screen blocks during transient failures
+- do not use client cache to bypass onboarding for a genuinely new/incomplete user
+
+A completed user should not be punished because one status endpoint briefly failed.
+
+## 8. CENTRALIZE THE RESOLVER
+
+Audit for duplicate onboarding checks in:
+
+- `App.tsx`
+- app layout
+- route guards
+- profile
+- auth callback
+- startup hydration
+- settings loader
+
+There should be one central authoritative onboarding resolver.
+
+Do not let multiple parts of the app independently re-check and trigger the recovery screen.
+
+## 9. LEGACY USERS
+
+Preserve existing legacy handling.
+
+If:
+
+`legacyEstablished = true`
+
+then temporary DNA/tutorial status failures should not suddenly force the user into onboarding recovery.
+
+Do not create fake DNA data.
+
+Do not remove grandfathering.
+
+## 10. DO NOT SHOW FULL-SCREEN BLOCKER DURING NORMAL NAVIGATION
+
+Once user is inside the app, background revalidation should be quiet.
+
+If a status refresh fails:
+
+- keep current screen visible
+- retry in background
+- optionally log safe diagnostics
+
+Do not replace the entire app with the onboarding recovery screen unless absolutely necessary.
+
+## 11. SAFE DIAGNOSTICS
+
+Add safe logging around the onboarding resolver.
+
+Useful:
+
+- authenticated yes/no
+- legacyEstablished yes/no
+- cached completed yes/no
+- server completed yes/no
+- endpoint name
+- HTTP status
+- retry attempted yes/no
+- recovery-screen reason
+- boot vs in-app revalidation
+
+Do NOT log:
+- tokens
+- passwords
+- private profile content
+- secrets
+
+## 12. TEST EXACTLY
+
+### COMPLETED USER
+1. Open app normally.
+2. onboarding already complete.
+3. Simulate one onboarding-status request timeout.
+4. User remains in app.
+5. Background retry occurs.
+6. No full-screen recovery screen.
+
+### TRANSIENT 401
+7. Completed user has expired access token.
+8. onboarding check returns 401.
+9. auth refresh succeeds.
+10. onboarding re-check succeeds.
+11. no recovery screen.
+
+### FRESH INCOMPLETE USER
+12. Fresh user has not completed tutorial/DNA.
+13. resolver still blocks correctly.
+14. cannot bypass required onboarding.
+
+### LEGACY USER
+15. legacyEstablished user opens app.
+16. temporary DNA/status failure.
+17. user remains in main app.
+
+### GENUINE FAILURE
+18. Fresh/incomplete user cannot resolve onboarding after retry.
+19. recovery screen can appear.
+
+### TRY AGAIN
+20. Tap Try Again.
+21. auth/session refreshed if needed.
+22. onboarding state re-fetched.
+23. completed user returns to app.
+
+### NAVIGATION
+24. Switch between Discover / Intent / Likes / Connections / Profile.
+25. no random onboarding blocker appears.
+
+## 13. DO NOT CHANGE
+
+Do not change:
+
+- onboarding order
+- required tutorial
+- Connection DNA
+- legacy grandfathering
+- auth security
+- Discover
+- chat
+- payments
+- calls
+- voice notes
+
+This task is ONLY making onboarding-state resolution reliable and preventing false full-screen blocks for already-completed users.
+
+## 14. DEPLOYMENT
+
+After implementation:
+
+- run onboarding resolver tests
+- run auth/session integration tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel/Railway behavior
+
+At the end report only:
+
+1. exact root cause
+2. exact trigger condition before
+3. new completed-user fallback behavior
+4. auth/onboarding error distinction
+5. resolver centralization changes
+6. Try Again behavior
+7. files changed
+8. tests
+9. production commit
+10. live deployment verification
