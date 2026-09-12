@@ -16,10 +16,22 @@ description: Message insert triggers WAL event that races the Supabase counter u
 
 **Why matches.tsx is always mounted:** /messages/:matchId is inside PersistentTabs (App.tsx L277).
 
-## Fix
+## Ordering rules
 
 **Increment counter BEFORE inserting message** (server/routes.ts).
 Counter is committed in Supabase before WAL fires → refetch reads correct value.
+
+Persist the recipient unread row before broadcasting the chat message. The
+visible-chat client marks a realtime message read as soon as it arrives; if chat
+delivery starts first, that mark-read can complete before the unread increment
+and the later increment leaves a false unread badge.
+
+**Why:** Realtime delivery and HTTP writes can overtake each other even when
+they are started only milliseconds apart.
+
+**How to apply:** A fast global badge delta may be sent immediately after the
+message insert, but the per-match chat broadcast must wait until unread
+persistence has completed. Authoritative totals then reconcile the delta.
 
 ## PostgREST schema reload
 

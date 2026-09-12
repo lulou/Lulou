@@ -3,6 +3,12 @@ import { supabase } from "@/lib/supabase";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 type UnreadState = Record<string, number>;
+type RealtimeMessageSummary = {
+  id?: string;
+  senderId: string;
+  content?: string;
+  createdAt?: string | Date | null;
+};
 
 /**
  * Track unread message counts across all matches using Supabase Realtime.
@@ -32,7 +38,7 @@ export function useUnreadCounts(
   matchIds: string[],
   userId: string | null,
   activeMatchId: string | null,
-  onNewBackgroundMessage?: (matchId: string) => void,
+  onNewBackgroundMessage?: (matchId: string, message: RealtimeMessageSummary) => void,
   enabled = true,
 ) {
   const [unreadCounts, setUnreadCounts] = useState<UnreadState>({});
@@ -79,7 +85,8 @@ export function useUnreadCounts(
     });
   }, []);
 
-  const handleIncomingMessage = useCallback((matchId: string, senderId: string, msgId?: string) => {
+  const handleIncomingMessage = useCallback((matchId: string, message: RealtimeMessageSummary) => {
+    const { senderId, id: msgId } = message;
     if (senderId === userId) return;
 
     // Deduplicate — in theory broadcast fires once, but guard against retries
@@ -108,7 +115,7 @@ export function useUnreadCounts(
     }
 
     setUnreadCounts(prev => ({ ...prev, [matchId]: (prev[matchId] || 0) + 1 }));
-    onNewBackgroundMessageRef.current?.(matchId);
+    onNewBackgroundMessageRef.current?.(matchId, message);
   }, [userId]);
 
   useEffect(() => {
@@ -141,8 +148,12 @@ export function useUnreadCounts(
         .on("broadcast", { event: "new-message" }, ({ payload }) => {
           if (!payload) return;
           const senderId = payload.senderId ?? payload.sender_id;
-          const msgId = payload.id;
-          handleIncomingMessage(matchId, senderId, msgId);
+          handleIncomingMessage(matchId, {
+            id: payload.id,
+            senderId,
+            content: payload.content,
+            createdAt: payload.createdAt ?? payload.created_at ?? null,
+          });
         })
         .subscribe();
       bcChannels.set(matchId, ch);

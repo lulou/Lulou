@@ -5707,11 +5707,35 @@ export default function Matches() {
   const matchIds = useMemo(() => (matches || []).map(m => m.id), [matches]);
 
 
-  const handleNewBackgroundMessage = useCallback((matchId: string) => {
-    // Do NOT invalidate the full /api/matches list here — the 5s App.tsx poll
-    // updates lastMessage within 5 s and useRealtimeMessages patches it instantly
-    // for open chats.  A broad list invalidation on every background message
-    // causes a redundant network round-trip on each incoming message.
+  const handleNewBackgroundMessage = useCallback((matchId: string, incoming: {
+    id?: string;
+    senderId: string;
+    content?: string;
+    createdAt?: string | Date | null;
+  }) => {
+    // Patch the Active Chats preview in the same realtime turn as its unread count.
+    // Internal protocol rows remain hidden from previews, matching useRealtimeMessages.
+    if (
+      incoming.content &&
+      !incoming.content.startsWith("__SCHEDULE__:") &&
+      !incoming.content.startsWith("__SYS__:") &&
+      !incoming.content.startsWith("__SYSTEM__:")
+    ) {
+      queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
+        if (!list) return list;
+        return list.map((item) => item.id === matchId
+          ? {
+              ...item,
+              lastMessage: {
+                content: incoming.content!,
+                senderId: incoming.senderId,
+                createdAt: incoming.createdAt ? new Date(incoming.createdAt) : null,
+              },
+            }
+          : item);
+      });
+    }
+    // Reconcile the exact detail query without refetching the full list.
     queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId], exact: true });
   }, [queryClient]);
 

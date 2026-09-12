@@ -1061,7 +1061,11 @@ export default function Messaging() {
             : m
         );
       });
-      return { previousMsgs };
+      const previousLocalSentCount = localSentCount;
+      const isCountedText = !vars.content.trim().startsWith("__") &&
+        ((matchDetail?.callStage ?? 0) === 0 || (matchDetail?.callStage ?? 0) === 1);
+      if (isCountedText) setLocalSentCount((count) => count + 1);
+      return { previousMsgs, previousLocalSentCount };
     },
     onSuccess: (data: any) => {
       const realMsg = data as Message;
@@ -1144,6 +1148,9 @@ export default function Messaging() {
     onError: (error: Error, _vars: any, context: any) => {
       if (context?.previousMsgs) {
         queryClient.setQueryData(["/api/matches", matchId, "messages"], context.previousMsgs);
+      }
+      if (typeof context?.previousLocalSentCount === "number") {
+        setLocalSentCount(context.previousLocalSentCount);
       }
       toast({ title: t("could_not_send_title"), description: error.message, variant: "destructive" });
     },

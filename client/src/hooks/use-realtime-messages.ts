@@ -59,6 +59,9 @@ export function useRealtimeMessages(
       matchId: matchId.slice(0, 8),
       msgId: String(newMsg.id).slice(0, 8),
       senderId: String(newMsg.senderId).slice(0, 8),
+      realtime_delivery_ms: typeof row.serverInsertedAt === "number"
+        ? Math.max(0, Date.now() - row.serverInsertedAt)
+        : null,
     });
 
     // Helper: dedup-aware append that also replaces matching temp messages.
@@ -106,9 +109,29 @@ export function useRealtimeMessages(
         if (!old) return old;
         const msgs = old.messages ?? [];
         const next = appendMsg(msgs);
-        if (next === msgs) return old; // no change
+        const progression = row.progression;
+        const countsChanged = progression &&
+          (old.messageCount1 !== progression.user1Count ||
+           old.messageCount2 !== progression.user2Count);
+        if (next === msgs && !countsChanged) return old;
         console.log("[CHAT_REALTIME] cache updated (detail key)", { count: next.length });
-        return { ...old, messages: next };
+        if (countsChanged) {
+          console.log("[PROGRESSION] realtime counts applied", {
+            matchId: matchId.slice(0, 8),
+            messageId: String(newMsg.id).slice(0, 8),
+            stage_reconcile_ms: typeof row.serverInsertedAt === "number"
+              ? Math.max(0, Date.now() - row.serverInsertedAt)
+              : null,
+          });
+        }
+        return {
+          ...old,
+          messages: next,
+          ...(countsChanged ? {
+            messageCount1: progression.user1Count,
+            messageCount2: progression.user2Count,
+          } : {}),
+        };
       }
     );
 

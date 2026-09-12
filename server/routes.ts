@@ -386,6 +386,12 @@ async function broadcastCallEvent(matchId: string, event: Record<string, any>) {
 async function broadcastMessage(matchId: string, message: {
   id: string; matchId: string; senderId: string; content: string;
   reaction: string | null; createdAt: string | Date | null;
+  progression?: {
+    user1Count: number;
+    user2Count: number;
+    callStage: number;
+  } | null;
+  serverInsertedAt?: number;
 }) {
   const channelName = `chat:${matchId}`;
   await broadcastViaHttpApi(channelName, "new-message", message);
@@ -3464,6 +3470,13 @@ export async function registerRoutes(
       // Fire-and-forget push notifications (does not block response)
       (async () => {
         try {
+          if (type === "open" && !matched) {
+            await broadcastViaHttpApi(`nav-interest:${toUserId}`, "interest-count-delta", {
+              kind: "like",
+              interactionId: interaction.id,
+              delta: 1,
+            });
+          }
           if (matched && matchId) {
             const [fromProfile, toProfile] = await Promise.all([
               storage.getProfileMeta(fromUserId),
@@ -3516,6 +3529,11 @@ export async function registerRoutes(
       await storage.createWheelSpark(fromUserId, toUserId);
       console.log("[WHEEL] SPARK_SENT", { from: fromUserId, to: toUserId });
       res.json({ success: true });
+      broadcastViaHttpApi(`nav-interest:${toUserId}`, "interest-count-delta", {
+        kind: "halo",
+        interactionId: `${fromUserId}:${toUserId}`,
+        delta: 1,
+      }).catch(() => {});
     } catch (error: any) {
       const msg = error?.message || "Failed to send Spark";
       console.error("[WHEEL] SPARK_SEND_ERROR", msg, error);
@@ -3988,6 +4006,17 @@ export async function registerRoutes(
       });
       if (IS_DEV) console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
 
+      // Publish a fast badge delta immediately after the committed insert.
+      // The chat message itself is broadcast after unread persistence below:
+      // this ordering guarantees an exact-chat mark-read cannot beat the insert.
+      const serverInsertedAt = Date.now();
+      broadcastViaHttpApi(`unread:${recipientId}`, "unread-count-changed", {
+        delta: 1,
+        matchId,
+        messageId: message.id,
+        serverInsertedAt,
+      }).catch(() => {});
+
       // Persist recipient unread state for every successful insert, independently
       // of whether a lock-screen push is suppressed. The client uses this same
       // server total on startup and receives the new total over one user channel.
@@ -4022,7 +4051,9 @@ export async function registerRoutes(
         });
       }
 
-      // ── Step 4: Broadcast to recipient (awaited so the log appears before response) ──
+      // ── Chat + stage delivery after unread persistence ──────────────────────
+      // The authoritative count travels with every counted message, not only the
+      // threshold-crossing message, so both participants render the same stage.
       const tBcast0 = Date.now();
       await broadcastMessage(matchId, {
         id: message.id,
@@ -4031,6 +4062,12 @@ export async function registerRoutes(
         content: message.content,
         reaction: message.reaction,
         createdAt: message.createdAt,
+        progression: isCountedMessage ? {
+          user1Count: newCount1,
+          user2Count: newCount2,
+          callStage,
+        } : null,
+        serverInsertedAt,
       });
       if (IS_DEV) console.log(`[MSG] broadcast: ${Date.now() - tBcast0} ms`);
 

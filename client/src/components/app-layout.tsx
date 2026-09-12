@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { Compass, Heart, MessageCircle, User, CircleDot, LogOut } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -132,6 +132,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: isTabActive ? 10000 : false,
   });
   const likesCount = normalLikesCount + haloCount;
+  const [pendingLikeDelta, setPendingLikeDelta] = useState(0);
+  const [pendingHaloDelta, setPendingHaloDelta] = useState(0);
+  const seenInterestEventIdsRef = useRef<Set<string>>(new Set());
+  const displayedLikesCount = likesCount + pendingLikeDelta + pendingHaloDelta;
   const unreadMessageCount = Math.max(0, unreadData?.total ?? 0);
   const seenUnreadEventIdsRef = useRef<Set<string>>(new Set());
 
@@ -151,6 +155,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         if (type === "open") queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
         if (type === "wheel_connection") queryClient.invalidateQueries({ queryKey: ["/api/wheel/sparks"] });
       })
+      .on("broadcast", { event: "interest-count-delta" }, ({ payload }) => {
+        const eventId = payload?.interactionId as string | undefined;
+        const kind = payload?.kind as "like" | "halo" | undefined;
+        if (!eventId || (kind !== "like" && kind !== "halo")) return;
+        if (seenInterestEventIdsRef.current.has(eventId)) return;
+        seenInterestEventIdsRef.current.add(eventId);
+        if (seenInterestEventIdsRef.current.size > 500) {
+          const first = seenInterestEventIdsRef.current.values().next().value;
+          if (first) seenInterestEventIdsRef.current.delete(first);
+        }
+        const setPending = kind === "like" ? setPendingLikeDelta : setPendingHaloDelta;
+        const key = kind === "like" ? ["/api/who-liked-you"] : ["/api/wheel/sparks"];
+        setPending((count) => count + 1);
+        console.log("[NAV_REALTIME] interest badge updated", { kind, interactionId: eventId.slice(0, 8) });
+        queryClient.refetchQueries({ queryKey: key, exact: true })
+          .then(() => setPending((count) => Math.max(0, count - 1)))
+          .catch(() => {});
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user?.id, queryClient]);
@@ -163,18 +185,28 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const channel = supabase
       .channel(`unread:${user.id}`)
       .on("broadcast", { event: "unread-count-changed" }, ({ payload }) => {
-        if (!payload || typeof payload.total !== "number") return;
+        if (!payload || (typeof payload.total !== "number" && typeof payload.delta !== "number")) return;
         const eventId = payload.messageId as string | undefined;
         if (eventId) {
-          if (seenUnreadEventIdsRef.current.has(eventId)) return;
+          if (seenUnreadEventIdsRef.current.has(eventId) && typeof payload.total !== "number") return;
           seenUnreadEventIdsRef.current.add(eventId);
           if (seenUnreadEventIdsRef.current.size > 500) {
             const first = seenUnreadEventIdsRef.current.values().next().value;
             if (first) seenUnreadEventIdsRef.current.delete(first);
           }
         }
-        queryClient.setQueryData(["/api/messages/unread-count"], {
-          total: Math.max(0, payload.total),
+        const receivedAt = Date.now();
+        queryClient.setQueryData<{ total: number }>(["/api/messages/unread-count"], (old) => ({
+          total: typeof payload.total === "number"
+            ? Math.max(0, payload.total)
+            : Math.max(0, (old?.total ?? 0) + payload.delta),
+        }));
+        console.log("[NAV_REALTIME] unread badge updated", {
+          messageId: eventId?.slice(0, 8),
+          authoritative: typeof payload.total === "number",
+          badge_update_ms: typeof payload.serverInsertedAt === "number"
+            ? Math.max(0, receivedAt - payload.serverInsertedAt)
+            : null,
         });
       })
       .subscribe();
@@ -269,12 +301,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 {/* Icon wrapper: fixed size so badges never shift the baseline */}
                 <div className="relative flex items-center justify-center w-[22px] h-[22px]">
                   <item.icon className="w-[22px] h-[22px]" strokeWidth={isActive ? 2.2 : 1.8} />
-                  {isLikes && likesCount > 0 && (
+                  {isLikes && displayedLikesCount > 0 && (
                     <span
                       className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
                       data-testid="badge-likes-count"
                     >
-                      {likesCount > 99 ? "99+" : likesCount}
+                      {displayedLikesCount > 99 ? "99+" : displayedLikesCount}
                     </span>
                   )}
                   {isConnections && unreadMessageCount > 0 && (

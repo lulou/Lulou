@@ -15,10 +15,13 @@ describe("authoritative unread badges", () => {
       "const recipientId = match.user1Id === userId ? match.user2Id : match.user1Id",
     );
     expect(routes.match(/incrementMatchBadge\(recipientId, matchId\)/g)).toHaveLength(1);
+    expect(routes).toContain("await broadcastMessage(matchId");
     expect(routes.indexOf("incrementMatchBadge(recipientId, matchId)")).toBeLessThan(
       routes.indexOf("await broadcastMessage(matchId"),
     );
     expect(routes).toContain('broadcastViaHttpApi(`unread:${recipientId}`, "unread-count-changed"');
+    expect(routes).toContain("delta: 1");
+    expect(appLayout).toContain("typeof payload.total !== \"number\" && typeof payload.delta !== \"number\"");
   });
 
   it("resolves the Connections badge from the persisted sum across all matches", () => {
@@ -51,7 +54,7 @@ describe("authoritative unread badges", () => {
   });
 
   it("caps both navigation badges at 99+", () => {
-    expect(appLayout).toContain('likesCount > 99 ? "99+" : likesCount');
+    expect(appLayout).toContain('displayedLikesCount > 99 ? "99+" : displayedLikesCount');
     expect(appLayout).toContain('unreadMessageCount > 99 ? "99+" : unreadMessageCount');
   });
 });
