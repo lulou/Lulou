@@ -1,0 +1,125 @@
+Refine ONLY the Connections → Active Chats user-card FILL colour shown in the attached REAL iPhone screenshot.
+
+The current card fill is still slightly different from the main page background.
+
+I want the INSIDE of each Active Chats card to be the EXACT SAME colour as the surrounding Lulou page background.
+
+## IMPORTANT
+
+Do NOT use:
+
+- white
+- off-white
+- cream
+- ivory
+- pale pink
+- any separate card fill colour
+
+Use the exact existing page/background token already used behind the cards.
+
+The card should visually blend into the page, with the border defining the card.
+
+## KEEP THE PINK/WINE OUTER BORDER
+
+Keep the current soft pink/wine outline around each card.
+
+That border should remain the main visible card boundary.
+
+Use:
+
+- thin subtle pink/wine border
+- same current thickness
+- same current corner radius
+- same current wine/pink family
+
+Do not make the border darker or thicker.
+
+## CARD INTERIOR
+
+Set the card surface/background to:
+
+EXACTLY the same token / CSS variable / computed colour as the Connections page background.
+
+Do not eyeball a similar colour.
+
+Inspect the actual page background source and reuse it.
+
+The result should be:
+
+page background
++
+same-colour card interior
++
+soft pink/wine outline
+
+## KEEP EVERYTHING ELSE EXACTLY AS IT IS
+
+Do NOT change:
+
+- card dimensions
+- spacing
+- corner radius
+- avatar size
+- avatar position
+- names
+- message previews
+- chevrons
+- selected “Active Chats” text
+- Active Chats underline
+- bottom-navigation colours
+- Open / Close buttons
+- New Connections
+- routing
+- any behaviour
+
+This is a FILL-COLOUR-ONLY refinement.
+
+## VISUAL GOAL
+
+The cards should feel:
+
+- very clean
+- minimal
+- light
+- integrated into the page
+- premium
+- defined only by the subtle Lulou pink/wine outline
+
+There should be NO visible tonal difference between:
+
+the inside of the card
+and
+the surrounding page background.
+
+## VERIFY
+
+Confirm:
+
+1. Active Chats card fill uses the exact same background token as the page.
+2. No separate white/cream/pink fill remains.
+3. Pink/wine border remains visible.
+4. Text remains readable.
+5. Avatars remain unchanged.
+6. Active Chats selected tab remains unchanged.
+7. Bottom navigation remains unchanged.
+8. Open / Close remain unchanged.
+9. No other page is recoloured.
+
+After implementation:
+
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. page background token/hex
+2. old card fill token/hex
+3. new card fill token/hex
+4. border token/hex
+5. files changed
+6. confirmation no other colours were modified
+7. production commit
+8. live deployment verification
