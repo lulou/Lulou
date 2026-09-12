@@ -34,6 +34,7 @@ import { translateSignal, translateGreenFlag, translateIntent, translateStyle, t
 import { scanContent } from "@/lib/content-filter";
 import { formatLastActive } from "@/lib/last-active";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
+import { PostCallMilestone } from "@/components/post-call-milestone";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { armCallSession, markSessionAsPaid, markSessionAsVideo } from "@/lib/live-call-sessions";
@@ -3143,11 +3144,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // localStorage is a fast local cache to prevent a flash before the next query response.
   useEffect(() => {
     if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
-      if (!localStorage.getItem(`vn_popup_${match.id}`)) {
+      if (!localStorage.getItem(`vn_popup_${match.id}_${userId ?? "anonymous"}`)) {
         setVoiceNotePopupOpen(true);
       }
     }
-  }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, match.id]);
+  }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, match.id, userId]);
 
   // First-call popup intentionally disabled: the inline "Call stage unlocked" CTA card
   // in the chat composer area handles the same moment. No popup overlay is shown.
@@ -5375,32 +5376,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       />
 
       {voiceNotePopupOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-6" data-testid={`dialog-voice-note-unlock-${match.id}`}>
-          <div className="bg-background rounded-2xl p-6 w-full max-w-xs shadow-xl text-center">
-            <p className="text-3xl mb-3">🎙️</p>
-            <h2 className="font-semibold text-lg mb-2">Voice notes unlocked</h2>
-            <p className="text-sm text-muted-foreground mb-5">
-              Your first included audio call is complete. Voice notes are now open.
-            </p>
-            <Button
-              className="w-full"
-              onClick={() => {
-                localStorage.setItem(`vn_popup_${match.id}`, "1");
-                setVoiceNotePopupOpen(false);
-                // Optimistically mark seen in cache so popup won't show again on re-mount
-                queryClient.setQueryData(
-                  ["/api/voice-notes/entitlement", match.id],
-                  (old: any) => old ? { ...old, popupSeen: true } : old,
-                );
-                // Persist to server so it's durable across devices
-                apiRequest("POST", `/api/voice-notes/popup-seen/${match.id}`).catch(() => {});
-              }}
-              data-testid={`button-voice-note-popup-continue-${match.id}`}
-            >
-              Continue
-            </Button>
-          </div>
-        </div>
+        <PostCallMilestone
+          testId={`dialog-voice-note-unlock-${match.id}`}
+          buttonTestId={`button-voice-note-popup-continue-${match.id}`}
+          onContinue={() => {
+            localStorage.setItem(`vn_popup_${match.id}_${userId ?? "anonymous"}`, "1");
+            setVoiceNotePopupOpen(false);
+            queryClient.setQueryData(
+              ["/api/voice-notes/entitlement", match.id],
+              (old: any) => old ? { ...old, popupSeen: true } : old,
+            );
+            apiRequest("POST", `/api/voice-notes/popup-seen/${match.id}`).catch(() => {});
+          }}
+        />
       )}
 
       {firstCallPopupOpen && (

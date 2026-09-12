@@ -19,6 +19,7 @@ import { requestMicStream, prewarmMicStream, wasMicGrantedBefore, getMicPermStat
 import { scanContent } from "@/lib/content-filter";
 import { formatLastActive } from "@/lib/last-active";
 import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
+import { PostCallMilestone } from "@/components/post-call-milestone";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
@@ -644,7 +645,7 @@ export default function Messaging() {
         ? { ...old, unlocked: true, popupSeen: false }
         : { unlocked: true, popupSeen: false },
     );
-    if (!localStorage.getItem(`vn_popup_${matchId}`)) {
+    if (!localStorage.getItem(`vn_popup_${matchId}_${user?.id ?? "anonymous"}`)) {
       setVoiceNotePopupOpen(true);
     }
   }, [matchId, queryClient]);
@@ -890,11 +891,11 @@ export default function Messaging() {
   // entitlement is observed after a missed realtime completion event.
   useEffect(() => {
     if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
-      if (!localStorage.getItem(`vn_popup_${matchId}`)) {
+      if (!localStorage.getItem(`vn_popup_${matchId}_${user?.id ?? "anonymous"}`)) {
         setVoiceNotePopupOpen(true);
       }
     }
-  }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, matchId]);
+  }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, matchId, user?.id]);
 
   // Polling recovery: detects FC unlock via the 60s entitlement poll and routes it
   // through pendingFirstCallCelebration so the 1.5s delay and VN-open guard apply.
@@ -2350,44 +2351,19 @@ export default function Messaging() {
 
       {/* ── Voice-note post-call celebration ── */}
       {voiceNotePopupOpen && (
-        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm px-4 pb-8" data-testid="dialog-voice-note-unlock">
-          <div className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl" style={{ background: "linear-gradient(145deg,#fdf6f0 0%,#fff8f5 55%,#fdf0f3 100%)" }}>
-            {/* Sparkle particles — hidden when prefers-reduced-motion */}
-            <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
-              <span className="absolute top-5 right-9 w-1.5 h-1.5 rounded-full bg-rose-300/70 motion-safe:animate-ping" style={{ animationDuration: "2s" }} />
-              <span className="absolute top-14 right-5 w-1 h-1 rounded-full bg-amber-300/60 motion-safe:animate-ping" style={{ animationDuration: "2.4s", animationDelay: "0.5s" }} />
-              <span className="absolute top-7 left-7 w-1 h-1 rounded-full bg-rose-200/80 motion-safe:animate-ping" style={{ animationDuration: "1.8s", animationDelay: "0.9s" }} />
-              <span className="absolute bottom-20 right-7 w-1.5 h-1.5 rounded-full bg-amber-200/60 motion-safe:animate-ping" style={{ animationDuration: "2.2s", animationDelay: "0.3s" }} />
-              <span className="absolute bottom-10 left-9 w-1 h-1 rounded-full bg-rose-300/50 motion-safe:animate-ping" style={{ animationDuration: "2.6s", animationDelay: "1.1s" }} />
-            </div>
-            <div className="relative px-8 pt-10 pb-8 text-center">
-              {/* Glow icon */}
-              <div className="mx-auto mb-5 w-20 h-20 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#fce7ef,#fdf2e9)", boxShadow: "0 0 28px rgba(244,114,141,0.35),0 0 56px rgba(244,114,141,0.18)" }}>
-                <span className="text-4xl" role="img" aria-label="microphone">🎙️</span>
-              </div>
-              <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-800 mb-2">Congratulations — you've unlocked Voice Notes</h2>
-              <p className="text-stone-600 text-sm leading-relaxed mb-7">
-                You made it through your first call. Now you can keep the connection going whenever you want to hear each other.
-              </p>
-              <button
-                className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-95"
-                style={{ background: "linear-gradient(135deg,#e8526a,#d4445c)" }}
-                onClick={() => {
-                  localStorage.setItem(`vn_popup_${matchId}`, "1");
-                  setVoiceNotePopupOpen(false);
-                  queryClient.setQueryData(
-                    ["/api/voice-notes/entitlement", matchId],
-                    (old: any) => old ? { ...old, popupSeen: true } : old,
-                  );
-                  apiRequest("POST", `/api/voice-notes/popup-seen/${matchId}`).catch(() => {});
-                }}
-                data-testid="button-voice-note-popup-continue"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
+        <PostCallMilestone
+          testId="dialog-voice-note-unlock"
+          buttonTestId="button-voice-note-popup-continue"
+          onContinue={() => {
+            localStorage.setItem(`vn_popup_${matchId}_${user?.id ?? "anonymous"}`, "1");
+            setVoiceNotePopupOpen(false);
+            queryClient.setQueryData(
+              ["/api/voice-notes/entitlement", matchId],
+              (old: any) => old ? { ...old, popupSeen: true } : old,
+            );
+            apiRequest("POST", `/api/voice-notes/popup-seen/${matchId}`).catch(() => {});
+          }}
+        />
       )}
 
       {/* ── First-call milestone celebration ── */}
