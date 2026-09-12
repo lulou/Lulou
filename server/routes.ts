@@ -3469,12 +3469,25 @@ export async function registerRoutes(
               storage.getProfileMeta(fromUserId),
               storage.getProfileMeta(toUserId),
             ]);
+            const [fromActive, toActive] = await Promise.all([
+              isUserActiveInApp(fromUserId),
+              isUserActiveInApp(toUserId),
+            ]);
             await Promise.all([
-              sendPushToUser(fromUserId, buildPush.newMatch(toProfile?.firstName   || undefined), "new_match"),
-              sendPushToUser(toUserId,   buildPush.newMatch(fromProfile?.firstName || undefined), "new_match"),
+              fromActive
+                ? Promise.resolve()
+                : sendPushToUser(fromUserId, buildPush.newMatch(toProfile?.firstName || undefined), "new_match"),
+              toActive
+                ? Promise.resolve()
+                : sendPushToUser(toUserId, buildPush.newMatch(fromProfile?.firstName || undefined), "new_match"),
             ]);
           } else if (type === "open") {
-            await sendPushToUser(toUserId, buildPush.newLike(), "new_like");
+            const recipientActive = await isUserActiveInApp(toUserId);
+            if (recipientActive) {
+              console.log(`[PUSH_AUDIT] SUPPRESSED foreground Like push recipientId=${toUserId.slice(0,8)} — app-shell realtime badge is active`);
+            } else {
+              await sendPushToUser(toUserId, buildPush.newLike(), "new_like");
+            }
           }
         } catch { /* never block the route */ }
       })();

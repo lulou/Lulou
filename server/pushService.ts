@@ -163,7 +163,12 @@ export async function isUserActiveInApp(userId: string): Promise<boolean> {
   try {
     const { pool } = await import("./db");
     const result = await pool.query(
-      `SELECT last_seen_at, NOW() - last_seen_at AS age FROM active_sessions WHERE user_id = $1 ORDER BY last_seen_at DESC LIMIT 1`,
+      `SELECT last_seen_at,
+              EXTRACT(EPOCH FROM (NOW() - last_seen_at))::double precision AS age_seconds
+       FROM active_sessions
+       WHERE user_id = $1
+       ORDER BY last_seen_at DESC
+       LIMIT 1`,
       [userId],
     );
     if ((result.rowCount ?? 0) === 0) {
@@ -171,13 +176,9 @@ export async function isUserActiveInApp(userId: string): Promise<boolean> {
       return false;
     }
     const row = result.rows[0];
-    // pg returns interval as a string "HH:MM:SS.ffffff" — parse to seconds
-    const ageStr: string = String(row.age ?? "");
-    let ageSecs = 999;
-    const m = ageStr.match(/^(-?\d+):(\d+):(\d+)/);
-    if (m) ageSecs = Math.abs(parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3]));
+    const ageSecs = Math.abs(Number(row.age_seconds));
     const isActive = ageSecs < 90;
-    console.log(`[PUSH_AUDIT] isUserActiveInApp userId=${userId.slice(0,8)} last_seen=${row.last_seen_at} ageStr="${ageStr}" ageSecs=${ageSecs} → active=${isActive}`);
+    console.log(`[PUSH_AUDIT] isUserActiveInApp userId=${userId.slice(0,8)} last_seen=${row.last_seen_at} ageSecs=${Number.isFinite(ageSecs) ? ageSecs.toFixed(1) : "invalid"} → active=${isActive}`);
     return isActive;
   } catch (err: any) {
     console.warn(`[PUSH_AUDIT] isUserActiveInApp ERROR userId=${userId.slice(0,8)}: ${err?.message} → defaulting to false (will send push)`);
