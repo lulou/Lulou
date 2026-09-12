@@ -271,7 +271,9 @@ async function throwIfResNotOk(res: Response, url = "", sentSessionId = "") {
         });
       }
     }
-    throw new Error(message);
+    const error = new Error(message) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
   }
 }
 

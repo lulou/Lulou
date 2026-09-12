@@ -52,3 +52,4 @@
 - [GitHub push authentication](github-push-auth.md) — an attached GitHub connection can appear healthy while Git HTTPS rejects it; use an ephemeral askpass fallback without persisting credentials.
 - [Call availability vs voice-note completion](call-availability-vs-voice-notes.md) — reaching the message threshold activates audio, but only a persisted valid-call completion unlocks voice notes.
 - [Vite build type-check gap](vite-build-typecheck-gap.md) — a successful production build does not catch undefined TypeScript identifiers; focused source/type checks are required for renamed variables.
+- [Onboarding revalidation fallback](onboarding-revalidation-fallback.md) — TanStack Query errors may coexist with last-known-good data; completed users stay in-app during transient status failures.

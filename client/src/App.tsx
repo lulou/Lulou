@@ -1958,6 +1958,46 @@ async function checkProfileExists(
 // backstop for cases where the request stalls without triggering a TCP reset.
 const SPINNER_TIMEOUT_MS = 55_000;
 
+const ONBOARDING_COMPLETE_CACHE_PREFIX = "lulou_onboarding_complete:";
+
+function hasConfirmedOnboardingCompletion(userId: string | undefined): boolean {
+  if (!userId) return false;
+  try {
+    return localStorage.getItem(`${ONBOARDING_COMPLETE_CACHE_PREFIX}${userId}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistConfirmedOnboardingCompletion(userId: string, completed: boolean): void {
+  try {
+    const key = `${ONBOARDING_COMPLETE_CACHE_PREFIX}${userId}`;
+    if (completed) localStorage.setItem(key, "1");
+    else localStorage.removeItem(key);
+  } catch {
+    // Storage is an availability fallback only; server state remains authoritative.
+  }
+}
+
+async function fetchOnboardingState<T>(path: string): Promise<T> {
+  try {
+    const response = await apiRequest("GET", path);
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if ((error as Error & { status?: number })?.status !== 401) throw error;
+    const refreshed = await refreshAuthToken();
+    console.warn("[ONBOARDING_RESOLVER] auth retry", {
+      authenticated: refreshed,
+      endpoint: path,
+      retryAttempted: true,
+      context: "status-fetch",
+    });
+    if (!refreshed) throw error;
+    const response = await apiRequest("GET", path);
+    return response.json() as Promise<T>;
+  }
+}
+
 // ── Email verification gate ──────────────────────────────────────────────────
 // Standalone component so it can use useState without violating the rules
 // of hooks (hooks can't be called conditionally inside AppContent).
@@ -2385,6 +2425,7 @@ function AppContent() {
   // which hides this screen, but the disabled state prevents double-clicks in
   // the brief moment before that re-render propagates.
   const [isBootstrapRetrying, setIsBootstrapRetrying] = useState(false);
+  const [isOnboardingRetrying, setIsOnboardingRetrying] = useState(false);
   const _sbDiagFetchedRef = useRef(false);
   useEffect(() => {
     if (!sessionBootstrapFailed) { _sbDiagFetchedRef.current = false; return; }
@@ -2715,10 +2756,7 @@ function AppContent() {
   // ── Persisted onboarding-state gates ─────────────────────────────────────────
   const { data: onboardingSettings, isPending: settingsIsPending, isError: settingsIsError } = useQuery<UserSettings>({
     queryKey: ["/api/settings", user?.id],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/settings");
-      return response.json() as Promise<UserSettings>;
-    },
+    queryFn: () => fetchOnboardingState<UserSettings>("/api/settings"),
     enabled: !!user && profileReady && !clearingCache && effectiveProfileExists,
     staleTime: 30_000,
     retry: 2,
@@ -2729,12 +2767,11 @@ function AppContent() {
     legacyEstablished: boolean;
   }>({
     queryKey: ["dna-status-check"],
-    queryFn: async () => {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE}/api/dna/status`, { headers });
-      if (!res.ok) throw new Error(`DNA status check failed (${res.status})`);
-      return res.json();
-    },
+    queryFn: () => fetchOnboardingState<{
+      completed: boolean;
+      hasDna: boolean;
+      legacyEstablished: boolean;
+    }>("/api/dna/status"),
      enabled: !!user && profileReady && !clearingCache && effectiveProfileExists,
     staleTime: Infinity,
     retry: 1,
@@ -2748,6 +2785,25 @@ function AppContent() {
         legacyEstablished: dnaData.legacyEstablished === true,
       })
     : null;
+  const cachedOnboardingComplete = hasConfirmedOnboardingCompletion(user?.id);
+  const onboardingStatusUnavailable =
+    settingsIsError || dnaIsError || !onboardingSettings || !dnaData;
+  const mayUseCompletedFallback =
+    effectiveProfileExists && cachedOnboardingComplete && onboardingStatusUnavailable;
+
+  useEffect(() => {
+    if (!user?.id || !persistedOnboardingStep) return;
+    persistConfirmedOnboardingCompletion(user.id, persistedOnboardingStep === "app");
+    console.log("[ONBOARDING_RESOLVER] server state confirmed", {
+      authenticated: true,
+      legacyEstablished: dnaData?.legacyEstablished === true,
+      serverCompleted: persistedOnboardingStep === "app",
+      cachedCompleted: persistedOnboardingStep === "app",
+      endpoint: "settings+dna-status",
+      retryAttempted: false,
+      context: "boot",
+    });
+  }, [user?.id, persistedOnboardingStep, dnaData?.legacyEstablished]);
 
   // profilePending = query has no data yet (covers the gap between "enabled"
   // and "fetch started" that caused isLoading to briefly be false).
@@ -3295,7 +3351,7 @@ function AppContent() {
 
   // ── Central onboarding resolver ──────────────────────────────────────────────
   // Required order: profile → How to use Lulou → Connection DNA → main app.
-  if (settingsIsPending || dnaIsPending) {
+  if ((settingsIsPending || dnaIsPending) && !cachedOnboardingComplete) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -3306,7 +3362,19 @@ function AppContent() {
     );
   }
 
-  if (settingsIsError || dnaIsError || !onboardingSettings || !dnaData) {
+  if (onboardingStatusUnavailable && !mayUseCompletedFallback) {
+    console.warn("[ONBOARDING_RESOLVER] unresolved onboarding state", {
+      authenticated: true,
+      legacyEstablished: dnaData?.legacyEstablished === true,
+      cachedCompleted: cachedOnboardingComplete,
+      serverCompleted: false,
+      settingsError: settingsIsError,
+      dnaError: dnaIsError,
+      endpoint: "settings+dna-status",
+      retryAttempted: false,
+      recoveryScreenReason: "unknown_user_after_bounded_query_retry",
+      context: "boot",
+    });
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm">
@@ -3316,17 +3384,49 @@ function AppContent() {
           </p>
           <button
             className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium"
-            onClick={() => {
-              queryClient.resetQueries({ queryKey: ["/api/settings", user.id] });
-              queryClient.resetQueries({ queryKey: ["dna-status-check"] });
+            onClick={async () => {
+              if (isOnboardingRetrying) return;
+              setIsOnboardingRetrying(true);
+              try {
+                const refreshed = await refreshAuthToken();
+                console.log("[ONBOARDING_RESOLVER] manual retry", {
+                  authenticated: refreshed,
+                  cachedCompleted: cachedOnboardingComplete,
+                  endpoint: "settings+dna-status",
+                  retryAttempted: true,
+                  context: "recovery-screen",
+                });
+                await Promise.all([
+                  queryClient.resetQueries({ queryKey: ["/api/settings", user.id] }),
+                  queryClient.resetQueries({ queryKey: ["dna-status-check"] }),
+                ]);
+              } finally {
+                setIsOnboardingRetrying(false);
+              }
             }}
+            disabled={isOnboardingRetrying}
             data-testid="button-retry-onboarding-state"
           >
-            Try Again
+            {isOnboardingRetrying ? "Retrying…" : "Try Again"}
           </button>
         </div>
       </div>
     );
+  }
+
+  if (mayUseCompletedFallback) {
+    console.warn("[ONBOARDING_RESOLVER] transient status failure; preserving app access", {
+      authenticated: true,
+      legacyEstablished: dnaData?.legacyEstablished === true,
+      cachedCompleted: true,
+      serverCompleted: false,
+      settingsError: settingsIsError,
+      dnaError: dnaIsError,
+      endpoint: "settings+dna-status",
+      retryAttempted: settingsIsError || dnaIsError,
+      recoveryScreenReason: null,
+      context: "background-revalidation",
+    });
   }
 
   if (persistedOnboardingStep === "tutorial") {
@@ -3341,7 +3441,8 @@ function AppContent() {
 
   console.log("[AUTH_FLOW] session restored — route main app", {
     userId: user.id,
-    legacyEstablished: dnaData.legacyEstablished === true,
+    legacyEstablished: dnaData?.legacyEstablished === true,
+    usedCachedOnboardingCompletion: mayUseCompletedFallback,
   });
   return (
     <Switch>
