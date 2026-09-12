@@ -1,0 +1,351 @@
+Fix ONLY the unread-count badge system for Likes and Connections/messages.
+
+The attached REAL screenshot shows the problem:
+
+I am signed into one account on the laptop.
+From my phone, I sent multiple messages to that laptop account.
+The Connections icon still shows no unread count.
+
+That is wrong.
+
+We already established the product rule:
+
+EVERY new Like / Halo / unread message should contribute to a visible number count on the relevant bottom-navigation icon.
+
+The badge should represent actual unread/new items, not just whether something exists.
+
+## REQUIRED PRODUCT RULE
+
+### LIKES BADGE
+
+Likes icon count should reflect new/unseen incoming interest, such as:
+
+- new likes
+- new Halos
+- other incoming like-type items already included in the Likes page
+
+Example:
+
+1 new like
+→ Likes badge = 1
+
+3 new likes
+→ Likes badge = 3
+
+1 Halo + 2 normal likes
+→ Likes badge = 3
+
+Do not double-count the same interaction.
+
+### CONNECTIONS BADGE
+
+Connections icon count should reflect unread chat activity.
+
+If another user sends me:
+
+1 unread message
+→ Connections badge = 1
+
+5 unread messages
+→ Connections badge = 5
+
+If two chats contain:
+
+Chat A = 3 unread
+Chat B = 2 unread
+
+Connections badge = 5
+
+This should count unread MESSAGES, not just unread conversations, because the intended behaviour is that each new message adds to the count.
+
+## IMPORTANT CURRENT BUG
+
+In the current production state:
+
+Phone sends multiple messages
+→ laptop account receives them
+→ Connections icon does NOT increment
+
+Find why.
+
+Do not just hardcode a badge.
+
+Trace the actual unread pipeline.
+
+## 1. TRACE MESSAGE READ/UNREAD STATE
+
+Audit:
+
+- message insert
+- recipient user id
+- match/conversation id
+- read_at / seen_at / is_read field
+- unread query
+- realtime subscription
+- Connections badge selector
+- bottom-nav badge rendering
+
+Find the first broken point.
+
+## 2. SERVER SHOULD BE AUTHORITATIVE
+
+Unread count should come from persisted message state.
+
+Do not rely only on local client counters.
+
+The count must survive:
+
+- reload
+- app restart
+- switching devices
+- logout/login
+- PWA reopen
+
+Use server/db truth.
+
+## 3. REALTIME UPDATE
+
+When a new message arrives:
+
+- recipient should see Connections badge increment immediately
+- no refresh required
+- no need to open Connections first
+
+Use the existing realtime messaging subscription if possible.
+
+Do not create a completely separate websocket system.
+
+## 4. MARK AS READ CORRECTLY
+
+Unread messages should only clear when the recipient actually opens/reads that conversation.
+
+Recommended behaviour:
+
+Connections badge = total unread messages across all chats.
+
+When user opens Chat A:
+
+- mark Chat A unread messages read
+- subtract only those messages from Connections badge
+
+Unread messages in other chats remain counted.
+
+Do not zero the entire Connections badge just because the user tapped the Connections tab.
+
+## 5. ACTIVE CHAT EDGE CASE
+
+If recipient is ALREADY inside the exact chat when a message arrives:
+
+treat it as read/seen according to existing chat behaviour.
+
+Do not unnecessarily increment the global badge and leave it stuck.
+
+If your app already has visibility/read receipt logic, reuse it.
+
+## 6. SENDER MUST NOT INCREMENT THEIR OWN BADGE
+
+When I send 5 messages:
+
+My own Connections badge should NOT increase by 5.
+
+Only the recipient gets those unread counts.
+
+## 7. MULTI-DEVICE CONSISTENCY
+
+This needs to work across phone/laptop.
+
+Example:
+
+Account A on laptop
+Account B on phone
+
+B sends 5 messages to A
+
+Expected:
+
+Account A laptop:
+Connections badge becomes 5
+
+If A then opens that chat:
+
+badge becomes 0 if those were the only unread messages.
+
+If A also had 2 unread from another chat:
+
+badge becomes 2.
+
+## 8. LIKES BADGE CONSISTENCY
+
+Audit Likes badge at the same time.
+
+Likes should count actual unseen incoming like-type interactions.
+
+When user opens/acknowledges those incoming likes according to existing product behaviour:
+
+badge should reduce correctly.
+
+Do not leave stale +1 badges forever.
+
+## 9. BADGE VISUAL DESIGN
+
+Keep the existing small Lulou badge style.
+
+Use:
+
+- compact circular/pill badge
+- current Lulou accent colour
+- warm ivory/white number
+- positioned cleanly at top-right of nav icon
+- minimum footprint
+
+Do not redesign bottom navigation.
+
+For counts above 99, use:
+
+99+
+
+unless the app already has another established cap.
+
+## 10. DO NOT DOUBLE-COUNT
+
+Audit for:
+
+- duplicate realtime events
+- optimistic + server event counting twice
+- reconnect replay
+- duplicate subscriptions
+- retry inserts
+- webhook/realtime duplication
+
+One unread message = +1 exactly once.
+
+One incoming like = +1 exactly once.
+
+## 11. APP STARTUP
+
+On login/app boot:
+
+fetch authoritative unread counts so badges are correct immediately.
+
+Do not wait for a new realtime event before showing existing unread counts.
+
+## 12. PAGE/ROUTE CHANGES
+
+Counts should stay correct when moving between:
+
+- Discover
+- Intent
+- Likes
+- Connections
+- Profile
+- chat
+
+No badge disappearing just because user changes tab.
+
+## 13. CONNECTIONS PAGE ITSELF
+
+If useful, show per-conversation unread counts inside Active Chats.
+
+For example:
+
+Georgia    3
+Steph      1
+
+But only add this if an existing row badge pattern already exists.
+
+Primary requirement is the bottom-nav total.
+
+Do not redesign cards unnecessarily.
+
+## 14. TEST EXACTLY
+
+### MESSAGES
+
+1. Account A logged in on laptop.
+2. Account B logged in on phone.
+3. B sends 1 message to A.
+4. A Connections badge = 1.
+
+5. B sends 4 more.
+6. A Connections badge = 5.
+
+7. A reloads.
+8. Badge still = 5.
+
+9. A opens that chat.
+10. Those 5 messages become read.
+11. Badge becomes 0 if no other unread chats.
+
+12. B sends another message while A is on another tab.
+13. Badge immediately becomes 1.
+
+14. A is already inside B's chat.
+15. B sends a message.
+16. Message appears in realtime.
+17. Badge should not remain incorrectly unread if the chat is actively visible.
+
+### MULTIPLE CHATS
+
+18. Chat A has 3 unread.
+19. Chat B has 2 unread.
+20. Connections badge = 5.
+
+21. Open Chat A.
+22. Connections badge = 2.
+
+### LIKES
+
+23. Receive one new like.
+24. Likes badge increases by 1.
+
+25. Receive another like/Halo.
+26. Likes badge reflects total unseen incoming items.
+
+27. Acknowledge/view according to current Likes rules.
+28. Count decreases correctly.
+
+### OWN ACTIVITY
+
+29. Sender's own outgoing messages do not increase sender's badge.
+30. User liking someone does not increase their own Likes badge.
+
+## 15. DO NOT CHANGE
+
+Do not alter:
+
+- bottom-nav layout
+- Likes matching logic
+- message quotas
+- stage progression
+- call logic
+- voice-note logic
+- Connections card styling
+- chat design
+- payments
+
+This task is unread/new-count functionality only.
+
+## 16. DEPLOYMENT
+
+After implementation:
+
+- add focused unread-count tests
+- run production build
+- inspect realtime subscriptions
+- commit
+- push GitHub main
+- verify Vercel/Railway
+- test phone → laptop in production
+
+At the end report only:
+
+1. exact root cause
+2. unread message field/state used
+3. Likes unseen-state source
+4. bottom-nav count query/resolver
+5. realtime update mechanism
+6. mark-as-read behavior
+7. files changed
+8. tests
+9. production commit
+10. live production verification
