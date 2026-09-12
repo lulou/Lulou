@@ -1,0 +1,274 @@
+Fix ONLY the two issues shown in the attached REAL iPhone screenshots.
+
+There are TWO separate problems:
+
+1. Discover empty-state Lulou logo is static — it should gently pulsate by expanding and contracting.
+2. Intention Wheel is still showing bad / placeholder / junk profile imagery in the candidate cards and possible-connections row.
+
+Do not redesign either page.
+
+# 1. DISCOVER EMPTY-STATE LOGO MUST PULSATE
+
+In the first screenshot, the central circular Lulou logo under:
+
+“That’s everyone for now”
+
+is completely static.
+
+I want that central logo treatment to have a subtle premium breathing animation.
+
+## REQUIRED MOTION
+
+Animate the central logo container so it gently:
+
+- expands
+- contracts
+- expands
+- contracts
+
+continuously.
+
+This should feel like a calm pulse / breathing effect.
+
+Target motion:
+
+- scale approximately 0.96 → 1.04 → 0.96
+- smooth ease-in-out
+- duration around 2.2–2.8 seconds
+- infinite loop
+
+The movement should be subtle.
+
+Do NOT make it:
+- bounce
+- flash
+- spin
+- shake
+- glow aggressively
+- feel game-like
+
+## WHAT SHOULD PULSATE
+
+Animate the complete central logo treatment:
+
+- pale blush circle
+- Lulou logo inside
+
+They should scale together as one unit.
+
+Do not animate only the black logo image independently while leaving the blush circle static.
+
+## REDUCED MOTION
+
+Respect `prefers-reduced-motion`.
+
+If reduced motion is enabled:
+
+- keep the logo static
+- do not break layout
+
+## IMPORTANT
+
+Do not change:
+- empty-state copy
+- logo artwork
+- logo size at rest
+- page spacing
+- bottom navigation
+- Discover candidate logic
+
+This is animation-only for the central empty-state logo.
+
+---
+
+# 2. INTENTION WHEEL IS SHOWING BAD / PLACEHOLDER / JUNK IMAGERY
+
+The second screenshot clearly shows the Intention Wheel is still rendering inappropriate candidate imagery.
+
+Visible examples:
+
+- black square with a white generic/placeholder-style symbol
+- TV/screens
+- bedroom/furniture imagery
+- dark blank-looking thumbnail
+- generally non-profile-looking images
+
+This is not acceptable for a dating app candidate carousel.
+
+The Intention Wheel should show REAL profile photos only.
+
+## REQUIRED CANDIDATE PHOTO RULE
+
+Every profile shown in:
+
+- large center card
+- left side card
+- right side card
+- “Tonight’s possible connections” thumbnail row
+- spin animation cards
+- winner card
+
+must use the candidate’s actual valid profile photo.
+
+Do not show:
+
+- app logos
+- placeholder graphics
+- random uploaded non-profile images
+- blank dark cards
+- broken image fallbacks
+- generic symbols
+- screenshots
+- UI screenshots
+- TV images
+- room/furniture photos
+
+if the account has a valid real profile image available.
+
+## TRACE THE PHOTO SOURCE
+
+Audit the exact profile-photo source used by Intention Wheel.
+
+Do not assume the first raw storage item is valid.
+
+Use the same canonical profile-photo resolver used by the best-working parts of Lulou, such as:
+
+- Discover
+- Likes
+- Connections
+- chat avatars
+
+Prefer:
+
+1. primary valid profile photo
+2. first valid profile photo
+3. next valid profile photo if first fails
+
+Do not use arbitrary storage ordering.
+
+## VALIDATION
+
+A candidate should not be rendered into the wheel if there is no usable profile photo.
+
+Filter invalid candidates before card assignment.
+
+At minimum reject:
+
+- null/empty URL
+- failed image
+- known placeholder asset
+- app icon/logo asset
+- default bot placeholder
+- broken storage URL
+
+If the current data still contains old bot/test accounts, do not allow those accounts into the Intention Wheel candidate pool.
+
+## BOT / TEST PROFILE AUDIT
+
+The screenshot strongly suggests stale bot/test data is still entering the Wheel.
+
+Audit candidate eligibility for:
+
+- bot profiles
+- test accounts
+- seeded/demo accounts
+- deleted/disabled profiles
+- accounts missing valid profile photos
+
+These should not appear in production discovery/wheel surfaces.
+
+Do not delete production users blindly.
+
+Fix the eligibility/filtering path.
+
+## CONSISTENCY WITH DISCOVER
+
+If a profile is not valid enough to appear on Discover, it should not appear on the Intention Wheel.
+
+Use the same eligibility philosophy.
+
+No situation where:
+
+Discover = clean real profiles
+
+but
+
+Intention Wheel = placeholder/test junk.
+
+## TONIGHT’S POSSIBLE CONNECTIONS ROW
+
+Every thumbnail in the lower row must also use valid real profile imagery.
+
+Do not leave:
+
+- black placeholder tiles
+- logos
+- empty dark blocks
+
+If fewer valid profiles exist:
+
+show fewer thumbnails.
+
+Do NOT fill remaining positions with placeholders.
+
+## PRESERVE WHEEL MOTION
+
+Do NOT change the currently improved spin behavior.
+
+Keep unchanged:
+
+- active orbit geometry
+- spin timing
+- acceleration
+- deceleration
+- stable DOM-node strategy
+- no-flicker behavior
+- winner alignment
+- randomness
+- spin quota logic
+
+This task is ONLY candidate/image quality and the Discover empty-state pulse.
+
+## TEST EXACTLY
+
+### Discover
+1. No candidates available.
+2. Empty-state logo appears.
+3. Logo gently expands/contracts continuously.
+4. No bounce/flicker.
+5. Reduced-motion setting disables animation safely.
+
+### Intention Wheel
+6. Center candidate uses a real valid profile photo.
+7. Left/right candidates use real valid photos.
+8. Possible-connections thumbnails all use real valid photos.
+9. No generic placeholder symbol appears.
+10. No blank/dark tile appears when a valid photo exists.
+11. No bot/test profile appears.
+12. Candidate with broken first image falls back to next valid image.
+13. Candidate with no valid image is excluded.
+14. Spin still behaves exactly as before.
+
+## DEPLOYMENT
+
+After implementation:
+
+- run production build
+- audit final candidate query/filter
+- inspect image resolver usage
+- commit
+- push GitHub main
+- verify live Vercel bundle
+- verify production API candidate results if applicable
+
+At the end report only:
+
+1. exact cause of static Discover logo
+2. animation implementation
+3. exact cause of bad Wheel imagery
+4. photo resolver now used
+5. bot/test/invalid-profile filtering added
+6. files changed
+7. confirmation Wheel motion was untouched
+8. production commit
+9. live deployment verification

@@ -1,0 +1,304 @@
+Add a premium post-call milestone message to the active Lulou chat after the FIRST included audio call is successfully completed.
+
+The attached REAL screenshot shows the correct area: the message should appear centred within the conversation area after Call 1 has genuinely completed.
+
+This should replace the current underwhelming transition where the call simply ends and voice notes silently become available.
+
+## PRODUCT MOMENT
+
+This is an important Lulou progression milestone.
+
+The user has:
+
+completed Stage 1 messaging
+→ unlocked Call 1
+→ successfully completed the first audio call
+→ now unlocked voice notes
+
+I want Lulou to acknowledge that professionally.
+
+## IMPORTANT TRIGGER RULE
+
+Show this ONLY after the FIRST included audio call has satisfied the existing authoritative valid-call completion rule.
+
+Do NOT trigger it for:
+
+- missed call
+- declined call
+- unanswered call
+- cancelled call
+- connection failure
+- too-short call
+- simply entering the call stage
+- completing the message quota
+
+Use the SAME persisted Call 1 completion state already used to unlock voice notes.
+
+Do not create another completion definition.
+
+## PRESENTATION
+
+After Call 1 completes successfully, show a premium milestone card centred in the chat.
+
+It should feel:
+
+- polished
+- understated
+- celebratory
+- premium iOS
+- distinctly Lulou
+- not game-like
+- not childish
+- not a giant generic modal
+
+Dim the conversation behind it very subtly if needed, but keep the user aware they are still inside the chat.
+
+Use Lulou's current visual system:
+
+- soft warm page surface
+- current wine/burgundy accent
+- restrained blush border/accent
+- dark editorial typography
+- subtle shadow
+- generous spacing
+
+Do NOT use bright green as the main card colour.
+
+## RECOMMENDED COPY
+
+Use professional copy along these lines:
+
+Title:
+
+“First call complete”
+
+Body:
+
+“You’ve reached the next stage of your connection. Voice notes are now unlocked.”
+
+Optional smaller line:
+
+“Keep getting to know each other between calls.”
+
+Primary button:
+
+“Continue”
+
+Do NOT use wording like:
+
+“Congratulations on passing”
+
+because this should feel like a relationship milestone, not an exam.
+
+Do NOT say:
+
+“Accept”
+
+because there is nothing the user needs to approve. The entitlement has already been earned.
+
+“Continue” is the correct action.
+
+## SMALL VISUAL DETAIL
+
+Use a refined microphone / voice-wave icon above the title.
+
+The icon can use the current Lulou wine colour with a very subtle glow or soft circular blush backing.
+
+No emoji microphone.
+
+Use the app’s existing icon library.
+
+## BUTTON
+
+Primary CTA:
+
+“Continue”
+
+Use the current approved Lulou wine colour.
+
+Do NOT use bright generic pink.
+
+Button should be:
+
+- premium rounded shape
+- not oversized
+- warm ivory text
+- subtle pressed state
+
+Tapping Continue simply dismisses the milestone and returns the user to the conversation.
+
+It must NOT trigger another stage change.
+
+## AFTER CONTINUE
+
+Immediately after dismissal:
+
+- microphone gadget is unlocked
+- mic uses the established ACTIVE state
+- voice-note recording works normally
+- call progression continues correctly
+- chat remains at the latest message/call event
+
+If the established active gadget rule is green glow, preserve it.
+
+This task must not change that rule.
+
+## SHOW ONCE PER CONNECTION
+
+This milestone should appear once for Call 1 completion for each match.
+
+Do not show it:
+
+- every time the chat opens
+- on every reload
+- after every future call
+- every time the user taps the mic
+
+Persist or derive acknowledgement safely.
+
+Preferred behavior:
+
+Call 1 completion exists
++
+milestone has not yet been acknowledged
+→ show milestone
+
+Tap Continue
+→ record acknowledgement
+
+Reload after acknowledgement
+→ do not show again
+
+## TWO USERS
+
+Each participant should be able to see/acknowledge their own milestone.
+
+Do not let User A dismissing it prevent User B from seeing theirs unless the existing product architecture intentionally uses a shared acknowledgement.
+
+Prefer per-user acknowledgement.
+
+## IMPORTANT: VOICE-NOTE ENTITLEMENT MUST NOT DEPEND ON CLICKING CONTINUE
+
+Voice notes are unlocked because the valid first call completed.
+
+The Continue button only acknowledges/dismisses the milestone.
+
+If the UI closes/reloads before Continue:
+
+- server entitlement remains unlocked
+- voice notes remain legitimately available
+- milestone may reappear until acknowledged
+
+Never make voice-note entitlement depend on a client-only modal click.
+
+## CHAT CALL EVENTS
+
+Keep existing system messages such as:
+
+“Call ended”
+
+where appropriate.
+
+But position the new milestone cleanly after the successful completion event.
+
+Do not show:
+
+“Missed call”
+followed by
+“Voice notes unlocked”
+
+unless a later valid completed Call 1 genuinely occurred.
+
+## REMOVE OLD/INCORRECT VOICE-NOTE UNLOCK POPUPS
+
+Audit for any remaining old unlock UI such as:
+
+“Voice notes unlocked”
+“You’ve both sent 8 messages…”
+
+That obsolete threshold/modal must not coexist with this new milestone.
+
+There should be ONE correct post-Call-1 voice-note unlock experience.
+
+## DO NOT CHANGE
+
+Do not change:
+
+- Stage 1 = 15 messages each
+- Call 1 duration
+- valid completion threshold
+- voice-note entitlement rule
+- Stage 2 quota
+- video-call progression
+- paid calls
+- WebRTC
+- voice-note recording/upload/playback
+- chat message styling
+- communication gadget layout
+
+This task is ONLY the premium milestone UX after a valid first-call completion.
+
+## TEST EXACTLY
+
+1. Stage 1 completes:
+  - Call 1 becomes available
+  - no voice-note milestone yet
+
+2. Call declined:
+  - no milestone
+  - mic remains locked
+
+3. Call missed:
+  - no milestone
+  - mic remains locked
+
+4. Invalid/too-short call:
+  - no milestone
+
+5. Valid Call 1 completes:
+  - entitlement unlocks
+  - centred premium milestone appears
+
+6. Milestone says:
+  - “First call complete”
+  - “You’ve reached the next stage of your connection. Voice notes are now unlocked.”
+  - “Continue”
+
+7. Tap Continue:
+  - milestone closes
+  - chat remains in place
+  - mic is active
+  - voice notes work
+
+8. Reload:
+  - milestone does not reappear after acknowledgement
+
+9. Other participant:
+  - receives their own milestone once
+
+10. Later calls:
+  - do not trigger this Call 1 milestone again
+
+## DEPLOYMENT
+
+After implementation:
+
+- run communication entitlement tests
+- add milestone acknowledgement regression tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify Vercel/Railway production behavior
+
+At the end report only:
+
+1. files changed
+2. exact authoritative Call 1 completion state used
+3. exact milestone copy
+4. acknowledgement persistence method
+5. confirmation entitlement does NOT depend on Continue
+6. confirmation obsolete 8-message unlock popup is absent
+7. tests
+8. production commit
+9. live deployment verification
