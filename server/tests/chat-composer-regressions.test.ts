@@ -38,7 +38,7 @@ describe("chat composer regressions", () => {
     expect(activeComposer).not.toContain("<Send ");
     expect(activeComposer).not.toContain("!inputFocused");
     expect(matches).toContain("useLayoutEffect");
-    expect(matches).toContain('textarea.style.overflowY = measuredHeight > 132 ? "auto" : "hidden"');
+    expect(matches).toContain('textarea.style.overflowY = measuredHeight > 88 ? "auto" : "hidden"');
     expect(matches).not.toContain('data-testid={`button-send-${match.id}`}');
   });
 
@@ -69,6 +69,14 @@ describe("chat composer regressions", () => {
     expect(matches).toContain('"bottom-region-resize"');
     expect(matches).toContain("ResizeObserver");
     expect(matches).toContain("forceScrollRef.current = isAtBottomRef.current");
+    expect(matches).toContain("anchorThroughKeyboardRef.current = isAtBottomRef.current");
+    expect(matches).toContain("!isAtBottomRef.current && !anchorThroughKeyboardRef.current");
+    expect(matches).toContain("onTouchMove={() => { anchorThroughKeyboardRef.current = false; }}");
+    expect(matches).toContain('"composer-focus"');
+    expect(matches).toContain('max-h-[88px]');
+    expect(matches).toContain('className="flex items-center gap-3 px-4 pt-3 pb-2"');
+    expect(matches).toContain('window.addEventListener("pageshow", schedule)');
+    expect(matches).toContain('document.addEventListener("visibilitychange", schedule)');
   });
 
   it("keeps Conversation Starters above the composer with recoverable query states", () => {

@@ -1738,6 +1738,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  const anchorThroughKeyboardRef = useRef(false);
   const forceScrollRef = useRef(false);
   const layoutAnchorRafRef = useRef<number | null>(null);
   const wasExpandedRef = useRef(false);
@@ -1750,14 +1751,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   }, []);
 
   const scheduleBottomAnchor = useCallback((reason: string) => {
-    if (!isAtBottomRef.current) return;
+    if (!isAtBottomRef.current && !anchorThroughKeyboardRef.current) return;
     if (layoutAnchorRafRef.current !== null) cancelAnimationFrame(layoutAnchorRafRef.current);
     layoutAnchorRafRef.current = requestAnimationFrame(() => {
       layoutAnchorRafRef.current = requestAnimationFrame(() => {
         layoutAnchorRafRef.current = null;
         const el = messagesContainerRef.current;
         // A deliberate scroll between frames must always win over a pending layout anchor.
-        if (!el || !isAtBottomRef.current) return;
+        if (!el || (!isAtBottomRef.current && !anchorThroughKeyboardRef.current)) return;
         el.scrollTop = el.scrollHeight;
         isAtBottomRef.current = true;
         console.log("[CHAT_LAYOUT] bottom anchored", { reason, matchId: match.id.slice(0, 8) });
@@ -2690,7 +2691,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // after a draft grows or an accessory panel opens. Re-anchor only people already near
   // the bottom; readers browsing history keep their exact scroll position.
   useLayoutEffect(() => {
-    if (!expanded || !isAtBottomRef.current) return;
+    if (!expanded || (!isAtBottomRef.current && !anchorThroughKeyboardRef.current)) return;
     scheduleBottomAnchor("viewport-or-composer-layout");
   }, [expanded, vpTop, vpHeight, inputFocused, message, showAIStarters, scheduleBottomAnchor]);
 
@@ -2740,12 +2741,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     window.visualViewport?.addEventListener("scroll", schedule);
     window.addEventListener("resize", schedule);
     window.addEventListener("orientationchange", schedule);
+    window.addEventListener("pageshow", schedule);
+    document.addEventListener("visibilitychange", schedule);
     return () => {
       cancelAnimationFrame(rafId);
       window.visualViewport?.removeEventListener("resize", schedule);
       window.visualViewport?.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", schedule);
+      window.removeEventListener("pageshow", schedule);
+      document.removeEventListener("visibilitychange", schedule);
     };
   }, [expanded]);
 
@@ -2849,9 +2854,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     if (!textarea || isRecording) return;
     textarea.style.height = "0px";
     const measuredHeight = textarea.scrollHeight;
-    const nextHeight = Math.min(Math.max(measuredHeight, 32), 132);
+    const nextHeight = Math.min(Math.max(measuredHeight, 32), 88);
     textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY = measuredHeight > 132 ? "auto" : "hidden";
+    textarea.style.overflowY = measuredHeight > 88 ? "auto" : "hidden";
   }, [message, isRecording]);
 
   // Watch the entire bottom region rather than guessing its height. This includes
@@ -3868,8 +3873,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           prevents the Safari BFC+percentage-height bug that caused clipping in earlier builds.
           The column gets its height from flex cross-axis stretch (definite), not a percentage. */}
       <div style={{ position: "relative", top: 0, zIndex: 10, width: "100%", flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
-        {/* ── Main header row ── */}
-        <div className={"flex items-center gap-3 px-4 " + (inputFocused ? "pt-1 pb-2" : "pt-3 pb-2")}>
+        {/* ── Main header row — invariant while the keyboard opens ── */}
+        <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         <Button
           size="icon"
           variant="ghost"
@@ -3903,14 +3908,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <BadgeCheck className="w-4 h-4 text-primary shrink-0" data-testid={`icon-verified-${match.id}`} />
               )}
             </div>
-            {!inputFocused && (() => {
+            {(() => {
               const myShowLastActive = localStorage.getItem("settings_show_last_active") !== "false";
               const lbl = formatLastActive(match.profile.lastActive, (match.profile.showLastActive ?? true) && myShowLastActive);
               return lbl ? (
                 <p className="text-[10px] text-muted-foreground leading-none mt-0.5" data-testid={`text-last-active-${match.id}`}>{lbl}</p>
               ) : null;
             })()}
-            {!inputFocused && <span
+            <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 mt-0.5 text-[10px] font-semibold transition-all"
               style={showProfilePanel ? {
                 background: "linear-gradient(135deg, hsl(350 45% 52% / 0.18), hsl(350 45% 52% / 0.10))",
@@ -3924,7 +3929,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             >
               <User className="w-2.5 h-2.5" />
               {showProfilePanel ? t("hide_profile_btn") : t("view_profile_btn")}
-            </span>}
+            </span>
           </div>
         </button>
         <div className="flex items-center gap-1 shrink-0">
@@ -4037,7 +4042,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       </div>{/* /header */}
 
       {/* MESSAGES — flex:1 fills the space between header and composer */}
-      <div ref={messagesContainerRef} onScroll={handleMessagesScroll}
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+        onTouchMove={() => { anchorThroughKeyboardRef.current = false; }}
+        onWheel={() => { anchorThroughKeyboardRef.current = false; }}
         style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}
         data-testid={`messages-container-${match.id}`}
       >
@@ -4952,7 +4961,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               )}
               <div
-                className="w-full rounded-[1.5rem] border border-foreground/[0.05] bg-card/[0.98] px-2.5 pt-1 pb-1 shadow-[0_2px_10px_rgba(25,20,20,0.06)] backdrop-blur-xl"
+                className="w-full rounded-[1.5rem] border border-foreground/[0.05] bg-card/[0.98] px-2.5 py-0.5 shadow-[0_2px_10px_rgba(25,20,20,0.06)] backdrop-blur-xl"
                 data-testid={`chat-composer-surface-${match.id}`}
                 data-ui-version="composer-104"
               >
@@ -4972,8 +4981,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       if (e.target.value.trim()) sendTyping();
                     }}
                     placeholder={t("write_meaningful_placeholder")}
-                    className={`min-h-8 max-h-[132px] overflow-y-hidden resize-none border-0 bg-transparent px-1 py-1 text-[15px] leading-5 placeholder:text-muted-foreground/75 shadow-none transition-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent focus:outline-none outline-none${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
-                    onFocus={() => setInputFocused(true)}
+                    className={`min-h-8 max-h-[88px] overflow-y-hidden resize-none border-0 bg-transparent px-1 py-1 text-[15px] leading-5 placeholder:text-muted-foreground/75 shadow-none transition-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent focus:outline-none outline-none${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
+                    onFocus={() => {
+                      anchorThroughKeyboardRef.current = isAtBottomRef.current;
+                      setInputFocused(true);
+                      if (anchorThroughKeyboardRef.current) scheduleBottomAnchor("composer-focus");
+                    }}
                     onBlur={() => {
                       // CRITICAL: if iOS fires blur while recording, refocus SYNCHRONOUSLY
                       // (no RAF delay). requestAnimationFrame gives the keyboard time to
@@ -4986,6 +4999,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         textareaRef.current?.focus({ preventScroll: true }); // sync, no RAF
                         return;
                       }
+                      anchorThroughKeyboardRef.current = false;
                       setInputFocused(false);
                     }}
                     onKeyDown={e => {
@@ -5052,7 +5066,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       Without it, pressing the mic button blurs the textarea → iOS keyboard
                       dismisses → visual viewport changes height → the entire composer jumps.
                       e.preventDefault() keeps focus on the textarea so the keyboard stays up. */}
-                  <div className="mt-0.5 flex min-h-10 items-center gap-0.5">
+                  <div className="flex min-h-9 items-center gap-0.5">
                   <button
                     tabIndex={-1}
                     onPointerDown={e => {
