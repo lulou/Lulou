@@ -80,6 +80,7 @@ export const matches = pgTable("matches", {
   callAvail1At: timestamp("call_avail_1_at"),
   callAvail2At: timestamp("call_avail_2_at"),
   agreedCallAt: timestamp("agreed_call_at"),
+  availabilityRevision: integer("availability_revision").default(0),
   numberExchanged1: boolean("number_exchanged_1").default(false),
   numberExchanged2: boolean("number_exchanged_2").default(false),
   dateChoiceUser1: text("date_choice_user1"),

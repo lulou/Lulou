@@ -1428,6 +1428,8 @@ export const TRANSLATIONS = {
     call_scheduled_title:         "Call scheduled",
     avail_incompatible_title:     "Your times don't overlap",
     avail_incompatible_desc:      "Choose a time closer to theirs, or wait for them to update.",
+    availability_expired_desc:    "That availability window has expired. Choose a new time before starting the call.",
+    availability_changed_desc:    "Availability changed. Review the current call time and try again.",
   },
   es: {
     discover:     "Descubrir",

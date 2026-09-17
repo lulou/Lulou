@@ -4197,11 +4197,14 @@ export async function registerRoutes(
   });
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, callLimiter, async (req: any, res) => {
+    const callCreateStartedAt = Date.now();
     try {
       const serverStorage = getCallStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
       const { isPaidCredit, isVideo } = req.body || {};
+      let expectedAgreedCallAt: string | null = null;
+      let expectedAvailabilityRevision: number | null = null;
       console.log("[CALL_START] CALL_REQUEST_STARTED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
       console.log("[CALL_START] CALL_SESSION_CHECKED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
 
@@ -4287,6 +4290,8 @@ export async function registerRoutes(
             });
             return res.status(403).json({ message: "Both users must agree on a call time before starting the call." });
           }
+          expectedAgreedCallAt = agreed.toISOString();
+          expectedAvailabilityRevision = gateMeta.availabilityRevision;
           // Gate 3b: the agreed window must have arrived (early-start window: 5 min before).
           if (!isCallReadyToStart(agreed)) {
             const minsUntil = Math.ceil((agreed.getTime() - Date.now()) / 60_000 - EARLY_START_WINDOW_MIN);
@@ -4307,13 +4312,26 @@ export async function registerRoutes(
               agreedCallAt: agreed.toISOString(),
               expiredMinsAgo: Math.round((Date.now() - agreed.getTime()) / 60_000) - AVAIL_EXPIRY_GRACE_MIN,
             });
-            await getStorage(req).clearAgreedCallAt(matchId).catch(() => {});
+            const expiryStorage = getStorage(req);
+            const latest = await expiryStorage.clearAgreedCallAt(matchId, userId, agreed.toISOString()).catch(() => undefined);
+            if (latest) {
+              await broadcastCallEvent(matchId, {
+                type: "call:availability",
+                matchId,
+                userId,
+                callAvail1At: latest.callAvail1At,
+                callAvail2At: latest.callAvail2At,
+                agreedCallAt: latest.agreedCallAt,
+                availabilityVersion: latest.availabilityRevision,
+                serverBroadcastAt: Date.now(),
+              });
+            }
             return res.status(403).json({ message: "availability_expired" });
           }
         }
       }
 
-      const result = await serverStorage.startCall(matchId, userId, !!isPaidCredit);
+      const result = await serverStorage.startCall(matchId, userId, !!isPaidCredit, expectedAgreedCallAt, expectedAvailabilityRevision);
       if (!result) {
         console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found or call not allowed" });
@@ -4329,6 +4347,10 @@ export async function registerRoutes(
       if (status === "blocked") {
         console.log("[CALL_START] DUPLICATE_CALL_BLOCKED", { matchId, existingCaller: match.callInitiatorId, blockedUser: userId, callSessionId: match.callSessionId });
         return res.status(409).json({ message: "A call is already in progress", match });
+      }
+
+      if (status === "availability_changed") {
+        return res.status(409).json({ message: "Availability changed. Review the current call time and try again." });
       }
 
       if (status === "reused") {
@@ -4357,8 +4379,14 @@ export async function registerRoutes(
         callerName,
         callSessionId: match.callSessionId,
         isVideo: !!isVideo,
+        serverBroadcastAt: Date.now(),
       };
       await broadcastCallEvent(matchId, ringPayload);
+      console.log("[CALL_TIMING]", {
+        matchId: matchId.slice(0, 8),
+        callSessionId: match.callSessionId?.slice(0, 12),
+        call_create_ms: Date.now() - callCreateStartedAt,
+      });
 
       // Fire-and-forget push to the receiver — rings their device even if app is closed
       const pushPayload = buildPush.incomingCall(callerName, matchId, match.callSessionId);
@@ -4378,7 +4406,7 @@ export async function registerRoutes(
             const { data: recheck } = await supabaseAdmin.from("matches").select("call_answered,call_completed,call_initiator_id,call_started_at").eq("id", matchId).maybeSingle();
             if (recheck && recheck.call_initiator_id === userId && recheck.call_started_at && !recheck.call_answered && !recheck.call_completed) {
               console.log("[CALL_START] DELAYED_RERING", { matchId, delayMs, callSessionId: match.callSessionId });
-              broadcastCallEvent(matchId, ringPayload);
+              broadcastCallEvent(matchId, { ...ringPayload, serverBroadcastAt: Date.now() });
             }
           } catch (err: any) {
             console.warn("[CALL_START] DELAYED_RERING_ERROR", { matchId, delayMs, error: err?.message });
@@ -4616,6 +4644,7 @@ export async function registerRoutes(
   // Pressing the availability picker also inserts firstCallPromptSeen so the
   // "Call stage unlocked" CTA is not shown again after a refresh.
   app.post("/api/matches/:matchId/call/set-availability", isAuthenticated, async (req: any, res) => {
+    const availabilityWriteStartedAt = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
@@ -4646,11 +4675,24 @@ export async function registerRoutes(
         await db.insert(firstCallPromptSeen).values({ matchId, userId }).onConflictDoNothing();
       }
 
-      // Broadcast so the other user's UI updates immediately without waiting for a poll
-      broadcastViaHttpApi(`chat:${matchId}`, "call-avail-update", { matchId, userId }).catch(() => {});
+      const serverBroadcastAt = Date.now();
+      await broadcastCallEvent(matchId, {
+        type: "call:availability",
+        matchId,
+        userId,
+        callAvail1At: updated.callAvail1At,
+        callAvail2At: updated.callAvail2At,
+        agreedCallAt: updated.agreedCallAt,
+        availabilityVersion: updated.availabilityRevision,
+        serverBroadcastAt,
+      });
 
-      console.log("[CALL_AVAIL] SET", { matchId, userId: userId.slice(0, 8), availableAt });
-      res.json(updated);
+      console.log("[CALL_AVAIL] SET", {
+        matchId: matchId.slice(0, 8),
+        userId: userId.slice(0, 8),
+        availability_write_ms: serverBroadcastAt - availabilityWriteStartedAt,
+      });
+      res.json({ ...updated, availabilityVersion: updated.availabilityRevision });
     } catch (err: any) {
       console.error("[CALL_AVAIL] ERROR", err);
       res.status(500).json({ message: err.message || "Failed to set availability" });

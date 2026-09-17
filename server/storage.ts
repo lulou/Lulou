@@ -771,7 +771,7 @@ export interface IStorage {
   createMessage(data: InsertMessage): Promise<Message>;
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
-  startCall(matchId: string, userId: string, isPaidCredit?: boolean): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined>;
+  startCall(matchId: string, userId: string, isPaidCredit?: boolean, expectedAgreedCallAt?: string | null, expectedAvailabilityRevision?: number | null): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" | "availability_changed" } | undefined>;
   answerCall(matchId: string, userId: string, expectedSessionId?: string): Promise<Match | undefined>;
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined>;
@@ -803,7 +803,7 @@ export interface IStorage {
   getSpinRequest(id: string): Promise<SpinRequest | undefined>;
   setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined>;
   setCallAvailability(matchId: string, userId: string, availableAt: string | null): Promise<Match | undefined>;
-  clearAgreedCallAt(matchId: string): Promise<void>;
+  clearAgreedCallAt(matchId: string, userId: string, expectedAgreedCallAt: string): Promise<Match | undefined>;
   exchangeNumber(matchId: string, userId: string): Promise<Match | undefined>;
   removeMatch(matchId: string, userId: string): Promise<boolean>;
   getMatchCount(userId: string): Promise<number>;
@@ -1188,6 +1188,7 @@ export function mapMatch(row: any): Match {
     callAvail1At: row.call_avail_1_at ? new Date(row.call_avail_1_at) : null,
     callAvail2At: row.call_avail_2_at ? new Date(row.call_avail_2_at) : null,
     agreedCallAt: row.agreed_call_at ? new Date(row.agreed_call_at) : null,
+    availabilityRevision: Number(row.availability_revision ?? 0),
     numberExchanged1: row.number_exchanged_1,
     numberExchanged2: row.number_exchanged_2,
     dateChoiceUser1: row.date_choice_user1 ?? null,
@@ -2165,6 +2166,7 @@ export class SupabaseStorage implements IStorage {
     callAvail1: string | null; callAvail2: string | null;
     callAvail1At: string | null; callAvail2At: string | null;
     agreedCallAt: string | null;
+    availabilityRevision: number;
   } | null> {
     // NOTE: call_avail_1 / call_avail_2 (legacy TEXT columns) were never applied
     // to Supabase — only to Neon.  Selecting them causes a PostgREST column-not-found
@@ -2172,7 +2174,7 @@ export class SupabaseStorage implements IStorage {
     // (call_avail_1_at / call_avail_2_at) which DO exist in Supabase.
     const { data, error } = await this.sb
       .from("matches")
-      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1_at, call_avail_2_at, agreed_call_at")
+      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1_at, call_avail_2_at, agreed_call_at, availability_revision")
       .eq("id", matchId)
       .eq("status", "active")
       .maybeSingle();
@@ -2189,6 +2191,7 @@ export class SupabaseStorage implements IStorage {
       callAvail1At: data.call_avail_1_at ?? null,
       callAvail2At: data.call_avail_2_at ?? null,
       agreedCallAt: data.agreed_call_at ?? null,
+      availabilityRevision: Number(data.availability_revision ?? 0),
     };
   }
 
@@ -2254,7 +2257,7 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  async startCall(matchId: string, userId: string, isPaidCredit?: boolean): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined> {
+  async startCall(matchId: string, userId: string, isPaidCredit?: boolean, expectedAgreedCallAt?: string | null, expectedAvailabilityRevision?: number | null): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" | "availability_changed" } | undefined> {
     console.log("[startCall] CALL_SESSION_CHECKED", { matchId, userId });
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
@@ -2334,7 +2337,7 @@ export class SupabaseStorage implements IStorage {
       }
     }
 
-    const { data: updated, error } = await this.sb
+    let callStartWrite = this.sb
       .from("matches")
       .update({
         call_started_at: new Date().toISOString(),
@@ -2343,7 +2346,14 @@ export class SupabaseStorage implements IStorage {
         call_completed: false,
       })
       .eq("id", matchId)
-      .is("call_started_at", null)
+      .is("call_started_at", null);
+    if (!isPaidCredit && expectedAgreedCallAt) {
+      callStartWrite = callStartWrite.eq("agreed_call_at", expectedAgreedCallAt);
+    }
+    if (!isPaidCredit && typeof expectedAvailabilityRevision === "number") {
+      callStartWrite = callStartWrite.eq("availability_revision", expectedAvailabilityRevision);
+    }
+    const { data: updated, error } = await callStartWrite
       .select()
       .maybeSingle();
 
@@ -2363,6 +2373,20 @@ export class SupabaseStorage implements IStorage {
         if (recheckMatch.callStartedAt && recheckMatch.callInitiatorId) {
           console.log("[startCall] DUPLICATE_CALL_BLOCKED (race)", { matchId, existingInitiator: recheckMatch.callInitiatorId, blockedCaller: userId });
           return { match: recheckMatch, status: "blocked" };
+        }
+        if (!isPaidCredit && expectedAgreedCallAt) {
+          const recheckAgreement = recheckMatch.agreedCallAt
+            ? new Date(recheckMatch.agreedCallAt).toISOString()
+            : null;
+          if (
+            recheckAgreement !== expectedAgreedCallAt
+            || (
+              typeof expectedAvailabilityRevision === "number"
+              && recheckMatch.availabilityRevision !== expectedAvailabilityRevision
+            )
+          ) {
+            return { match: recheckMatch, status: "availability_changed" };
+          }
         }
         console.error("[startCall] CALL_START_ERROR update returned 0 rows but no active call found (RLS policy blocking update?):", { matchId, userId, callStartedAt: recheckMatch.callStartedAt });
         throw new Error("Call setup failed: database did not update the call state (possible permission issue)");
@@ -3346,79 +3370,25 @@ export class SupabaseStorage implements IStorage {
   }
 
   async setCallAvailability(matchId: string, userId: string, availableAt: string | null): Promise<Match | undefined> {
-    // ── Step 1: Validate without reading availability (avoids stale-read race) ──
-    const { data: matchData } = await this.sb
-      .from("matches")
-      .select("id, user1_id, user2_id, call_stage")
-      .eq("id", matchId)
-      .maybeSingle();
-    if (!matchData) return undefined;
-    if (matchData.user1_id !== userId && matchData.user2_id !== userId) return undefined;
-    if ((matchData.call_stage || 0) !== 0) return undefined;
-
-    const isUser1 = matchData.user1_id === userId;
-
-    // ── Step 2: Write ONLY this user's own availability timestamp atomically ──
-    // Separating this write from the agreed_call_at computation means that when
-    // both users write concurrently, each write commits independently before the
-    // agreement is calculated — agreed_call_at is never based on a stale read.
-    const ownUpdate: Record<string, any> = {};
-    if (availableAt === null) {
-      if (isUser1) ownUpdate.call_avail_1_at = null;
-      else         ownUpdate.call_avail_2_at = null;
-    } else {
-      const newTs = new Date(availableAt);
-      if (isUser1) ownUpdate.call_avail_1_at = newTs.toISOString();
-      else         ownUpdate.call_avail_2_at = newTs.toISOString();
-    }
-    const { error: ownWriteErr } = await this.sb.from("matches").update(ownUpdate).eq("id", matchId);
-    if (ownWriteErr) throw new Error(`setCallAvailability own-write error: ${ownWriteErr.message}`);
-
-    // ── Step 3: Re-read BOTH timestamps from the now-committed row ──
-    // Any concurrent write by the partner will already be committed at this
-    // point, so agreed_call_at is computed from the latest persisted values.
-    const { data: fresh } = await this.sb
-      .from("matches")
-      .select("*, call_avail_1_at, call_avail_2_at")
-      .eq("id", matchId)
-      .single();
-    if (!fresh) return undefined;
-
-    // ── Step 4: Compute agreed_call_at from fresh committed values ──
-    const COMPAT_TOLERANCE_MIN = 10;
-    const agreeUpdate: Record<string, any> = {};
-    if (availableAt === null) {
-      // User cleared availability — no agreement possible
-      agreeUpdate.agreed_call_at = null;
-    } else {
-      const myTs     = new Date(availableAt);
-      const otherRaw = isUser1 ? fresh.call_avail_2_at : fresh.call_avail_1_at;
-      if (otherRaw) {
-        const otherTs = new Date(otherRaw);
-        const diffMin = Math.abs(myTs.getTime() - otherTs.getTime()) / 60_000;
-        agreeUpdate.agreed_call_at = diffMin <= COMPAT_TOLERANCE_MIN
-          ? new Date(Math.max(myTs.getTime(), otherTs.getTime())).toISOString()
-          : null;
-      } else {
-        agreeUpdate.agreed_call_at = null;
-      }
-    }
-
-    // ── Step 5: Write agreed_call_at ──
-    const { data: updated } = await this.sb
-      .from("matches")
-      .update(agreeUpdate)
-      .eq("id", matchId)
-      .select()
-      .single();
-    return updated ? mapMatch(updated) : undefined;
+    const { data, error } = await this.sb.rpc("set_call_availability_atomic", {
+      p_match_id: matchId,
+      p_user_id: userId,
+      p_available_at: availableAt,
+    });
+    if (error) throw new Error(`setCallAvailability atomic RPC error: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ? mapMatch(row) : undefined;
   }
 
-  async clearAgreedCallAt(matchId: string): Promise<void> {
-    await this.sb
-      .from("matches")
-      .update({ agreed_call_at: null })
-      .eq("id", matchId);
+  async clearAgreedCallAt(matchId: string, userId: string, expectedAgreedCallAt: string): Promise<Match | undefined> {
+    const { data, error } = await this.sb.rpc("expire_call_availability_atomic", {
+      p_match_id: matchId,
+      p_user_id: userId,
+      p_expected_agreed_at: expectedAgreedCallAt,
+    });
+    if (error) throw new Error(`clearAgreedCallAt atomic RPC error: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ? mapMatch(row) : undefined;
   }
 
   async setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined> {

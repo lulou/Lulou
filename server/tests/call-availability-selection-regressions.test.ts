@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 const matchesPage = readFileSync("client/src/pages/matches.tsx", "utf8");
 const routes = readFileSync("server/routes.ts", "utf8");
 const storage = readFileSync("server/storage.ts", "utf8");
+const signaling = readFileSync("client/src/hooks/use-call-signaling.ts", "utf8");
+const availabilityVersion = readFileSync("client/src/lib/call-availability-version.ts", "utf8");
+const atomicAvailabilityMigration = readFileSync("supabase/migrations/add_atomic_call_availability.sql", "utf8");
 const availabilityMutation = matchesPage.slice(
   matchesPage.indexOf("const setCallAvailMutation"),
   matchesPage.indexOf("const startPaidCall"),
@@ -110,9 +113,42 @@ describe("call availability selection regressions", () => {
     expect(routes).toContain(
       "await storage.setCallAvailability(matchId, userId, availableAt ?? null)",
     );
-    expect(availabilityWrite).toContain("ownUpdate.call_avail_1_at");
-    expect(availabilityWrite).toContain("ownUpdate.call_avail_2_at");
-    expect(availabilityWrite).not.toMatch(/ownUpdate\.call_avail_1(?!_at)/);
-    expect(availabilityWrite).not.toMatch(/ownUpdate\.call_avail_2(?!_at)/);
+    expect(availabilityWrite).toContain('this.sb.rpc("set_call_availability_atomic"');
+  });
+
+  it("applies availability through the global call realtime channel", () => {
+    expect(routes).toContain('type: "call:availability"');
+    expect(routes).toContain("await broadcastCallEvent(matchId");
+    expect(routes).toContain("serverBroadcastAt");
+    expect(signaling).toContain('event.type === "call:availability"');
+    expect(signaling).toContain("availability_realtime_ms");
+    expect(signaling).toContain("acceptAvailabilityVersion");
+    expect(availabilityVersion).toContain("latestAvailabilityVersionByMatch");
+    expect(signaling).toContain('queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] })');
+  });
+
+  it("prevents stale agreement calculations from overwriting concurrent updates", () => {
+    expect(availabilityWrite).toContain('this.sb.rpc("set_call_availability_atomic"');
+    expect(storage).toContain('this.sb.rpc("expire_call_availability_atomic"');
+  });
+
+  it("binds atomic availability RPCs to the authenticated user", () => {
+    expect(atomicAvailabilityMigration).toContain("p_user_id IS DISTINCT FROM auth.uid()::TEXT");
+  });
+
+  it("binds call creation and expiry clearing to the validated agreement", () => {
+    expect(storage).toContain('callStartWrite.eq("agreed_call_at", expectedAgreedCallAt)');
+    expect(storage).toContain('callStartWrite.eq("availability_revision", expectedAvailabilityRevision)');
+    expect(routes).toContain("serverStorage.startCall(matchId, userId, !!isPaidCredit, expectedAgreedCallAt, expectedAvailabilityRevision)");
+    expect(routes).toContain("clearAgreedCallAt(matchId, userId, agreed.toISOString())");
+  });
+
+  it("shows immediate Start Call progress and actionable server errors", () => {
+    expect(matchesPage).toContain("startCall.isPending");
+    expect(matchesPage).toContain('t("calling_name").replace("{name}", match.profile.firstName)');
+    expect(matchesPage).toContain('error.message.includes("availability_expired")');
+    expect(matchesPage).toContain('error.message.includes("Availability changed")');
+    expect(matchesPage).toContain("call_create_ms");
+    expect(matchesPage).toContain("wakeAtBoundaries");
   });
 });

@@ -23,6 +23,7 @@ import {
 import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession, isSelfCancelled } from "@/lib/cancelled-calls";
 import { requestMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
+import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
@@ -2249,13 +2250,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   const startCall = useMutation({
     mutationFn: async ({ isVideo }: { isVideo: boolean }) => {
+      const callCreateStartedAt = performance.now();
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callerId: user?.id, callStage, role: "caller" });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, { isVideo });
-      return { data: await res.json(), isVideo };
+      return { data: await res.json(), isVideo, callCreateStartedAt };
     },
-    onSuccess: ({ data, isVideo }: { data: any; isVideo: boolean }) => {
+    onSuccess: ({ data, isVideo, callCreateStartedAt }: { data: any; isVideo: boolean; callCreateStartedAt: number }) => {
       const m = data?.match ?? data;
-      console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callSessionId: m?.callSessionId });
+      console.log("[CALL_UI] CALL_REQUEST_STARTED", {
+        matchId: match.id,
+        callSessionId: m?.callSessionId,
+        call_create_ms: Math.round(performance.now() - callCreateStartedAt),
+      });
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callSessionId: m?.callSessionId, role: "caller" });
       iCancelledRef.current = false;
       mergeCallFields(queryClient, match.id, m);
@@ -2276,14 +2282,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     onError: (error: Error) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
       const isSelfCall = error.message?.includes("own account");
+      const safeReason =
+        error.message.includes("availability_expired") ? t("availability_expired_desc") :
+        error.message.includes("Availability changed") ? t("availability_changed_desc") :
+        error.message.includes("scheduled for later") ? error.message :
+        error.message.includes("agree on a call time") ? t("avail_incompatible_desc") :
+        error.message.includes("already in progress") ? error.message :
+        t("unknown_server_error");
       console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, route: "call/start", error: error.message, isAuth, isSelfCall });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({
         title: isSelfCall ? t("cant_call_yourself_title") : isAuth ? t("session_expired_title") : t("call_failed_title"),
         description: isSelfCall
           ? t("cant_call_yourself_desc")
           : isAuth
             ? t("please_refresh_desc")
-            : t("unknown_server_error"),
+            : safeReason,
         variant: "destructive",
       });
     },
@@ -2322,6 +2337,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onSuccess: (data: any, selection) => {
       if (selection.requestId !== availabilityRequestIdRef.current) return;
+      const shouldApplyResponse = acceptAvailabilityVersion(match.id, data.availabilityVersion);
       // Patch the match cache so availability fields update immediately without a full refetch
       const patch = {
         callAvail1:   data.callAvail1,
@@ -2330,12 +2346,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         callAvail2At: data.callAvail2At,
         agreedCallAt: data.agreedCallAt,
       };
-      queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) =>
-        Array.isArray(old) ? old.map((m: any) => m.id === match.id ? { ...m, ...patch } : m) : old
-      );
-      queryClient.setQueryData(["/api/matches", match.id], (old: any) =>
-        old ? { ...old, ...patch } : old
-      );
+      if (shouldApplyResponse) {
+        queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) =>
+          Array.isArray(old) ? old.map((m: any) => m.id === match.id ? { ...m, ...patch } : m) : old
+        );
+        queryClient.setQueryData(["/api/matches", match.id], (old: any) =>
+          old ? { ...old, ...patch } : old
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       // Also mark firstCallPromptSeen in the entitlement cache (server sets it in set-avail)
       queryClient.setQueryData(["/api/voice-notes/entitlement", match.id], (old: any) =>
         old ? { ...old, firstCallPromptSeen: true } : old
@@ -3552,8 +3572,20 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // early-start window opens — no manual refresh needed.
   useEffect(() => {
     if (!agreedCallAt) return;
+    setNowMs(Date.now());
+    const agreedAtMs = new Date(agreedCallAt).getTime();
+    const wakeAtBoundaries = [
+      agreedAtMs - 5 * 60_000,
+      agreedAtMs + 30 * 60_000,
+    ]
+      .map((boundary) => boundary - Date.now() + 50)
+      .filter((delay) => delay > 0)
+      .map((delay) => setTimeout(() => setNowMs(Date.now()), delay));
     const id = setInterval(() => setNowMs(Date.now()), 30_000);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      wakeAtBoundaries.forEach(clearTimeout);
+    };
   }, [agreedCallAt]);
 
   // Minutes until the early-start window opens (shown in CALL_SCHEDULED state).
@@ -4853,7 +4885,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     data-testid={`button-start-call-ready-${match.id}`}
                   >
                     <Phone className="w-4 h-4 me-2" />
-                    {t("start_first_call")}
+                    {startCall.isPending
+                      ? t("calling_name").replace("{name}", match.profile.firstName)
+                      : t("start_first_call")}
                   </Button>
                   <div className="flex gap-2">
                     <Button

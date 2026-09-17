@@ -5,12 +5,14 @@ import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCan
 import { armCallSession, markSessionAsVideo, isPushArmedSession, getLoginTime } from "@/lib/live-call-sessions";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
+import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
 
 // Set false once Bug 2 (caller-cancel race) is confirmed fixed in production.
 const DEBUG_CALLS = true;
 
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string; isVideo?: boolean }
+  | { type: "call:availability"; matchId: string; userId: string; callAvail1At: string | null; callAvail2At: string | null; agreedCallAt: string | null; availabilityVersion: number; serverBroadcastAt?: number }
   | { type: "call:answered"; matchId: string; userId: string; callSessionId?: string }
   | { type: "call:declined"; matchId: string; userId: string }
   | { type: "call:cancelled"; matchId: string; userId: string }
@@ -87,14 +89,45 @@ export function useCallSignaling(matchIds: string[], userId: string) {
       channel.on("broadcast", { event: "call-signal" }, ({ payload }) => {
         console.log("[CALL_SIGNAL] BROADCAST_RECEIVED", { matchId, payloadType: payload?.type, senderId: payload?.userId || payload?.callerId, isSelf: (payload?.userId || payload?.callerId) === userId });
         if (!payload) return;
+        const event = payload as CallSignalEvent;
+        if (event.type === "call:availability") {
+          const availability = event;
+          if (!acceptAvailabilityVersion(matchId, availability.availabilityVersion)) {
+            console.log("[CALL_AVAIL_REALTIME] stale availability ignored", {
+              matchId: matchId.slice(0, 8),
+              availabilityVersion: availability.availabilityVersion,
+            });
+            return;
+          }
+          const patch = {
+            callAvail1At: availability.callAvail1At,
+            callAvail2At: availability.callAvail2At,
+            agreedCallAt: availability.agreedCallAt,
+          };
+          queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) =>
+            Array.isArray(old)
+              ? old.map((m: any) => m.id === matchId ? { ...m, ...patch } : m)
+              : old
+          );
+          queryClient.setQueryData<any>(["/api/matches", matchId], (old: any) =>
+            old && !Array.isArray(old) ? { ...old, ...patch } : old
+          );
+          console.log("[CALL_AVAIL_REALTIME] availability applied", {
+            matchId: matchId.slice(0, 8),
+            availability_realtime_ms: typeof availability.serverBroadcastAt === "number"
+              ? Math.max(0, Date.now() - availability.serverBroadcastAt)
+              : null,
+          });
+          queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+          queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+          return;
+        }
         const senderId = payload.userId || payload.callerId;
         if (senderId === userId) {
           console.log("[CALL_SIGNAL] ignored own signalling message", { matchId, type: payload?.type });
           console.log("[CALL_SIGNAL] BROADCAST_SELF_FILTERED", { matchId, type: payload?.type });
           return;
         }
-        const event = payload as CallSignalEvent;
-
         let isEndSignal = false;
 
         if (event.type === "call:ring") {
@@ -289,7 +322,16 @@ export function useCallSignaling(matchIds: string[], userId: string) {
               matchId,
               sessionId: ringSessionId?.slice(0, 8) ?? "none",
             });
-            console.log("[TIMING] RING_RECEIVED", { matchId, callSessionId: ringSessionId, callerId: ring.callerId, receiverId: userId, ts: new Date().toISOString() });
+            console.log("[TIMING] RING_RECEIVED", {
+              matchId,
+              callSessionId: ringSessionId,
+              callerId: ring.callerId,
+              receiverId: userId,
+              ts: new Date().toISOString(),
+              incoming_call_realtime_ms: typeof ring.serverBroadcastAt === "number"
+                ? Math.max(0, Date.now() - ring.serverBroadcastAt)
+                : null,
+            });
             console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: ring.callerId, receiverId: userId });
             // Immediately update the list cache so incoming call UI shows without waiting for a refetch
             queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
