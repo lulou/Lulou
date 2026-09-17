@@ -38,19 +38,25 @@ function getPaidDuration(isVideo: boolean): number {
 type WarningLevel = "none" | "two_min" | "one_min" | "ten_sec";
 interface CountdownState { display: string; remaining: number; warning: WarningLevel }
 
-function useCountdownTimer(running: boolean, totalSeconds: number): CountdownState {
-  const [remaining, setRemaining] = useState(totalSeconds);
+function useCountdownTimer(connectedAtMs: number | null, totalSeconds: number): CountdownState {
+  const calculateRemaining = useCallback(() => {
+    if (connectedAtMs === null) return totalSeconds;
+    const elapsedSeconds = Math.max(0, (Date.now() - connectedAtMs) / 1000);
+    return Math.max(0, Math.ceil(totalSeconds - elapsedSeconds));
+  }, [connectedAtMs, totalSeconds]);
+  const [remaining, setRemaining] = useState(calculateRemaining);
 
-  // Reset to full duration whenever the call type changes or the call starts
-  useEffect(() => { setRemaining(totalSeconds); }, [totalSeconds]);
+  // Recalculate from the authoritative timestamp after remounts, rerenders,
+  // orientation changes, and when the server timestamp first arrives.
+  useEffect(() => { setRemaining(calculateRemaining()); }, [calculateRemaining]);
 
   useEffect(() => {
-    if (!running || remaining <= 0) return;
+    if (connectedAtMs === null || remaining <= 0) return;
     const interval = setInterval(() => {
-      setRemaining(r => (r <= 1 ? 0 : r - 1));
-    }, 1000);
+      setRemaining(calculateRemaining());
+    }, 250);
     return () => clearInterval(interval);
-  }, [running, remaining <= 0]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [connectedAtMs, calculateRemaining, remaining <= 0]);
 
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
@@ -73,6 +79,7 @@ interface ActiveCallProps {
   callerName: string;
   callerPhoto?: string;
   callStage: number;
+  callConnectedAt?: string | Date | null;
   isPaidCall?: boolean;
   onCallEnd: () => void;
 }
@@ -125,6 +132,7 @@ export function ActiveCallOverlay({
   callerName,
   callerPhoto,
   callStage,
+  callConnectedAt = null,
   isPaidCall = false,
   onCallEnd,
 }: ActiveCallProps) {
@@ -166,6 +174,13 @@ export function ActiveCallOverlay({
   // Using Date.now() in finishCall would inflate the duration by any time spent
   // staring at the "Connection failed" screen before pressing End Call.
   const disconnectedAtRef = useRef<number | null>(null);
+  const initialConnectedAtMs = callConnectedAt
+    ? new Date(callConnectedAt).getTime()
+    : null;
+  const [authoritativeConnectedAtMs, setAuthoritativeConnectedAtMs] = useState<number | null>(
+    Number.isFinite(initialConnectedAtMs) ? initialConnectedAtMs : null,
+  );
+  const connectedSyncInFlightRef = useRef(false);
 
   // Update call debug log with session ID and partner context as soon as they are known.
   useEffect(() => {
@@ -206,6 +221,7 @@ export function ActiveCallOverlay({
     hangup,
   } = useWebRTC({
     matchId,
+    callSessionId,
     userId,
     isCaller,
     isVideo,
@@ -223,7 +239,47 @@ export function ActiveCallOverlay({
   // Countdown timer — starts when WebRTC connects, counts down to 0 then auto-ends.
   // Paid credit calls use fixed durations (phone = 15 min, video = 10 min).
   const stageDuration = isPaidCall ? getPaidDuration(isVideo) : getStageDuration(callStage);
-  const { display: countdownDisplay, remaining, warning } = useCountdownTimer(isConnected, stageDuration);
+  const { display: countdownDisplay, remaining, warning } = useCountdownTimer(authoritativeConnectedAtMs, stageDuration);
+
+  useEffect(() => {
+    if (!callConnectedAt) return;
+    const next = new Date(callConnectedAt).getTime();
+    if (Number.isFinite(next)) {
+      setAuthoritativeConnectedAtMs(next);
+      connectedAtRef.current = next;
+    }
+  }, [callConnectedAt]);
+
+  // Persist the first actual RTCPeerConnection "connected" transition. Both
+  // devices call this idempotent endpoint and receive the same database time.
+  useEffect(() => {
+    if (!isConnected || authoritativeConnectedAtMs !== null || connectedSyncInFlightRef.current) return;
+    connectedSyncInFlightRef.current = true;
+    apiRequest("POST", `/api/matches/${matchId}/call/connected`, { callSessionId })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`call_connected_http_${res.status}`);
+        const data = await res.json();
+        const value = data.connectedAt ?? data.callConnectedAt;
+        const connectedAtMs = value ? new Date(value).getTime() : NaN;
+        if (!Number.isFinite(connectedAtMs)) throw new Error("call_connected_missing_timestamp");
+        connectedAtRef.current = connectedAtMs;
+        setAuthoritativeConnectedAtMs(connectedAtMs);
+        console.log("[CALL_PROGRESSION] authoritative_call_connected", {
+          matchId,
+          callSessionId,
+          connectedAt: new Date(connectedAtMs).toISOString(),
+        });
+      })
+      .catch((error) => {
+        console.error("[CALL_CONNECTED] Failed to persist authoritative connected time", {
+          matchId,
+          callSessionId,
+          error: error?.message,
+        });
+        connectedSyncInFlightRef.current = false;
+        finishCallRef.current?.("connection_failed");
+      });
+  }, [isConnected, authoritativeConnectedAtMs, matchId, callSessionId]);
 
   const stageLabel = callStage === 0 ? t("first_call_stage_label") : callStage === 1 ? t("second_call_stage_label") : t("face_call_stage_label_audio");
 
@@ -551,12 +607,11 @@ export function ActiveCallOverlay({
             : `WARN — unexpected remote element count (${remoteAttachedCount})`,
       });
 
-      // Record the first moment we were live — used to compute connectedDurationMs in finishCall
+      // The exact start timestamp comes from POST /call/connected. Do not start
+      // independent device-local timers here.
       if (connectedAtRef.current === null) {
-        connectedAtRef.current = Date.now();
-        console.log("[CALL_UI] CALL_STATE:connected", { matchId, callSessionId, isCaller, timestamp: connectedAtRef.current });
+        console.log("[CALL_UI] CALL_STATE:connected_pending_server_time", { matchId, callSessionId, isCaller });
         console.log("[CALL_DEBUG] CONNECTED: WebRTC ICE established — call is live", { matchId, isCaller });
-        console.log("[CALL_PROGRESSION] call_connected", { matchId, callSessionId, connectedAt: new Date(connectedAtRef.current).toISOString() });
       }
       // If the connection recovers after a drop, clear disconnectedAt so we don't
       // accidentally cap the duration at the moment of the earlier brief interruption.
@@ -584,7 +639,7 @@ export function ActiveCallOverlay({
   // Only fire when we're actively connected (not ringing/connecting) and the
   // call hasn't already been ended by some other path (endedRef guard).
   useEffect(() => {
-    if (remaining === 0 && isConnected && !endedRef.current) {
+    if (remaining === 0 && authoritativeConnectedAtMs !== null && !endedRef.current) {
       const completeMsg = callStage === 0
         ? t("timer_first_completed")
         : callStage === 1
@@ -592,13 +647,9 @@ export function ActiveCallOverlay({
         : t("timer_completed");
       setTimerExpiredMsg(completeMsg);
       console.log("[CALL_UI] TIMER_EXPIRED — auto-ending call", { matchId, callSessionId, callStage, stageDuration });
-      // Brief delay so the user sees "Time's up" before the overlay closes
-      const tid = setTimeout(() => {
-        finishCallRef.current?.("timer_expired");
-      }, 2500);
-      return () => clearTimeout(tid);
+      finishCallRef.current?.("timer_expired");
     }
-  }, [remaining, isConnected, callStage, matchId, callSessionId, stageDuration]);
+  }, [remaining, authoritativeConnectedAtMs, callStage, matchId, callSessionId, stageDuration]);
 
   // End immediately when the connection fails. Leaving the authoritative call row
   // active for a display delay kept the other peer stuck in a dead call and allowed
@@ -1012,6 +1063,10 @@ export function ActiveCallOverlay({
         callAnswered: false,
         callCompleted: false,
         callSessionId: null,
+        callConnectedAt: null,
+        callIsPaid: false,
+        callMediaType: "phone",
+        callPayerId: null,
       };
       queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
         if (!Array.isArray(old)) return old;
@@ -1061,6 +1116,8 @@ export function ActiveCallOverlay({
         if (!res.ok) {
           // Broadcast in error paths so the callee's overlay still dismisses.
           broadcastCallSignal(matchId, { type: signalType as any, matchId, userId, callSessionId } as any);
+          queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId], exact: true });
+          queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
           return;
         }
         const data = await res.json().catch(() => null);

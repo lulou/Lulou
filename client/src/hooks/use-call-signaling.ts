@@ -14,9 +14,10 @@ type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string; isVideo?: boolean }
   | { type: "call:availability"; matchId: string; userId: string; callAvail1At: string | null; callAvail2At: string | null; agreedCallAt: string | null; availabilityVersion: number; serverBroadcastAt?: number }
   | { type: "call:answered"; matchId: string; userId: string; callSessionId?: string }
-  | { type: "call:declined"; matchId: string; userId: string }
-  | { type: "call:cancelled"; matchId: string; userId: string }
-  | { type: "call:ended"; matchId: string; userId: string };
+  | { type: "call:connected"; matchId: string; userId: string; callSessionId: string; connectedAt: string }
+  | { type: "call:declined"; matchId: string; userId: string; callSessionId: string }
+  | { type: "call:cancelled"; matchId: string; userId: string; callSessionId: string }
+  | { type: "call:ended"; matchId: string; userId: string; callSessionId: string };
 
 function getChannelName(matchId: string) {
   return `call-signal:${matchId}`;
@@ -122,11 +123,50 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
           return;
         }
+        if (event.type === "call:connected") {
+          const connected = event;
+          const applyConnected = (old: any) => {
+            if (!old || old.callSessionId !== connected.callSessionId) return old;
+            return { ...old, callConnectedAt: connected.connectedAt };
+          };
+          queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) =>
+            Array.isArray(old)
+              ? old.map((m: any) => m.id === matchId ? applyConnected(m) : m)
+              : old
+          );
+          queryClient.setQueryData<any>(["/api/matches", matchId], applyConnected);
+          return;
+        }
         const senderId = payload.userId || payload.callerId;
         if (senderId === userId) {
           console.log("[CALL_SIGNAL] ignored own signalling message", { matchId, type: payload?.type });
           console.log("[CALL_SIGNAL] BROADCAST_SELF_FILTERED", { matchId, type: payload?.type });
           return;
+        }
+        if (
+          event.type === "call:declined"
+          || event.type === "call:cancelled"
+          || event.type === "call:ended"
+        ) {
+          const terminalSessionId = event.callSessionId;
+          if (!terminalSessionId) {
+            console.warn("[CALL_SIGNAL] terminal signal ignored without session ID", { matchId, type: event.type });
+            return;
+          }
+          const detail = queryClient.getQueryData<any>(["/api/matches", matchId]);
+          const list = queryClient.getQueryData<any[]>(["/api/matches"]);
+          const currentSessionId = detail?.callSessionId
+            ?? list?.find((m: any) => m.id === matchId)?.callSessionId
+            ?? null;
+          if (currentSessionId && currentSessionId !== terminalSessionId) {
+            console.warn("[CALL_SIGNAL] stale terminal signal ignored", {
+              matchId,
+              type: event.type,
+              terminalSessionId,
+              currentSessionId,
+            });
+            return;
+          }
         }
         let isEndSignal = false;
 
@@ -462,14 +502,24 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             callAnswered: false,
             callCompleted: false,
             callInitiatorId: null,
+            callConnectedAt: null,
+            callIsPaid: false,
+            callMediaType: "phone",
+            callPayerId: null,
           };
           queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
             if (!old || Array.isArray(old)) return old;
-            return { ...old, ...clearPatch };
+            const sid = (event as any).callSessionId;
+            return sid && old.callSessionId !== sid ? old : { ...old, ...clearPatch };
           });
           queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
             if (!old || !Array.isArray(old)) return old;
-            return old.map((m: any) => m.id === matchId ? { ...m, ...clearPatch } : m);
+            const sid = (event as any).callSessionId;
+            return old.map((m: any) =>
+              m.id === matchId && (!sid || m.callSessionId === sid)
+                ? { ...m, ...clearPatch }
+                : m
+            );
           });
           // Refresh match detail so call status, conversation stage, and
           // message counts immediately reflect authoritative server state.

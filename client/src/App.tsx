@@ -320,15 +320,24 @@ function clearCallFromCache(
     callAnswered: false,
     callCompleted: false,
     callSessionId: null,
+    callConnectedAt: null,
+    callIsPaid: false,
+    callMediaType: "phone",
+    callPayerId: null,
   };
   // Update list query — guard against detail query (non-array) being matched by the partial key
   qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
     if (!old || !Array.isArray(old)) return old;
-    return old.map(m => m.id === matchId ? { ...m, ...cleared } : m);
+    return old.map(m =>
+      m.id === matchId && (!callSessionId || m.callSessionId === callSessionId)
+        ? { ...m, ...cleared }
+        : m
+    );
   });
   // Also explicitly clear the detail query so the inline call UI resets
   qc.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
     if (!old || Array.isArray(old)) return old;
+    if (callSessionId && old.callSessionId !== callSessionId) return old;
     return { ...old, ...cleared };
   });
 }
@@ -1233,7 +1242,8 @@ function CallDetectors({ userId }: { userId: string }) {
   // Stage 2 is post-second-call messaging — no calls allowed there.
   // isVideoCallSession() also catches paid video-credit calls.
   const isFaceCall = matchForIncoming
-    ? isVideoCallSession(matchForIncoming.callSessionId) ||
+    ? matchForIncoming.callMediaType === "video" ||
+      isVideoCallSession(matchForIncoming.callSessionId) ||
       (matchForIncoming.callStage || 0) === 1 ||
       ((matchForIncoming.callStage || 0) === 3 &&
         !!matchForIncoming.faceCallUser1Accepted &&
@@ -1241,7 +1251,8 @@ function CallDetectors({ userId }: { userId: string }) {
     : false;
 
   const isActiveVideo = activeCall
-    ? isVideoCallSession(activeCall.callSessionId) ||  // paid video-credit call
+    ? activeCall.callMediaType === "video" ||
+      isVideoCallSession(activeCall.callSessionId) ||  // legacy paid video-credit call
       (activeCall.callStage || 0) === 1 ||              // second call is always video
       ((activeCall.callStage || 0) === 3 &&
         !!activeCall.faceCallUser1Accepted &&
@@ -1373,7 +1384,8 @@ function CallDetectors({ userId }: { userId: string }) {
                   callerName={overlayForActive.profile?.firstName || "Unknown"}
                   callerPhoto={overlayForActive.profile?.photos?.[0] || undefined}
                   callStage={overlayForActive.callStage || 0}
-                  isPaidCall={isPaidCallSession(overlayForActive.callSessionId)}
+                  callConnectedAt={overlayForActive.callConnectedAt ?? null}
+                  isPaidCall={overlayForActive.callIsPaid === true || isPaidCallSession(overlayForActive.callSessionId)}
                   onCallEnd={handleActiveCallEnd}
                 />
               </CallOverlayErrorBoundary>

@@ -1,6 +1,22 @@
 ALTER TABLE public.matches
   ADD COLUMN IF NOT EXISTS availability_revision BIGINT NOT NULL DEFAULT 0;
 
+ALTER TABLE public.matches
+  ADD COLUMN IF NOT EXISTS call_connected_at TIMESTAMPTZ;
+
+ALTER TABLE public.matches
+  ADD COLUMN IF NOT EXISTS call_is_paid BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS call_media_type TEXT NOT NULL DEFAULT 'phone',
+  ADD COLUMN IF NOT EXISTS call_payer_id TEXT;
+
+ALTER TABLE public.matches
+  ADD COLUMN IF NOT EXISTS last_call_session_id TEXT,
+  ADD COLUMN IF NOT EXISTS last_call_counted BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS last_call_stage INTEGER,
+  ADD COLUMN IF NOT EXISTS last_call_is_paid BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS last_call_media_type TEXT,
+  ADD COLUMN IF NOT EXISTS last_call_payer_id TEXT;
+
 CREATE OR REPLACE FUNCTION public.set_call_availability_atomic(
   p_match_id TEXT,
   p_user_id TEXT,

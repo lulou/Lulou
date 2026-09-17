@@ -4252,7 +4252,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
       {/* BOTTOM PANEL — sits at bottom of flex column, naturally above keyboard */}
       <div style={{ flexShrink: 0, background: "hsl(var(--background))" }}>
-          {isCallRinging && iAmCaller ? (
+          {false && isCallRinging && iAmCaller ? (
             <div
               className="border-t"
               style={{ background: "linear-gradient(160deg, hsl(350 45% 14%) 0%, hsl(350 40% 9%) 100%)" }}
@@ -4302,7 +4302,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <p className="text-white/25 text-[11px]">{t("if_they_dont_pick_up")}</p>
               </div>
             </div>
-          ) : isCallRinging && !iAmCaller ? (
+          ) : false && isCallRinging && !iAmCaller ? (
             <div
               className="border-t"
               style={{ background: "linear-gradient(160deg, hsl(145 45% 12%) 0%, hsl(145 40% 8%) 100%)" }}
@@ -4365,7 +4365,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             </div>
-          ) : isCallActive ? (
+          ) : false && isCallActive ? (
             <div className="p-5 border-t" data-testid={`call-active-banner-${match.id}`}>
               {isCallAnsweredStuck ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3 text-center" data-testid={`call-stuck-banner-${match.id}`}>

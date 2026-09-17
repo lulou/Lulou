@@ -57,12 +57,12 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
   // Returns a cleanup fn that removes the channel if the callee dismisses
   // without answering (decline / swipe away).
   useEffect(() => {
-    if (!isReceiver || !user?.id) return;
+    if (!isReceiver || !user?.id || !match.callSessionId) return;
     console.log("[CALLEE_FIX] callee screen mounted — pre-subscribing signalling channel", {
       matchId: match.id,
       callSessionId: match.callSessionId,
     });
-    const cleanup = calleePresubscribe(match.id, user.id);
+    const cleanup = calleePresubscribe(match.id, match.callSessionId, user.id);
     return cleanup;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match.id, match.callSessionId]);
@@ -242,7 +242,9 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       // The channel was subscribed when this overlay mounted (calleePresubscribe),
       // so the signal goes out without waiting for useWebRTC to mount and subscribe
       // — eliminating the main source of "Channel: idle / Ready sent: 0" delays.
-      calleePresubSendReady(match.id, user!.id);
+      if (answeredMatch.callSessionId) {
+        calleePresubSendReady(match.id, answeredMatch.callSessionId, user!.id);
+      }
       // Notify App.tsx that the receiver has answered on this device so
       // matchForIncoming transitions to null and ActiveCallOverlay can mount.
       onAnswer?.(answeredMatch);

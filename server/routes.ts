@@ -29,7 +29,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { matches, messages, userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, profilePhotoReactions, profilePromptReplies, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen, userSettings } from "@shared/schema";
+import { matches, messages, userBenefits, callCredits, callTerminalSettlements, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, profilePhotoReactions, profilePromptReplies, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen, userSettings } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
@@ -864,40 +864,131 @@ function generateAutoReply(profile: Profile | undefined, msgIndex: number): stri
 async function clearStaleCallsOnStartup(): Promise<void> {
   try {
     const STALE_RINGING_MS = 2 * 60 * 1000;
-    const STALE_ANSWERED_MS = 5 * 60 * 1000;
-    const now = new Date();
+    const STALE_NEGOTIATING_MS = 5 * 60 * 1000;
+    const STALE_CONNECTED_MS = 20 * 60 * 1000;
+    const maintenanceStorage = new SupabaseStorage(supabaseAdmin);
+    const { data: activeMatches, error } = await supabaseAdmin
+      .from("matches")
+      .select("id,call_started_at,call_answered,call_connected_at,call_session_id,call_is_paid,call_media_type,call_payer_id,call_stage")
+      .not("call_started_at", "is", null);
+    if (error) throw error;
 
-    const { matches: matchesTable } = await import("@shared/schema");
-    const { isNotNull } = await import("drizzle-orm");
+    let clearedCount = 0;
+    for (const m of activeMatches || []) {
+      const startedAge = Date.now() - new Date(m.call_started_at).getTime();
+      const connectedAge = m.call_connected_at
+        ? Date.now() - new Date(m.call_connected_at).getTime()
+        : 0;
+      const isStale =
+        (!m.call_answered && startedAge > STALE_RINGING_MS)
+        || (m.call_answered && !m.call_connected_at && startedAge > STALE_NEGOTIATING_MS)
+        || (!!m.call_connected_at && connectedAge > STALE_CONNECTED_MS);
+      if (!isStale || !m.call_session_id) continue;
 
-    const activeMatches = await db
-      .select({ id: matchesTable.id, callStartedAt: matchesTable.callStartedAt, callAnswered: matchesTable.callAnswered })
-      .from(matchesTable)
-      .where(isNotNull(matchesTable.callStartedAt));
-
-    const staleIds: string[] = [];
-    for (const m of activeMatches) {
-      if (!m.callStartedAt) continue;
-      const age = now.getTime() - new Date(m.callStartedAt).getTime();
-      const isStale = (!m.callAnswered && age > STALE_RINGING_MS) || (m.callAnswered && age > STALE_ANSWERED_MS);
-      if (isStale) staleIds.push(m.id);
+      await ensureCallSettlementTable();
+      await db.insert(callTerminalSettlements).values({
+        callSessionId: m.call_session_id,
+        matchId: m.id,
+        counted: false,
+        isPaid: m.call_is_paid === true,
+        callType: m.call_media_type === "video" ? "video" : "phone",
+        callStage: Number(m.call_stage ?? 0),
+        status: "pending",
+      }).onConflictDoNothing();
+      const { data: cleared } = await supabaseAdmin
+        .from("matches")
+        .update({
+          call_started_at: null, call_initiator_id: null, call_answered: false,
+          call_completed: false, call_session_id: null, call_connected_at: null,
+          call_is_paid: false, call_media_type: "phone", call_payer_id: null,
+          last_call_session_id: m.call_session_id, last_call_counted: false,
+          last_call_stage: Number(m.call_stage ?? 0), last_call_is_paid: m.call_is_paid === true,
+          last_call_media_type: m.call_media_type === "video" ? "video" : "phone",
+          last_call_payer_id: m.call_payer_id ?? null,
+        })
+        .eq("id", m.id)
+        .eq("call_session_id", m.call_session_id)
+        .select("id")
+        .maybeSingle();
+      if (cleared) {
+        await processCallSettlement(m.call_session_id);
+        clearedCount++;
+      }
     }
-
-    if (staleIds.length === 0) {
-      console.log("[STARTUP] No stale calls to clear");
-      return;
-    }
-
-    for (const id of staleIds) {
-      await db
-        .update(matchesTable)
-        .set({ callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false })
-        .where(eq(matchesTable.id, id));
-      console.log("[STARTUP] Cleared stale call for match", id.slice(0, 8));
-    }
-    console.log(`[STARTUP] Stale call cleanup complete — cleared ${staleIds.length} stale call(s)`);
+    console.log(`[STARTUP] Stale call cleanup complete — cleared ${clearedCount} stale call(s)`);
   } catch (err: any) {
     console.error("[STARTUP] Stale call cleanup threw:", err?.message);
+  }
+}
+
+let callSettlementTableReady: Promise<void> | null = null;
+function ensureCallSettlementTable(): Promise<void> {
+  if (!callSettlementTableReady) {
+    callSettlementTableReady = db.execute(sqlExpr`
+      CREATE TABLE IF NOT EXISTS call_terminal_settlements (
+        call_session_id VARCHAR PRIMARY KEY,
+        match_id VARCHAR NOT NULL,
+        counted BOOLEAN NOT NULL,
+        is_paid BOOLEAN NOT NULL,
+        call_type TEXT NOT NULL,
+        call_stage INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW(),
+        settled_at TIMESTAMP
+      )
+    `).then(() => undefined).catch((error: unknown) => {
+      callSettlementTableReady = null;
+      throw error;
+    });
+  }
+  return callSettlementTableReady;
+}
+
+async function processCallSettlement(callSessionId: string): Promise<boolean> {
+  await ensureCallSettlementTable();
+  const [entry] = await db.select().from(callTerminalSettlements)
+    .where(eq(callTerminalSettlements.callSessionId, callSessionId)).limit(1);
+  if (!entry) return false;
+  if (entry.status === "settled") return true;
+
+  const { data: matchRow } = await supabaseAdmin.from("matches")
+    .select("last_call_session_id,last_call_counted,last_call_is_paid,last_call_media_type,last_call_stage")
+    .eq("id", entry.matchId)
+    .maybeSingle();
+  if (matchRow?.last_call_session_id !== callSessionId) return false;
+
+  const maintenanceStorage = new SupabaseStorage(supabaseAdmin);
+  const counted = matchRow.last_call_counted === true;
+  const isPaid = matchRow.last_call_is_paid === true;
+  const callType = matchRow.last_call_media_type === "video" ? "video" : "phone";
+  const callStage = Number(matchRow.last_call_stage ?? 0);
+  if (isPaid) {
+    const ok = counted
+      ? await maintenanceStorage.consumeReservedCallCredit(callSessionId)
+      : await maintenanceStorage.refundReservedCallCredit(callSessionId);
+    if (!ok) throw new Error("Paid call reservation settlement failed");
+  } else if (counted && callType === "phone" && callStage === 0) {
+    await db.insert(voiceNoteUnlocks)
+      .values({ matchId: entry.matchId, unlockSource: "post_call" })
+      .onConflictDoUpdate({
+        target: voiceNoteUnlocks.matchId,
+        set: { unlockSource: "post_call", unlockedAt: new Date() },
+      });
+  }
+  await db.update(callTerminalSettlements)
+    .set({ status: "settled", settledAt: new Date() })
+    .where(eq(callTerminalSettlements.callSessionId, callSessionId));
+  return true;
+}
+
+async function reconcilePendingCallSettlements(matchId?: string): Promise<void> {
+  await ensureCallSettlementTable();
+  const pending = await db.select().from(callTerminalSettlements)
+    .where(matchId
+      ? and(eq(callTerminalSettlements.status, "pending"), eq(callTerminalSettlements.matchId, matchId))
+      : eq(callTerminalSettlements.status, "pending"));
+  for (const entry of pending) {
+    await processCallSettlement(entry.callSessionId);
   }
 }
 
@@ -906,6 +997,10 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   clearStaleCallsOnStartup().catch((err) => console.error("[STARTUP] clearStaleCallsOnStartup failed:", err?.message));
+  reconcilePendingCallSettlements().catch((err) => console.error("[STARTUP] call settlement reconciliation failed:", err?.message));
+  setInterval(() => {
+    reconcilePendingCallSettlements().catch((err) => console.error("[CALL_SETTLEMENT] reconciliation failed:", err?.message));
+  }, 30_000);
 
   // ── Periodic stale-call cleanup ───────────────────────────────────────────
   // The startup sweep only runs once at boot.  If both parties crash/kill the
@@ -916,48 +1011,65 @@ export async function registerRoutes(
   setInterval(async () => {
     try {
       const STALE_RINGING_MS = 2 * 60 * 1000;   // 2 min unanswered
-      const STALE_ANSWERED_MS = 10 * 60 * 1000;  // 10 min answered but not completed
-      const now = new Date();
+      const STALE_NEGOTIATING_MS = 5 * 60 * 1000;
+      const STALE_CONNECTED_MS = 20 * 60 * 1000;
+      const maintenanceStorage = new SupabaseStorage(supabaseAdmin);
+      const { data: activeMatches, error } = await supabaseAdmin
+        .from("matches")
+        .select("id,call_started_at,call_answered,call_connected_at,call_session_id,call_is_paid,call_media_type,call_payer_id,call_stage")
+        .not("call_started_at", "is", null);
+      if (error) throw error;
 
-      const { matches: matchesTableP } = await import("@shared/schema");
-      const { isNotNull: isNotNullP } = await import("drizzle-orm");
-
-      const activeMatches = await db
-        .select({
-          id: matchesTableP.id,
-          callStartedAt: matchesTableP.callStartedAt,
-          callAnswered: matchesTableP.callAnswered,
-          callSessionId: matchesTableP.callSessionId,
-        })
-        .from(matchesTableP)
-        .where(isNotNullP(matchesTableP.callStartedAt));
-
-      for (const m of activeMatches) {
-        if (!m.callStartedAt) continue;
-        const age = now.getTime() - new Date(m.callStartedAt).getTime();
+      for (const m of activeMatches || []) {
+        const age = Date.now() - new Date(m.call_started_at).getTime();
+        const connectedAge = m.call_connected_at
+          ? Date.now() - new Date(m.call_connected_at).getTime()
+          : 0;
         const isStale =
-          (!m.callAnswered && age > STALE_RINGING_MS) ||
-          (m.callAnswered && age > STALE_ANSWERED_MS);
-        if (!isStale) continue;
+          (!m.call_answered && age > STALE_RINGING_MS)
+          || (m.call_answered && !m.call_connected_at && age > STALE_NEGOTIATING_MS)
+          || (!!m.call_connected_at && connectedAge > STALE_CONNECTED_MS);
+        if (!isStale || !m.call_session_id) continue;
 
-        await db
-          .update(matchesTableP)
-          .set({ callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false })
-          .where(eq(matchesTableP.id, m.id));
+        await ensureCallSettlementTable();
+        await db.insert(callTerminalSettlements).values({
+          callSessionId: m.call_session_id,
+          matchId: m.id,
+          counted: false,
+          isPaid: m.call_is_paid === true,
+          callType: m.call_media_type === "video" ? "video" : "phone",
+          callStage: Number(m.call_stage ?? 0),
+          status: "pending",
+        }).onConflictDoNothing();
+        const { data: cleared } = await supabaseAdmin
+          .from("matches")
+          .update({
+            call_started_at: null, call_initiator_id: null, call_answered: false,
+            call_completed: false, call_session_id: null, call_connected_at: null,
+            call_is_paid: false, call_media_type: "phone", call_payer_id: null,
+            last_call_session_id: m.call_session_id, last_call_counted: false,
+            last_call_stage: Number(m.call_stage ?? 0), last_call_is_paid: m.call_is_paid === true,
+            last_call_media_type: m.call_media_type === "video" ? "video" : "phone",
+            last_call_payer_id: m.call_payer_id ?? null,
+          })
+          .eq("id", m.id)
+          .eq("call_session_id", m.call_session_id)
+          .select("id")
+          .maybeSingle();
+        if (!cleared) continue;
+        await processCallSettlement(m.call_session_id);
 
-        if (m.callSessionId) {
-          await broadcastCallEvent(m.id, {
-            type: "call:ended",
-            matchId: m.id,
-            userId: "server-gc",
-            callSessionId: m.callSessionId,
-          });
-        }
+        await broadcastCallEvent(m.id, {
+          type: "call:ended",
+          matchId: m.id,
+          userId: "server-gc",
+          callSessionId: m.call_session_id,
+        });
         console.log("[PERIODIC_CLEANUP] cleared stale call", {
           matchId: m.id.slice(0, 8),
           ageMs: age,
-          answered: m.callAnswered,
-          sessionId: m.callSessionId?.slice(0, 8) ?? "none",
+          answered: m.call_answered,
+          sessionId: m.call_session_id.slice(0, 8),
         });
       }
     } catch (err: any) {
@@ -4198,11 +4310,24 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, callLimiter, async (req: any, res) => {
     const callCreateStartedAt = Date.now();
+    let paidReservationSessionId: string | null = null;
+    let paidReservationStorage: SupabaseStorage | null = null;
     try {
       const serverStorage = getCallStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
       const { isPaidCredit, isVideo } = req.body || {};
+      await reconcilePendingCallSettlements(matchId);
+      const unresolved = await db.select({ sessionId: callTerminalSettlements.callSessionId })
+        .from(callTerminalSettlements)
+        .where(and(
+          eq(callTerminalSettlements.matchId, matchId),
+          eq(callTerminalSettlements.status, "pending"),
+        ))
+        .limit(1);
+      if (unresolved.length > 0) {
+        return res.status(409).json({ message: "Previous call is still settling. Please try again." });
+      }
       let expectedAgreedCallAt: string | null = null;
       let expectedAvailabilityRevision: number | null = null;
       console.log("[CALL_START] CALL_REQUEST_STARTED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
@@ -4331,13 +4456,46 @@ export async function registerRoutes(
         }
       }
 
-      const result = await serverStorage.startCall(matchId, userId, !!isPaidCredit, expectedAgreedCallAt, expectedAvailabilityRevision);
+      const requestedSessionId = `call-${matchId}-${Date.now()}-${randomUUID()}`;
+      if (isPaidCredit) {
+        const reserved = await serverStorage.reserveCallCredit(
+          userId,
+          isVideo ? "video" : "phone",
+          requestedSessionId,
+        );
+        if (!reserved) {
+          return res.status(403).json({
+            message: "paid_call_credit_required",
+            feature: isVideo ? "video" : "phone",
+          });
+        }
+        paidReservationSessionId = requestedSessionId;
+        paidReservationStorage = serverStorage;
+      }
+
+      const result = await serverStorage.startCall(
+        matchId,
+        userId,
+        !!isPaidCredit,
+        !!isVideo,
+        expectedAgreedCallAt,
+        expectedAvailabilityRevision,
+        requestedSessionId,
+      );
       if (!result) {
+        if (paidReservationSessionId) {
+          await serverStorage.refundReservedCallCredit(paidReservationSessionId);
+          paidReservationSessionId = null;
+        }
         console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found or call not allowed" });
       }
 
       const { match, status } = result;
+      if (status !== "created" && paidReservationSessionId) {
+        await serverStorage.refundReservedCallCredit(paidReservationSessionId);
+        paidReservationSessionId = null;
+      }
 
       if (status === "self_call") {
         console.warn("[CALL_START] SELF_CALL_BLOCKED", { matchId, userId });
@@ -4357,6 +4515,7 @@ export async function registerRoutes(
         console.log("[CALL_START] CALL_SESSION_REUSED", { matchId, callSessionId: match.callSessionId, callerId: userId });
         return res.json(match);
       }
+      paidReservationSessionId = null;
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       const callerProfile = await serverStorage.getProfileMeta(userId);
@@ -4419,7 +4578,10 @@ export async function registerRoutes(
       if (isSeedUser(otherUserId)) {
         setTimeout(async () => {
           try {
-            await serverStorage.answerCall(matchId, otherUserId, match.callSessionId ?? undefined);
+            if (!match.callSessionId) {
+              throw new Error("Cannot auto-answer a call without a persisted session ID");
+            }
+            await serverStorage.answerCall(matchId, otherUserId, match.callSessionId);
             console.log("[CALL_AUTO_ANSWER] CALL_SESSION_JOINED", { matchId, callSessionId: match.callSessionId, userId: otherUserId });
             broadcastCallEvent(matchId, {
               type: "call:answered",
@@ -4435,6 +4597,14 @@ export async function registerRoutes(
 
       res.json(match);
     } catch (error: any) {
+      if (paidReservationSessionId && paidReservationStorage) {
+        await paidReservationStorage.refundReservedCallCredit(paidReservationSessionId).catch((refundError: any) => {
+          console.error("[CALL_START] CREDIT_RESERVATION_REFUND_ERROR", {
+            callSessionId: paidReservationSessionId,
+            error: refundError?.message,
+          });
+        });
+      }
       const matchId = req.params.matchId;
       const userId = req.user?.id;
       console.error("[CALL_START] CALL_ROUTE_ERROR", {
@@ -4512,7 +4682,7 @@ export async function registerRoutes(
       console.log("[CALL_REPAIR] STUCK_CALL_CLEARING", { matchId, userId, callAgeMs: callAge, callAnswered: m.callAnswered, callSessionId: m.callSessionId });
       const { data: cleared, error: clearError } = await supabaseAdmin
         .from("matches")
-        .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false })
+        .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false, call_session_id: null, call_connected_at: null, call_is_paid: false, call_media_type: "phone", call_payer_id: null })
         .eq("id", matchId)
         .select()
         .maybeSingle();
@@ -4570,7 +4740,7 @@ export async function registerRoutes(
         });
         const { error: clearErr } = await supabaseAdmin
           .from("matches")
-          .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false, call_session_id: null })
+          .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false, call_session_id: null, call_connected_at: null, call_is_paid: false, call_media_type: "phone", call_payer_id: null })
           .eq("id", row.id);
         if (clearErr) {
           console.error("[CALL_SWEEP] CLEAR_ERROR", { matchId: row.id, error: clearErr.message });
@@ -4635,6 +4805,39 @@ export async function registerRoutes(
         route: "POST /api/matches/:matchId/call/answer",
         detail: error?.stack?.split("\n")[0] || null,
       });
+    }
+  });
+
+  app.post("/api/matches/:matchId/call/connected", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const matchId = req.params.matchId;
+      const callSessionId = typeof req.body?.callSessionId === "string"
+        ? req.body.callSessionId
+        : null;
+      if (!callSessionId) {
+        return res.status(400).json({ message: "callSessionId is required" });
+      }
+      const match = await getCallStorage(req).markCallConnected(matchId, userId, callSessionId);
+      if (!match?.callConnectedAt) {
+        return res.status(409).json({ message: "Call session is no longer active or has not been answered" });
+      }
+      const connectedAt = new Date(match.callConnectedAt).toISOString();
+      await broadcastCallEvent(matchId, {
+        type: "call:connected",
+        matchId,
+        userId,
+        callSessionId,
+        connectedAt,
+      });
+      return res.json({ ...match, connectedAt });
+    } catch (error: any) {
+      console.error("[CALL_CONNECTED] ERROR", {
+        matchId: req.params.matchId,
+        userId: req.user?.id,
+        error: error?.message,
+      });
+      return res.status(500).json({ message: error?.message || "Failed to mark call connected" });
     }
   });
 
@@ -4710,27 +4913,58 @@ export async function registerRoutes(
       let preCancelInitiatorId: string | null = null;
       let preCancelStartedAt: string | null = null;
       let preCancelSessionId: string | null = null;
+      let preCancelIsPaid = false;
+      let preCancelLastSessionId: string | null = null;
+      let preCancelLastIsPaid = false;
+      let preCancelMediaType: "phone" | "video" = "phone";
+      let preCancelStage = 0;
       try {
         const { data: pre } = await supabaseAdmin
           .from("matches")
-          .select("call_initiator_id, call_started_at, call_session_id")
+          .select("*")
           .eq("id", matchId)
           .maybeSingle();
         preCancelInitiatorId = pre?.call_initiator_id ?? null;
         preCancelStartedAt   = pre?.call_started_at   ?? null;
         preCancelSessionId   = pre?.call_session_id   ?? null;
+        preCancelIsPaid      = pre?.call_is_paid === true;
+        preCancelLastSessionId = pre?.last_call_session_id ?? null;
+        preCancelLastIsPaid = pre?.last_call_is_paid === true;
+        preCancelMediaType = pre?.call_media_type === "video" ? "video" : "phone";
+        preCancelStage = Number(pre?.call_stage ?? 0);
+        if (pre && pre.user1_id !== userId && pre.user2_id !== userId) {
+          return res.status(403).json({ message: "Not a participant in this match" });
+        }
       } catch { /* non-fatal — fall back to treating userId as caller */ }
       const requestedSessionId = typeof req.body?.callSessionId === "string"
         ? req.body.callSessionId
         : null;
-      if (requestedSessionId && requestedSessionId !== preCancelSessionId) {
+      if (!requestedSessionId) {
+        return res.status(400).json({ message: "callSessionId is required" });
+      }
+      if (!preCancelSessionId && preCancelLastSessionId === requestedSessionId) {
+        await processCallSettlement(requestedSessionId);
+        return res.json(mapMatch(pre));
+      }
+      if (requestedSessionId !== preCancelSessionId) {
         return res.status(409).json({ message: "Call session is no longer active" });
       }
+      await ensureCallSettlementTable();
+      await db.insert(callTerminalSettlements).values({
+        callSessionId: requestedSessionId,
+        matchId,
+        counted: false,
+        isPaid: preCancelIsPaid,
+        callType: preCancelMediaType,
+        callStage: preCancelStage,
+        status: "pending",
+      }).onConflictDoNothing();
 
-      const match = await serverStorage.cancelCall(matchId, userId);
+      const match = await serverStorage.cancelCall(matchId, userId, requestedSessionId);
       if (!match) {
-        return res.status(404).json({ message: "Match not found" });
+        return res.status(409).json({ message: "Call session is no longer active" });
       }
+      await processCallSettlement(requestedSessionId);
       await broadcastCallEvent(matchId, {
         type: "call:cancelled",
         matchId,
@@ -4810,32 +5044,6 @@ export async function registerRoutes(
         callSessionId: null,
       });
 
-      broadcastCallEvent(matchId, {
-        type: "call:cancelled",
-        matchId,
-        userId,
-      });
-
-      try {
-        const auth = req.headers.authorization;
-        const readClient = auth ? createUserClient(auth) : supabase;
-        const { data: matchRow } = await readClient
-          .from("matches")
-          .select("*")
-          .eq("id", matchId)
-          .maybeSingle();
-        if (matchRow) {
-          const mapped = mapMatch(matchRow);
-          mapped.callStartedAt = null;
-          mapped.callInitiatorId = null;
-          mapped.callAnswered = false;
-          mapped.callCompleted = false;
-          return res.json(mapped);
-        }
-      } catch (readErr) {
-        console.error("[CALL_CANCEL] FALLBACK_READ_FAILED", { matchId, userId, error: (readErr as any)?.message });
-      }
-
       res.status(500).json({
         message: error?.message || "Failed to cancel call",
         route: "POST /api/matches/:matchId/call/cancel",
@@ -4850,10 +5058,11 @@ export async function registerRoutes(
       const userId = req.user.id;
       const matchId = req.params.matchId;
 
-      // Parse connection quality info sent by the client
-      const { callSessionId, connected, connectedDurationMs, callState, callType } = req.body || {};
-      const resolvedCallType: "phone" | "video" = callType === "video" ? "video" : "phone";
+      // Parse the client's terminal state. The server uses persisted session
+      // metadata and call_connected_at for entitlement and duration decisions.
+      const { callSessionId, connected, connectedDurationMs, callState } = req.body || {};
       const options: CompleteCallOptions = {
+        callSessionId: typeof callSessionId === "string" ? callSessionId : undefined,
         connected: connected !== undefined ? Boolean(connected) : undefined,
         connectedDurationMs: connectedDurationMs !== undefined ? Number(connectedDurationMs) : undefined,
         callState: typeof callState === "string" ? callState : undefined,
@@ -4864,44 +5073,63 @@ export async function registerRoutes(
         connected: options.connected,
         connectedDurationMs: options.connectedDurationMs,
         callState: options.callState,
-        callType: resolvedCallType,
       });
 
-      // Capture the initiator before completeCall clears the session — used to
-      // ensure only the caller is charged (prevents double deduction).
+      // Capture persisted call metadata before completeCall clears the session.
       const { data: priorMatchRow } = await supabaseAdmin
         .from("matches")
-        .select("call_initiator_id, call_session_id")
+        .select("*")
         .eq("id", matchId)
         .single();
-      const priorInitiatorId: string | null = priorMatchRow?.call_initiator_id ?? null;
       const activeSessionId: string | null = priorMatchRow?.call_session_id ?? null;
-      if (typeof callSessionId === "string" && callSessionId !== activeSessionId) {
+      const priorIsPaid = priorMatchRow?.call_is_paid === true;
+      const persistedCallType: "phone" | "video" = priorMatchRow?.call_media_type === "video" ? "video" : "phone";
+      const persistedPayerId: string | null = priorMatchRow?.call_payer_id ?? null;
+      const priorCallStage = Number(priorMatchRow?.call_stage ?? 0);
+      if (typeof callSessionId !== "string") {
+        return res.status(400).json({ message: "callSessionId is required" });
+      }
+      if (
+        priorMatchRow
+        && priorMatchRow.user1_id !== userId
+        && priorMatchRow.user2_id !== userId
+      ) {
+        return res.status(403).json({ message: "Not a participant in this match" });
+      }
+      if (callSessionId !== activeSessionId) {
+        if (!activeSessionId && priorMatchRow?.last_call_session_id === callSessionId) {
+          const counted = priorMatchRow.last_call_counted === true;
+          await processCallSettlement(callSessionId);
+          return res.json({ ...mapMatch(priorMatchRow), callCounted: counted });
+        }
         return res.status(409).json({ message: "Call session is no longer active" });
       }
+
+      await ensureCallSettlementTable();
+      await db.insert(callTerminalSettlements).values({
+        callSessionId,
+        matchId,
+        counted: false,
+        isPaid: priorIsPaid,
+        callType: persistedCallType,
+        callStage: priorCallStage,
+        status: "pending",
+      }).onConflictDoNothing();
 
       const result = await serverStorage.completeCall(matchId, userId, options);
       if (!result) {
         return res.status(404).json({ message: "Match not found" });
       }
 
-      // Consume one call credit when:
-      //   1. This user was the call initiator (caller pays, not callee)
-      //   2. The call was counted (first complete wins — natural double-deduction guard)
-      //   3. The peer-to-peer connection lasted at least 30 seconds
-      //   4. Deduct the correct credit type (phone or video) based on what the caller sent
-      if (
-        priorInitiatorId === userId &&
-        result.counted &&
-        typeof options.connectedDurationMs === "number" &&
-        options.connectedDurationMs >= 30_000
-      ) {
-        try {
-          const consumed = await serverStorage.consumeCallCredit(userId, resolvedCallType);
-          console.log("[CALL_COMPLETE] CREDIT_CONSUMED", { userId, matchId, consumed, callType: resolvedCallType });
-        } catch (creditErr: any) {
-          console.error("[CALL_COMPLETE] CREDIT_CONSUME_ERROR", { userId, matchId, callType: resolvedCallType, error: creditErr?.message });
-        }
+      await processCallSettlement(callSessionId);
+
+      if (priorIsPaid && result.counted) {
+        console.log("[CALL_COMPLETE] CREDIT_RESERVATION_CONSUMED", {
+          userId: persistedPayerId,
+          matchId,
+          callType: persistedCallType,
+          callSessionId,
+        });
       }
 
       await broadcastCallEvent(matchId, {
@@ -4923,22 +5151,9 @@ export async function registerRoutes(
       }
 
 
-      // ── Grant voice-note unlock after a genuine first included call ──────────
-      // completeCall owns the valid-call rule (answered + WebRTC connected +
-      // MIN_VALID_CALL_MS). result.counted is the authoritative, idempotent signal.
-      if (result.counted && resolvedCallType === "phone") {
-        try {
-          await db.insert(voiceNoteUnlocks)
-            .values({ matchId, unlockSource: "post_call" })
-            .onConflictDoUpdate({
-              target: voiceNoteUnlocks.matchId,
-              set: { unlockSource: "post_call", unlockedAt: new Date() },
-            });
-          broadcastViaHttpApi(`chat:${matchId}`, "voice-note-post-call-unlock", { matchId }).catch(() => {});
-          console.log("[CALL_COMPLETE] VN_UNLOCKED_POST_CALL", { matchId, connectedDurationMs: options.connectedDurationMs });
-        } catch (vnErr: any) {
-          console.error("[CALL_COMPLETE] VN_UNLOCK_ERROR", { matchId, error: vnErr?.message });
-        }
+      if (result.counted && !priorIsPaid && persistedCallType === "phone" && priorCallStage === 0) {
+        broadcastViaHttpApi(`chat:${matchId}`, "voice-note-post-call-unlock", { matchId }).catch(() => {});
+        console.log("[CALL_COMPLETE] VN_UNLOCKED_POST_CALL", { matchId });
       }
 
       res.json({ ...result.match, callCounted: result.counted });

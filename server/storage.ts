@@ -4,7 +4,7 @@ import {
   type Match, type Message, type InsertMessage,
   type SpinRequest, type BlockedContact,
   type SavedWheelProfile,
-  userElevates, blockedContacts, callCredits, savedWheelProfiles,
+  userElevates, blockedContacts, callCredits, callCreditReservations, savedWheelProfiles,
   membershipSubscriptions, userBenefits, sparkBalances, sparkPurchases,
 } from "@shared/schema";
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
@@ -738,11 +738,35 @@ function getPreferencesThatIncludeGender(gender: string): string[] {
 // Minimum WebRTC-connected duration (ms) for a call to consume a slot.
 // Calls shorter than this are refunded — the stage is NOT advanced.
 const MIN_VALID_CALL_MS = 20_000;
+let callCreditReservationsTableReady: Promise<void> | null = null;
+
+function ensureCallCreditReservationsTable(): Promise<void> {
+  if (!callCreditReservationsTableReady) {
+    callCreditReservationsTableReady = localPool.query(`
+      CREATE TABLE IF NOT EXISTS call_credit_reservations (
+        call_session_id VARCHAR PRIMARY KEY,
+        user_id VARCHAR NOT NULL,
+        call_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'reserved',
+        created_at TIMESTAMP DEFAULT NOW(),
+        settled_at TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_call_credit_reservations_user
+        ON call_credit_reservations(user_id);
+    `).then(() => undefined).catch((error: unknown) => {
+      callCreditReservationsTableReady = null;
+      throw error;
+    });
+  }
+  return callCreditReservationsTableReady;
+}
 
 export interface CompleteCallOptions {
-  /** Whether WebRTC audio/video actually connected (ICE state reached "connected"). */
+  /** Exact persisted session being completed. Required to prevent stale clients ending a newer call. */
+  callSessionId?: string;
+  /** Whether RTCPeerConnection.connectionState actually reached "connected". */
   connected?: boolean;
-  /** How many milliseconds the WebRTC connection was live. 0 if it never connected. */
+  /** Diagnostic client duration only; the server derives entitlement duration from call_connected_at. */
   connectedDurationMs?: number;
   /** Diagnostic state name at the time the call ended (e.g. "failed", "ended", "connection_failed"). */
   callState?: string;
@@ -771,9 +795,10 @@ export interface IStorage {
   createMessage(data: InsertMessage): Promise<Message>;
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
-  startCall(matchId: string, userId: string, isPaidCredit?: boolean, expectedAgreedCallAt?: string | null, expectedAvailabilityRevision?: number | null): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" | "availability_changed" } | undefined>;
-  answerCall(matchId: string, userId: string, expectedSessionId?: string): Promise<Match | undefined>;
-  cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
+  startCall(matchId: string, userId: string, isPaidCredit?: boolean, isVideo?: boolean, expectedAgreedCallAt?: string | null, expectedAvailabilityRevision?: number | null, requestedSessionId?: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" | "availability_changed" } | undefined>;
+  answerCall(matchId: string, userId: string, expectedSessionId: string): Promise<Match | undefined>;
+  markCallConnected(matchId: string, userId: string, callSessionId: string): Promise<Match | undefined>;
+  cancelCall(matchId: string, userId: string, callSessionId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined>;
   setDateChoice(matchId: string, userId: string, choice: 'plan' | 'keep' | null): Promise<Match | undefined>;
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
@@ -817,6 +842,9 @@ export interface IStorage {
   getCallCredits(userId: string): Promise<{ phoneCredits: number; videoCredits: number }>;
   grantCallCredits(userId: string, phone: number, video: number): Promise<void>;
   consumeCallCredit(userId: string, type: "phone" | "video"): Promise<boolean>;
+  reserveCallCredit(userId: string, type: "phone" | "video", callSessionId: string): Promise<boolean>;
+  consumeReservedCallCredit(callSessionId: string): Promise<boolean>;
+  refundReservedCallCredit(callSessionId: string): Promise<boolean>;
   getSavedWheelProfile(userId: string): Promise<SavedWheelProfile | null>;
   saveWheelProfile(userId: string, savedProfileId: string): Promise<SavedWheelProfile>;
   deleteSavedWheelProfile(userId: string): Promise<void>;
@@ -1175,10 +1203,21 @@ export function mapMatch(row: any): Match {
     callStartedAt: row.call_started_at ? new Date(row.call_started_at) : null,
     callAnswered: row.call_answered,
     callInitiatorId: row.call_initiator_id,
+    callConnectedAt: row.call_connected_at ? new Date(row.call_connected_at) : null,
+    callIsPaid: row.call_is_paid ?? false,
+    callMediaType: row.call_media_type ?? "phone",
+    callPayerId: row.call_payer_id ?? null,
+    lastCallSessionId: row.last_call_session_id ?? null,
+    lastCallCounted: row.last_call_counted ?? false,
+    lastCallStage: row.last_call_stage ?? null,
+    lastCallIsPaid: row.last_call_is_paid ?? false,
+    lastCallMediaType: row.last_call_media_type ?? null,
+    lastCallPayerId: row.last_call_payer_id ?? null,
     callStage: row.call_stage,
-    callSessionId: row.call_started_at && row.call_initiator_id
-      ? `call-${row.id}-${new Date(row.call_started_at).getTime()}`
-      : null,
+    callSessionId: row.call_session_id
+      ?? (row.call_started_at && row.call_initiator_id
+        ? `call-${row.id}-${new Date(row.call_started_at).getTime()}`
+        : null),
     faceCallUser1Accepted: row.face_call_user1_accepted,
     faceCallUser2Accepted: row.face_call_user2_accepted,
     meetAvailability1: row.meet_availability_1,
@@ -2257,7 +2296,7 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  async startCall(matchId: string, userId: string, isPaidCredit?: boolean, expectedAgreedCallAt?: string | null, expectedAvailabilityRevision?: number | null): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" | "availability_changed" } | undefined> {
+  async startCall(matchId: string, userId: string, isPaidCredit?: boolean, isVideo?: boolean, expectedAgreedCallAt?: string | null, expectedAvailabilityRevision?: number | null, requestedSessionId?: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" | "availability_changed" } | undefined> {
     console.log("[startCall] CALL_SESSION_CHECKED", { matchId, userId });
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
@@ -2308,14 +2347,33 @@ export class SupabaseStorage implements IStorage {
       const callAge = Date.now() - new Date(match.callStartedAt).getTime();
       const STALE_RINGING_MS = 2 * 60 * 1000;
       const STALE_ANSWERED_MS = 5 * 60 * 1000;
-      const isStale = (!match.callAnswered && callAge > STALE_RINGING_MS) || (match.callAnswered && callAge > STALE_ANSWERED_MS);
+      const connectedAge = match.callConnectedAt
+        ? Date.now() - new Date(match.callConnectedAt).getTime()
+        : 0;
+      const STALE_CONNECTED_MS = 20 * 60 * 1000;
+      const isStale =
+        (!match.callAnswered && callAge > STALE_RINGING_MS)
+        || (match.callAnswered && !match.callConnectedAt && callAge > STALE_ANSWERED_MS)
+        || (!!match.callConnectedAt && connectedAge > STALE_CONNECTED_MS);
 
       if (isStale) {
         console.log("[startCall] STALE_CALL_CLEARED", { matchId, callAge, answered: match.callAnswered, oldInitiator: match.callInitiatorId });
-        const { data: cleared, error: clearError } = await this.sb
+        let staleClear = this.sb
           .from("matches")
-          .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false })
-          .eq("id", matchId)
+          .update({
+            call_started_at: null, call_initiator_id: null, call_answered: false,
+            call_completed: false, call_session_id: null, call_connected_at: null,
+            call_is_paid: false, call_media_type: "phone", call_payer_id: null,
+            last_call_session_id: match.callSessionId, last_call_counted: false,
+            last_call_stage: match.callStage || 0, last_call_is_paid: !!match.callIsPaid,
+            last_call_media_type: match.callMediaType || "phone",
+            last_call_payer_id: match.callPayerId || null,
+          })
+          .eq("id", matchId);
+        staleClear = match.callSessionId
+          ? staleClear.eq("call_session_id", match.callSessionId)
+          : staleClear.is("call_session_id", null);
+        const { data: cleared, error: clearError } = await staleClear
           .select()
           .maybeSingle();
         if (clearError) {
@@ -2323,10 +2381,17 @@ export class SupabaseStorage implements IStorage {
           throw new Error(`Failed to clear stale call: ${clearError.message} (code: ${clearError.code})`);
         }
         if (!cleared) {
+          const { data: raced } = await this.sb.from("matches").select("*").eq("id", matchId).maybeSingle();
+          if (raced?.call_session_id && raced.call_session_id !== match.callSessionId) {
+            return { match: mapMatch(raced), status: "blocked" };
+          }
           console.error("[startCall] CALL_START_ERROR stale clear returned 0 rows (RLS or missing match):", { matchId, userId });
           throw new Error("Failed to clear stale call session — database permission denied or match not found");
         }
         console.log("[startCall] STALE_CALL_CLEAR_OK", { matchId, callSessionId: null });
+        if (match.callIsPaid && match.callSessionId) {
+          await this.refundReservedCallCredit(match.callSessionId);
+        }
       } else {
         if (match.callInitiatorId === userId) {
           console.log("[startCall] CALL_SESSION_REUSED", { matchId, existingInitiator: match.callInitiatorId, callSessionId: match.callSessionId });
@@ -2337,13 +2402,20 @@ export class SupabaseStorage implements IStorage {
       }
     }
 
+    const callStartedAt = new Date();
+    const callSessionId = requestedSessionId || `call-${matchId}-${callStartedAt.getTime()}`;
     let callStartWrite = this.sb
       .from("matches")
       .update({
-        call_started_at: new Date().toISOString(),
+        call_started_at: callStartedAt.toISOString(),
         call_initiator_id: userId,
         call_answered: false,
         call_completed: false,
+        call_session_id: callSessionId,
+        call_connected_at: null,
+        call_is_paid: !!isPaidCredit,
+        call_media_type: isVideo ? "video" : "phone",
+        call_payer_id: isPaidCredit ? userId : null,
       })
       .eq("id", matchId)
       .is("call_started_at", null);
@@ -2400,7 +2472,7 @@ export class SupabaseStorage implements IStorage {
     return { match: result, status: "created" };
   }
 
-  async answerCall(matchId: string, userId: string, expectedSessionId?: string): Promise<Match | undefined> {
+  async answerCall(matchId: string, userId: string, expectedSessionId: string): Promise<Match | undefined> {
     console.log("[answerCall] Reading match", { matchId, userId, expectedSessionId });
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
@@ -2428,7 +2500,7 @@ export class SupabaseStorage implements IStorage {
       console.log("[answerCall] No active call to answer:", { matchId, callStartedAt: match.callStartedAt, callInitiatorId: match.callInitiatorId });
       return undefined;
     }
-    if (expectedSessionId && match.callSessionId !== expectedSessionId) {
+    if (match.callSessionId !== expectedSessionId) {
       console.log("[answerCall] Session changed before answer:", {
         matchId,
         expectedSessionId,
@@ -2447,9 +2519,7 @@ export class SupabaseStorage implements IStorage {
       .eq("call_completed", false)
       .not("call_started_at", "is", null)
       .not("call_initiator_id", "is", null);
-    if (expectedSessionId) {
-      update = update.eq("call_session_id", expectedSessionId);
-    }
+    update = update.eq("call_session_id", expectedSessionId);
     const { data: updated, error } = await update
       .select()
       .maybeSingle();
@@ -2465,8 +2535,47 @@ export class SupabaseStorage implements IStorage {
     return mapMatch(updated);
   }
 
-  async cancelCall(matchId: string, userId: string): Promise<Match | undefined> {
-    console.log("[cancelCall] CANCEL_CALL_START", { matchId, userId });
+  async markCallConnected(matchId: string, userId: string, callSessionId: string): Promise<Match | undefined> {
+    const { data: current, error: readError } = await this.sb
+      .from("matches")
+      .select("*")
+      .eq("id", matchId)
+      .maybeSingle();
+    if (readError) throw new Error(`Call connected read failed: ${readError.message}`);
+    if (!current) return undefined;
+    const match = mapMatch(current);
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if (
+      match.callSessionId !== callSessionId
+      || !match.callStartedAt
+      || !match.callAnswered
+    ) return undefined;
+    if (match.callConnectedAt) return match;
+
+    const connectedAt = new Date().toISOString();
+    const { data: updated, error } = await this.sb
+      .from("matches")
+      .update({ call_connected_at: connectedAt })
+      .eq("id", matchId)
+      .eq("call_session_id", callSessionId)
+      .eq("call_answered", true)
+      .is("call_connected_at", null)
+      .select()
+      .maybeSingle();
+    if (error) throw new Error(`Call connected update failed: ${error.message}`);
+    if (updated) return mapMatch(updated);
+
+    const { data: raced } = await this.sb
+      .from("matches")
+      .select("*")
+      .eq("id", matchId)
+      .eq("call_session_id", callSessionId)
+      .maybeSingle();
+    return raced?.call_connected_at ? mapMatch(raced) : undefined;
+  }
+
+  async cancelCall(matchId: string, userId: string, callSessionId: string): Promise<Match | undefined> {
+    console.log("[cancelCall] CANCEL_CALL_START", { matchId, userId, callSessionId });
 
     let matchData: any;
     try {
@@ -2508,17 +2617,30 @@ export class SupabaseStorage implements IStorage {
           call_initiator_id: null,
           call_answered: false,
           call_completed: false,
+          call_session_id: null,
+          call_connected_at: null,
+          call_is_paid: false,
+          call_media_type: "phone",
+          call_payer_id: null,
+          last_call_session_id: callSessionId,
+          last_call_counted: false,
+          last_call_stage: match.callStage || 0,
+          last_call_is_paid: !!match.callIsPaid,
+          last_call_media_type: match.callMediaType || "phone",
+          last_call_payer_id: match.callPayerId || null,
         })
         .eq("id", matchId)
+        .eq("call_session_id", callSessionId)
         .select()
-        .single();
+        .maybeSingle();
       if (error) {
-        console.warn("[cancelCall] DB_UPDATE_FAILED (will use pre-read data)", { matchId, userId, error: error.message, code: error.code });
+        throw new Error(`Call cancel failed: ${error.message}`);
       } else {
         updated = data;
       }
     } catch (err: any) {
-      console.warn("[cancelCall] DB_UPDATE_EXCEPTION (will use pre-read data)", { matchId, userId, error: err.message });
+      console.error("[cancelCall] DB_UPDATE_EXCEPTION", { matchId, userId, error: err.message });
+      throw err;
     }
 
     if (updated) {
@@ -2526,12 +2648,8 @@ export class SupabaseStorage implements IStorage {
       return mapMatch(updated);
     }
 
-    console.log("[cancelCall] CANCEL_CALL_SUCCESS", { matchId, userId, source: "pre_read_fallback" });
-    match.callStartedAt = null;
-    match.callInitiatorId = null;
-    match.callAnswered = false;
-    match.callCompleted = false;
-    return match;
+    console.log("[cancelCall] CANCEL_CALL_NOOP_SESSION_CHANGED", { matchId, userId, callSessionId });
+    return undefined;
   }
 
   async completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined> {
@@ -2547,6 +2665,11 @@ export class SupabaseStorage implements IStorage {
     if (!matchData) return undefined;
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    const callSessionId = options?.callSessionId;
+    if (!callSessionId || match.callSessionId !== callSessionId) {
+      console.log("[completeCall] Session changed before completion", { matchId, userId, requested: callSessionId, current: match.callSessionId });
+      return undefined;
+    }
 
     // Idempotency guard: if the call is already cleared, nothing to do
     if (!match.callStartedAt && !match.callAnswered && !match.callInitiatorId) {
@@ -2563,8 +2686,20 @@ export class SupabaseStorage implements IStorage {
           call_initiator_id: null,
           call_answered: false,
           call_completed: false,
+          call_session_id: null,
+          call_connected_at: null,
+          call_is_paid: false,
+          call_media_type: "phone",
+          call_payer_id: null,
+          last_call_session_id: callSessionId,
+          last_call_counted: false,
+          last_call_stage: match.callStage || 0,
+          last_call_is_paid: !!match.callIsPaid,
+          last_call_media_type: match.callMediaType || "phone",
+          last_call_payer_id: match.callPayerId || null,
         })
         .eq("id", matchId)
+        .eq("call_session_id", callSessionId)
         .select()
         .maybeSingle();
       if (clearError) {
@@ -2572,7 +2707,14 @@ export class SupabaseStorage implements IStorage {
         throw new Error(`completeCall clear failed: ${clearError.message} (code: ${clearError.code})`);
       }
       console.log("[completeCall] CALL_STATE:accepted→cleared (never connected, no stage advance)", { matchId, userId });
-      return { match: updated ? mapMatch(updated) : match, counted: false };
+      if (updated) return { match: mapMatch(updated), counted: false };
+      const { data: current } = await this.sb.from("matches").select("*").eq("id", matchId).maybeSingle();
+      if (!current) return undefined;
+      const currentMatch = mapMatch(current);
+      return {
+        match: currentMatch,
+        counted: currentMatch.lastCallSessionId === callSessionId && currentMatch.lastCallCounted === true,
+      };
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -2583,19 +2725,26 @@ export class SupabaseStorage implements IStorage {
     // failure, immediate drop, network error) is a refund — we clear
     // the call fields but do NOT advance the stage.
     // ──────────────────────────────────────────────────────────────
-    const connected = options?.connected !== false; // default true (backward-compat for callers without WebRTC context)
-    const connectedDurationMs = options?.connectedDurationMs ?? (connected ? MIN_VALID_CALL_MS : 0);
     const callState = options?.callState ?? "ended";
-    const callCounts = connected && connectedDurationMs >= MIN_VALID_CALL_MS;
+    const connected =
+      options?.connected === true
+      && callState === "ended"
+      && !!match.callConnectedAt;
+    const authoritativeConnectedMs = match.callConnectedAt
+      ? Math.max(0, Date.now() - new Date(match.callConnectedAt).getTime())
+      : 0;
+    const connectedDurationMs = connected ? authoritativeConnectedMs : 0;
+    const minimumDurationMs = match.callIsPaid ? 30_000 : MIN_VALID_CALL_MS;
+    const callCounts = connected && connectedDurationMs >= minimumDurationMs;
 
     console.log("[completeCall] CALL_COMPLETION_EVALUATION", {
       matchId, userId, callState,
-      connected, connectedDurationMs, MIN_VALID_CALL_MS, callCounts,
+      connected, connectedDurationMs, minimumDurationMs, callCounts,
     });
 
     if (!callCounts) {
       // Not enough live connection — clear without advancing stage (refund)
-      const reason = !connected ? "no_webrtc_connection" : `below_minimum_duration(${connectedDurationMs}ms<${MIN_VALID_CALL_MS}ms)`;
+      const reason = !connected ? "no_webrtc_connection" : `below_minimum_duration(${connectedDurationMs}ms<${minimumDurationMs}ms)`;
       console.log("[completeCall] CALL_STATE:accepted→cleared SLOT_REFUNDED", { matchId, userId, reason, callState });
       const { data: updated, error: clearError } = await this.sb
         .from("matches")
@@ -2604,15 +2753,72 @@ export class SupabaseStorage implements IStorage {
           call_initiator_id: null,
           call_answered: false,
           call_completed: false,
+          call_session_id: null,
+          call_connected_at: null,
+          call_is_paid: false,
+          call_media_type: "phone",
+          call_payer_id: null,
+          last_call_session_id: callSessionId,
+          last_call_counted: false,
+          last_call_stage: match.callStage || 0,
+          last_call_is_paid: !!match.callIsPaid,
+          last_call_media_type: match.callMediaType || "phone",
+          last_call_payer_id: match.callPayerId || null,
         })
         .eq("id", matchId)
+        .eq("call_session_id", callSessionId)
         .select()
         .maybeSingle();
       if (clearError) {
         console.error("[completeCall] DB clear error (not counted):", { matchId, userId, message: clearError.message });
         throw new Error(`completeCall clear failed: ${clearError.message} (code: ${clearError.code})`);
       }
-      return { match: updated ? mapMatch(updated) : match, counted: false };
+      if (updated) return { match: mapMatch(updated), counted: false };
+      const { data: current } = await this.sb.from("matches").select("*").eq("id", matchId).maybeSingle();
+      if (!current) return undefined;
+      const currentMatch = mapMatch(current);
+      return {
+        match: currentMatch,
+        counted: currentMatch.lastCallSessionId === callSessionId && currentMatch.lastCallCounted === true,
+      };
+    }
+
+    // Paid calls consume a persisted credit but never advance the guided
+    // connection stage or unlock voice notes.
+    if (match.callIsPaid) {
+      const { data: updated, error: paidClearError } = await this.sb
+        .from("matches")
+        .update({
+          call_started_at: null,
+          call_initiator_id: null,
+          call_answered: false,
+          call_completed: false,
+          call_session_id: null,
+          call_connected_at: null,
+          call_is_paid: false,
+          call_media_type: "phone",
+          call_payer_id: null,
+          last_call_session_id: callSessionId,
+          last_call_counted: true,
+          last_call_stage: match.callStage || 0,
+          last_call_is_paid: true,
+          last_call_media_type: match.callMediaType || "phone",
+          last_call_payer_id: match.callPayerId || null,
+        })
+        .eq("id", matchId)
+        .eq("call_session_id", callSessionId)
+        .eq("call_answered", true)
+        .select()
+        .maybeSingle();
+      if (paidClearError) throw new Error(`completeCall paid clear failed: ${paidClearError.message}`);
+      if (updated) return { match: mapMatch(updated), counted: true };
+      const { data: current } = await this.sb.from("matches").select("*").eq("id", matchId).maybeSingle();
+      if (!current) return undefined;
+      const currentMatch = mapMatch(current);
+      return {
+        match: currentMatch,
+        counted: currentMatch.lastCallSessionId === callSessionId && currentMatch.lastCallCounted === true,
+      };
     }
 
     // Call counts — advance the stage
@@ -2633,6 +2839,17 @@ export class SupabaseStorage implements IStorage {
       call_started_at: null,
       call_initiator_id: null,
       call_answered: false,
+      call_session_id: null,
+      call_connected_at: null,
+      call_is_paid: false,
+      call_media_type: "phone",
+      call_payer_id: null,
+      last_call_session_id: callSessionId,
+      last_call_counted: true,
+      last_call_stage: currentStage,
+      last_call_is_paid: false,
+      last_call_media_type: match.callMediaType || "phone",
+      last_call_payer_id: null,
       call_stage: nextStage,
       date_choice_user1: null,
       date_choice_user2: null,
@@ -2658,14 +2875,24 @@ export class SupabaseStorage implements IStorage {
       .from("matches")
       .update(stageUpdate)
       .eq("id", matchId)
+      .eq("call_session_id", callSessionId)
+      .eq("call_answered", true)
       .select()
       .maybeSingle();
     if (updateError) {
       console.error("[completeCall] DB update error:", { matchId, userId, message: updateError.message, code: updateError.code, details: updateError.details });
       throw new Error(`completeCall update failed: ${updateError.message} (code: ${updateError.code})`);
     }
+    if (!updated) {
+      const { data: current } = await this.sb
+        .from("matches")
+        .select("*")
+        .eq("id", matchId)
+        .maybeSingle();
+      return current ? { match: mapMatch(current), counted: false } : undefined;
+    }
     console.log("[completeCall] CALL_STATE:connected→ended STAGE_ADVANCED", { matchId, userId, newStage: nextStage, connectedDurationMs });
-    return { match: updated ? mapMatch(updated) : match, counted: true };
+    return { match: mapMatch(updated), counted: true };
   }
 
   async setDateChoice(matchId: string, userId: string, choice: 'plan' | 'keep' | null): Promise<Match | undefined> {
@@ -3870,25 +4097,101 @@ export class SupabaseStorage implements IStorage {
   }
 
   async consumeCallCredit(userId: string, type: "phone" | "video"): Promise<boolean> {
-    const credits = await this.getCallCredits(userId);
-    if (type === "phone" && credits.phoneCredits <= 0) return false;
-    if (type === "video" && credits.videoCredits <= 0) return false;
-    await db
-      .insert(callCredits)
-      .values({ userId, phoneCredits: type === "phone" ? -1 : 0, videoCredits: type === "video" ? -1 : 0 })
-      .onConflictDoUpdate({
-        target: callCredits.userId,
-        set: {
-          phoneCredits: type === "phone"
-            ? sql`GREATEST(${callCredits.phoneCredits} - 1, 0)`
+    const rows = await db
+      .update(callCredits)
+      .set({
+        phoneCredits: type === "phone" ? sql`${callCredits.phoneCredits} - 1` : callCredits.phoneCredits,
+        videoCredits: type === "video" ? sql`${callCredits.videoCredits} - 1` : callCredits.videoCredits,
+        updatedAt: sql`now()`,
+      })
+      .where(and(
+        eq(callCredits.userId, userId),
+        type === "phone" ? gt(callCredits.phoneCredits, 0) : gt(callCredits.videoCredits, 0),
+      ))
+      .returning({ id: callCredits.id });
+    return rows.length === 1;
+  }
+
+  async reserveCallCredit(userId: string, type: "phone" | "video", callSessionId: string): Promise<boolean> {
+    await ensureCallCreditReservationsTable();
+    return db.transaction(async (tx) => {
+      const deducted = await tx
+        .update(callCredits)
+        .set({
+          phoneCredits: type === "phone" ? sql`${callCredits.phoneCredits} - 1` : callCredits.phoneCredits,
+          videoCredits: type === "video" ? sql`${callCredits.videoCredits} - 1` : callCredits.videoCredits,
+          updatedAt: sql`now()`,
+        })
+        .where(and(
+          eq(callCredits.userId, userId),
+          type === "phone" ? gt(callCredits.phoneCredits, 0) : gt(callCredits.videoCredits, 0),
+        ))
+        .returning({ id: callCredits.id });
+      if (deducted.length !== 1) return false;
+      await tx.insert(callCreditReservations).values({
+        callSessionId,
+        userId,
+        callType: type,
+        status: "reserved",
+      });
+      return true;
+    });
+  }
+
+  async consumeReservedCallCredit(callSessionId: string): Promise<boolean> {
+    await ensureCallCreditReservationsTable();
+    const rows = await db
+      .update(callCreditReservations)
+      .set({ status: "consumed", settledAt: new Date() })
+      .where(and(
+        eq(callCreditReservations.callSessionId, callSessionId),
+        eq(callCreditReservations.status, "reserved"),
+      ))
+      .returning({ callSessionId: callCreditReservations.callSessionId });
+    if (rows.length === 1) return true;
+    const existing = await db.select({ status: callCreditReservations.status })
+      .from(callCreditReservations)
+      .where(eq(callCreditReservations.callSessionId, callSessionId))
+      .limit(1);
+    return existing[0]?.status === "consumed";
+  }
+
+  async refundReservedCallCredit(callSessionId: string): Promise<boolean> {
+    await ensureCallCreditReservationsTable();
+    return db.transaction(async (tx) => {
+      const rows = await tx
+        .update(callCreditReservations)
+        .set({ status: "refunded", settledAt: new Date() })
+        .where(and(
+          eq(callCreditReservations.callSessionId, callSessionId),
+          eq(callCreditReservations.status, "reserved"),
+        ))
+        .returning({
+          userId: callCreditReservations.userId,
+          callType: callCreditReservations.callType,
+        });
+      if (rows.length !== 1) {
+        const existing = await tx.select({ status: callCreditReservations.status })
+          .from(callCreditReservations)
+          .where(eq(callCreditReservations.callSessionId, callSessionId))
+          .limit(1);
+        return existing[0]?.status === "refunded";
+      }
+      const reservation = rows[0];
+      await tx
+        .update(callCredits)
+        .set({
+          phoneCredits: reservation.callType === "phone"
+            ? sql`${callCredits.phoneCredits} + 1`
             : callCredits.phoneCredits,
-          videoCredits: type === "video"
-            ? sql`GREATEST(${callCredits.videoCredits} - 1, 0)`
+          videoCredits: reservation.callType === "video"
+            ? sql`${callCredits.videoCredits} + 1`
             : callCredits.videoCredits,
           updatedAt: sql`now()`,
-        },
-      });
-    return true;
+        })
+        .where(eq(callCredits.userId, reservation.userId));
+      return true;
+    });
   }
 
   // ── Saved Wheel Profiles (local Drizzle DB) ──────────────────────────────────

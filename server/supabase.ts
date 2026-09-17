@@ -37,7 +37,9 @@ if (!isValidJwt(envKey)) {
   console.warn(`[SERVER_AUTH] WARNING: ${_keySource} does not appear to be a valid JWT (length=${envKey.length}). Supabase calls may fail.`);
 }
 
-const supabaseUrl = envUrl;
+// createClient expects the project origin, not a REST endpoint path. Some
+// environments provide a URL ending in /rest/v1; normalize it once here.
+const supabaseUrl = new URL(envUrl).origin;
 const supabaseAnonKey = envKey;
 
 console.log(`[SERVER_AUTH] SUPABASE_URL resolved from ${_urlSource}:`, supabaseUrl.substring(0, 30) + "...");

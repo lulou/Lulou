@@ -69,6 +69,16 @@ export const matches = pgTable("matches", {
   callStartedAt: timestamp("call_started_at"),
   callAnswered: boolean("call_answered").default(false),
   callInitiatorId: varchar("call_initiator_id"),
+  callConnectedAt: timestamp("call_connected_at"),
+  callIsPaid: boolean("call_is_paid").default(false),
+  callMediaType: varchar("call_media_type").default("phone"),
+  callPayerId: varchar("call_payer_id"),
+  lastCallSessionId: varchar("last_call_session_id"),
+  lastCallCounted: boolean("last_call_counted").default(false),
+  lastCallStage: integer("last_call_stage"),
+  lastCallIsPaid: boolean("last_call_is_paid").default(false),
+  lastCallMediaType: varchar("last_call_media_type"),
+  lastCallPayerId: varchar("last_call_payer_id"),
   callStage: integer("call_stage").default(0),
   callSessionId: varchar("call_session_id"),
   faceCallUser1Accepted: boolean("face_call_user1_accepted").default(false),
@@ -184,6 +194,31 @@ export const callCredits = pgTable("call_credits", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_call_credits_user").on(table.userId),
+]);
+
+export const callCreditReservations = pgTable("call_credit_reservations", {
+  callSessionId: varchar("call_session_id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  callType: text("call_type").notNull(),
+  status: text("status").notNull().default("reserved"),
+  createdAt: timestamp("created_at").defaultNow(),
+  settledAt: timestamp("settled_at"),
+}, (table) => [
+  index("idx_call_credit_reservations_user").on(table.userId),
+]);
+
+export const callTerminalSettlements = pgTable("call_terminal_settlements", {
+  callSessionId: varchar("call_session_id").primaryKey(),
+  matchId: varchar("match_id").notNull(),
+  counted: boolean("counted").notNull(),
+  isPaid: boolean("is_paid").notNull(),
+  callType: text("call_type").notNull(),
+  callStage: integer("call_stage").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+  settledAt: timestamp("settled_at"),
+}, (table) => [
+  index("idx_call_terminal_settlements_pending").on(table.status, table.matchId),
 ]);
 
 export const savedWheelProfiles = pgTable("saved_wheel_profiles", {

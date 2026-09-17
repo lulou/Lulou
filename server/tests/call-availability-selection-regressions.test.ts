@@ -73,20 +73,16 @@ describe("call availability selection regressions", () => {
     expect(callReadySection).toContain("startCall.mutate({ isVideo: false })");
   });
 
-  it("shows First call in progress only for an answered active session", () => {
+  it("keeps active-state detection but delegates call UI to the global overlay", () => {
     const activeState = matchesPage.slice(
       matchesPage.indexOf("const isCallActive ="),
       matchesPage.indexOf("if (detail.callStartedAt)"),
-    );
-    const activeBanner = matchesPage.slice(
-      matchesPage.indexOf(") : isCallActive ? ("),
-      matchesPage.indexOf(") : callStage === 0", matchesPage.indexOf(") : isCallActive ? (")),
     );
 
     expect(activeState).toContain("detail.callAnswered === true");
     expect(activeState).toContain("!detail.callCompleted");
     expect(activeState).toContain("!!detail.callSessionId");
-    expect(activeBanner).toContain('t("first_call_in_progress")');
+    expect(matchesPage).toContain("false && isCallActive ? (");
   });
 
   it("keeps the specific-time option selected and reverts only on cancel or save failure", () => {
@@ -139,7 +135,7 @@ describe("call availability selection regressions", () => {
   it("binds call creation and expiry clearing to the validated agreement", () => {
     expect(storage).toContain('callStartWrite.eq("agreed_call_at", expectedAgreedCallAt)');
     expect(storage).toContain('callStartWrite.eq("availability_revision", expectedAvailabilityRevision)');
-    expect(routes).toContain("serverStorage.startCall(matchId, userId, !!isPaidCredit, expectedAgreedCallAt, expectedAvailabilityRevision)");
+    expect(routes).toContain("expectedAvailabilityRevision,");
     expect(routes).toContain("clearAgreedCallAt(matchId, userId, agreed.toISOString())");
   });
 

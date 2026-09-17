@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { cleanupCallAudio } from "@/lib/call-audio";
 import { callDebug } from "@/lib/call-debug";
+import { API_BASE, getAuthHeaders, requireApiBase } from "@/lib/queryClient";
 
 declare global {
   interface Window {
@@ -43,29 +44,47 @@ const _STUN_ONLY: RTCIceServer[] = [
 let _iceServersCache: RTCIceServer[] | null = null;
 let _iceServersCacheTime = 0;
 const ICE_CACHE_TTL_MS = 5 * 60 * 1000;
-function fetchIceServers(): Promise<RTCIceServer[]> {
+async function fetchIceServers(): Promise<RTCIceServer[]> {
   if (_iceServersCache && Date.now() - _iceServersCacheTime < ICE_CACHE_TTL_MS) {
-    return Promise.resolve(_iceServersCache);
+    return _iceServersCache;
   }
-  return fetch("/api/webrtc/ice-servers")
-    .then(r => r.ok ? r.json() : Promise.reject(r.status))
-    .then(data => {
-      const servers: RTCIceServer[] = Array.isArray(data?.iceServers) && data.iceServers.length > 0
-        ? data.iceServers
-        : _STUN_ONLY;
-      _iceServersCache = servers;
-      _iceServersCacheTime = Date.now();
-      if (data?.hasTurn) {
-        console.log("[WebRTC] TURN server configured — relay candidates available");
-      } else {
-        console.warn("[WebRTC] TURN not configured — calls may fail on restricted networks. Set TURN_URL / TURN_USERNAME / TURN_CREDENTIAL in Replit Secrets.");
-      }
-      return servers;
-    })
-    .catch(() => {
-      console.warn("[WebRTC] ICE server fetch failed — using STUN-only fallback");
-      return _STUN_ONLY;
+  const path = "/api/webrtc/ice-servers";
+  try {
+    requireApiBase(path);
+    const response = await fetch(`${API_BASE}${path}`, {
+      headers: await getAuthHeaders(),
+      credentials: "include",
     });
+    if (!response.ok) throw new Error(`ice_servers_http_${response.status}`);
+    const data = await response.json();
+    const servers: RTCIceServer[] = Array.isArray(data?.iceServers)
+      ? data.iceServers.filter((server: any) =>
+          server
+          && (
+            typeof server.urls === "string"
+            || (Array.isArray(server.urls) && server.urls.every((url: unknown) => typeof url === "string"))
+          )
+        )
+      : [];
+    if (servers.length === 0) throw new Error("ice_servers_invalid_payload");
+    const hasTurn = servers.some((server) => {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      return urls.some((url) => typeof url === "string" && /^turns?:/i.test(url));
+    });
+    _iceServersCache = servers;
+    _iceServersCacheTime = Date.now();
+    if (hasTurn) {
+      console.log("[WebRTC] TURN server configured — relay candidates available");
+    } else {
+      console.warn("[WebRTC] TURN not configured — calls may fail on restricted networks.");
+    }
+    return servers;
+  } catch (error: any) {
+    console.warn("[WebRTC] ICE server fetch failed — using STUN-only fallback", {
+      error: error?.message ?? String(error),
+    });
+    return _STUN_ONLY;
+  }
 }
 
 // ── Callee pre-subscription store ─────────────────────────────────────────
@@ -83,18 +102,23 @@ type PresubEntry = {
 const _presubChannels = new Map<string, PresubEntry>();
 
 /** Called from IncomingCallOverlay on mount (callee role only). Returns cleanup fn. */
-export function calleePresubscribe(matchId: string, userId: string): () => void {
-  if (_presubChannels.has(matchId)) {
+function sessionChannelKey(matchId: string, callSessionId: string) {
+  return `${matchId}:${callSessionId}`;
+}
+
+export function calleePresubscribe(matchId: string, callSessionId: string, userId: string): () => void {
+  const key = sessionChannelKey(matchId, callSessionId);
+  if (_presubChannels.has(key)) {
     console.log("[CALLEE_FIX] channel already pre-subscribed — reusing", { matchId });
     return () => {};
   }
-  const channelName = `call:${matchId}`;
+  const channelName = `call:${matchId}:${callSessionId}`;
   const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
   const entry: PresubEntry = { channel, subscribePromise: Promise.resolve(), bufferedSignals: [], consumed: false };
 
   // Buffer signals that arrive before useWebRTC attaches its own handler.
   channel.on("broadcast", { event: "signal" }, ({ payload }) => {
-    if (entry.consumed || !payload || payload.from === userId) return;
+    if (entry.consumed || !payload || payload.from === userId || payload.callSessionId !== callSessionId) return;
     entry.bufferedSignals.push(payload);
     if (payload.type === "webrtc:offer") {
       console.log("[CALLEE_FIX] offer received (buffered before init)", { matchId });
@@ -117,22 +141,22 @@ export function calleePresubscribe(matchId: string, userId: string): () => void 
     });
   });
 
-  _presubChannels.set(matchId, entry);
+  _presubChannels.set(key, entry);
   console.log("[CALLEE_FIX] callee screen mounted — subscribing signalling channel", { matchId, channelName });
 
   return () => {
-    const e = _presubChannels.get(matchId);
+    const e = _presubChannels.get(key);
     if (e && !e.consumed) {
       supabase.removeChannel(e.channel);
-      _presubChannels.delete(matchId);
+      _presubChannels.delete(key);
       console.log("[CALLEE_FIX] pre-sub channel cleaned up (dismissed before answer)", { matchId });
     }
   };
 }
 
 /** Called from IncomingCallOverlay after answer API succeeds. Sends webrtc:ready immediately. */
-export function calleePresubSendReady(matchId: string, userId: string): void {
-  const entry = _presubChannels.get(matchId);
+export function calleePresubSendReady(matchId: string, callSessionId: string, userId: string): void {
+  const entry = _presubChannels.get(sessionChannelKey(matchId, callSessionId));
   if (!entry) {
     console.warn("[CALLEE_FIX] calleePresubSendReady: no pre-sub entry — channel may not be ready yet", { matchId });
     return;
@@ -143,7 +167,7 @@ export function calleePresubSendReady(matchId: string, userId: string): void {
       entry.channel.send({
         type: "broadcast",
         event: "signal",
-        payload: { type: "webrtc:ready", from: userId },
+        payload: { type: "webrtc:ready", from: userId, callSessionId },
       });
       console.log("[CALLEE_FIX] ready sent on pre-sub channel", { matchId });
     })
@@ -157,11 +181,12 @@ export function calleePresubSendReady(matchId: string, userId: string): void {
  * Marks entry as consumed (silences the buffer handler) and removes from map.
  * Returns null if no pre-sub entry exists (channel will be created normally).
  */
-export function calleePresubConsume(matchId: string): PresubEntry | null {
-  const entry = _presubChannels.get(matchId);
+export function calleePresubConsume(matchId: string, callSessionId: string): PresubEntry | null {
+  const key = sessionChannelKey(matchId, callSessionId);
+  const entry = _presubChannels.get(key);
   if (!entry) return null;
   entry.consumed = true;
-  _presubChannels.delete(matchId);
+  _presubChannels.delete(key);
   console.log("[CALLEE_FIX] pre-sub channel consumed by useWebRTC init()", {
     matchId,
     bufferedSignals: entry.bufferedSignals.length,
@@ -171,11 +196,11 @@ export function calleePresubConsume(matchId: string): PresubEntry | null {
 
 
 type SignalMessage =
-  | { type: "webrtc:offer"; sdp: string; from: string }
-  | { type: "webrtc:answer"; sdp: string; from: string }
-  | { type: "webrtc:ice"; candidate: RTCIceCandidateInit; from: string }
-  | { type: "webrtc:hangup"; from: string }
-  | { type: "webrtc:ready"; from: string };
+  | { type: "webrtc:offer"; sdp: string; from: string; callSessionId: string }
+  | { type: "webrtc:answer"; sdp: string; from: string; callSessionId: string }
+  | { type: "webrtc:ice"; candidate: RTCIceCandidateInit; from: string; callSessionId: string }
+  | { type: "webrtc:hangup"; from: string; callSessionId: string }
+  | { type: "webrtc:ready"; from: string; callSessionId: string };
 
 type SignalPayload =
   | { type: "webrtc:offer"; sdp: string }
@@ -188,6 +213,7 @@ export type WebRTCState = "idle" | "requesting-media" | "connecting" | "connecte
 
 interface UseWebRTCOptions {
   matchId: string;
+  callSessionId: string;
   userId: string;
   isCaller: boolean;
   isVideo: boolean;
@@ -195,7 +221,7 @@ interface UseWebRTCOptions {
   onRemoteHangup?: () => void;
 }
 
-export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemoteHangup }: UseWebRTCOptions) {
+export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, enabled, onRemoteHangup }: UseWebRTCOptions) {
   const [connectionState, setConnectionState] = useState<WebRTCState>("idle");
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -294,7 +320,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       const status = await channel.send({
         type: "broadcast",
         event: "signal",
-        payload: { ...msg, from: userId },
+        payload: { ...msg, from: userId, callSessionId },
       });
       if (status !== "ok") {
         throw new Error(`SIGNAL_SEND_${String(status).toUpperCase().replace(/\s+/g, "_")}`);
@@ -347,6 +373,13 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     };
 
     const handleSignal = async (msg: SignalMessage) => {
+      if (msg.callSessionId !== callSessionId) {
+        console.warn("[WebRTC] Ignored signal for another call session", {
+          matchId,
+          type: msg.type,
+        });
+        return;
+      }
       if (msg.from === userId) {
         console.warn("[SIGNAL_AUDIT] ignored own signalling message", { type: msg.type, from: msg.from.slice(0, 8), matchId });
         console.warn("[SCREECH_FIX] ignored own signalling", {
@@ -612,14 +645,14 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       setConnectionState("requesting-media");
       setPermissionDenied(false);
 
-      const channelName = `call:${matchId}`;
+      const channelName = `call:${matchId}:${callSessionId}`;
       // For the callee path, IncomingCallOverlay pre-subscribes the channel so it
       // is already SUBSCRIBED (or subscribing) by the time init() runs here.
       // Consuming the pre-sub entry reuses the existing Supabase socket subscription
       // instead of opening a duplicate. Any signals that arrived in the pre-sub
       // window (e.g. a webrtc:offer sent by the caller) are buffered and replayed
       // below, after the PC is created, so no signals are lost.
-      const presub = !isCaller ? calleePresubConsume(matchId) : null;
+      const presub = !isCaller ? calleePresubConsume(matchId, callSessionId) : null;
       const channel = presub?.channel ?? supabase.channel(channelName, {
         config: { broadcast: { self: false } },
       });
@@ -628,7 +661,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       callDebug.event(`init: channel ${presub ? "reused (pre-sub)" : "created"} (${channelName})`);
 
       channel.on("broadcast", { event: "signal" }, ({ payload }) => {
-        if (!payload) return;
+        if (!payload || payload.callSessionId !== callSessionId) return;
         if (payload.from === userId) {
           // Belt-and-suspenders: self:false should prevent this, but log if it
           // somehow fires so we can catch Supabase config regressions.
@@ -1101,6 +1134,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       };
 
       pc.onconnectionstatechange = () => {
+        if (cleanedUpRef.current) return;
         const s = pc.connectionState;
         callDebug.update({ pcStates: [...callDebug.get().pcStates, s] });
         callDebug.event(`pc: → ${s}`);
@@ -1110,6 +1144,27 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           iceGatheringState: pc.iceGatheringState,
           signalingState: pc.signalingState,
         });
+        // RTCPeerConnection.connectionState is the authoritative live-call state.
+        // ICE "connected" only proves that a candidate pair was selected; it can
+        // happen before DTLS/media transport is fully connected.
+        if (s === "connected") {
+          if (disconnectTimerRef.current) {
+            clearTimeout(disconnectTimerRef.current);
+            disconnectTimerRef.current = null;
+          }
+          if (connectionTimeoutRef.current) {
+            clearTimeout(connectionTimeoutRef.current);
+            connectionTimeoutRef.current = null;
+          }
+          setConnectionState("connected");
+        } else if (s === "disconnected") {
+          setConnectionState("reconnecting");
+        } else if (s === "failed") {
+          setFailureReason("peer_connection_failed");
+          setConnectionState("failed");
+        } else if (s === "closed") {
+          setConnectionState("closed");
+        }
       };
 
       pc.oniceconnectionstatechange = () => {
@@ -1149,8 +1204,6 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             clearTimeout(connectionTimeoutRef.current);
             connectionTimeoutRef.current = null;
           }
-          setConnectionState("connected");
-
           // ── [FEEDBACK_FIX] Re-enforce AEC constraints at connect ────────────
           // Re-apply the full echo/noise/gain constraints now that ICE is up.
           // Browsers (especially iOS Safari) can silently drop preferred
@@ -1263,7 +1316,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             signalingState: pc.signalingState,
             hasSetRemoteDesc: hasSetRemoteDescRef.current,
             note: totals.relay === 0
-              ? "NO TURN relay — add VITE_TURN_URL/VITE_TURN_USERNAME/VITE_TURN_CREDENTIAL to fix on real networks"
+              ? "NO TURN relay — configure TURN_URLS (or TURN_URL), TURN_USERNAME, and TURN_CREDENTIAL on the server"
               : "TURN was configured but ICE still failed",
             ts: new Date().toISOString(),
           });
@@ -1375,7 +1428,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     return () => {
       cleanup();
     };
-  }, [enabled, matchId, userId, isCaller, isVideo, cleanup]);
+  }, [enabled, matchId, callSessionId, userId, isCaller, isVideo, cleanup]);
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
