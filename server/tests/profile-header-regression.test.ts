@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("profile collapsing name header", () => {
   const source = readFileSync("client/src/pages/profile.tsx", "utf8");
+  const discover = readFileSync("client/src/pages/discover.tsx", "utf8");
 
   it("uses the real identity row and AppLayout scroll owner as the threshold", () => {
     expect(source).toContain("identityRowRef");
@@ -26,5 +27,23 @@ describe("profile collapsing name header", () => {
     expect(source).toContain('data-testid="button-settings-icon"');
     expect(source).toContain('onClick={() => toggle("settings")}');
     expect(source).toContain('data-testid="button-edit-profile"');
+  });
+
+  it("applies the same measured behavior to the production Discover profile renderer", () => {
+    expect(discover).toContain("discoverIdentityRef");
+    expect(discover).toContain('data-testid="discover-profile-identity"');
+    expect(discover).toContain('document.querySelector(\'[data-scroll-owner="app-layout-main"]\')');
+    expect(discover).toContain("entry.boundingClientRect.top <= rootTop + 1");
+    expect(discover).toContain("hasCrossedTop && entry.intersectionRatio < 1");
+    expect(discover).toContain('data-discover-sticky-name-state={isIdentityCollapsed ? "visible" : "hidden"}');
+    expect(discover).toContain('? "invisible opacity-0 -translate-y-1"');
+    expect(discover).toContain(': "invisible opacity-0 -translate-y-2"');
+  });
+
+  it("keeps Discover controls but removes the unconditional header name", () => {
+    expect(discover).toContain('data-testid="button-undo-pass"');
+    expect(discover).toContain('data-testid="button-discover-safety-menu"');
+    expect(discover).toContain('className="max-w-md mx-auto flex items-center justify-end"');
+    expect(discover.match(/data-testid="text-discover-sticky-name"/g)).toHaveLength(1);
   });
 });

@@ -732,11 +732,37 @@ export default function Discover() {
     return { ...currentProfile, photos: photoData?.photos ?? EMPTY_PHOTOS };
   }, [currentProfile, photoData?.photos]);
   const discoverContentRef = useRef<HTMLDivElement>(null);
+  const discoverIdentityRef = useRef<HTMLDivElement>(null);
+  const [isIdentityCollapsed, setIsIdentityCollapsed] = useState(false);
   useDiscoverScrollDiagnostics({
     rootRef: discoverContentRef,
     enabled: isTabActive,
     profileLoaded: !!displayProfile,
   });
+
+  // Discover is rendered inside AppLayout's scrolling <main>, not a window
+  // scroller. Observe the real identity section and only collapse after it has
+  // crossed the top edge. This distinction matters because the identity card
+  // can begin below the viewport beneath the profile photos.
+  useEffect(() => {
+    setIsIdentityCollapsed(false);
+    if (!isTabActive || !displayProfile?.id) return;
+
+    const identity = discoverIdentityRef.current;
+    const scrollOwner = document.querySelector('[data-scroll-owner="app-layout-main"]');
+    if (!identity || !scrollOwner || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const rootTop = entry.rootBounds?.top ?? scrollOwner.getBoundingClientRect().top;
+        const hasCrossedTop = entry.boundingClientRect.top <= rootTop + 1;
+        setIsIdentityCollapsed(hasCrossedTop && entry.intersectionRatio < 1);
+      },
+      { root: scrollOwner, threshold: [0, 0.01, 1] },
+    );
+    observer.observe(identity);
+    return () => observer.disconnect();
+  }, [displayProfile?.id, isTabActive]);
 
   const [pendingPhotoUrls, setPendingPhotoUrls] = useState<Set<string>>(new Set());
   const [safetyMenuOpen, setSafetyMenuOpen] = useState(false);
@@ -1251,8 +1277,21 @@ export default function Discover() {
       id: "identity",
       weight: W_SMALL,
       node: (
-        <div key="identity" className="space-y-1.5" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
-          <div className="flex items-center gap-2">
+        <div
+          key="identity"
+          ref={discoverIdentityRef}
+          className="space-y-1.5"
+          style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}
+          data-testid="discover-profile-identity"
+        >
+          <div
+            className={`flex items-center gap-2 ${
+              isIdentityCollapsed
+                ? "invisible opacity-0 -translate-y-1"
+                : "visible opacity-100 translate-y-0 transition-[opacity,transform] duration-200 ease-out"
+            }`}
+            aria-hidden={isIdentityCollapsed}
+          >
             <h2 className="font-serif text-4xl font-bold tracking-tight" data-testid="text-profile-name">
               {displayProfile.firstName}
             </h2>
@@ -1418,15 +1457,32 @@ export default function Discover() {
       data-ui-version="discover-103"
       style={DISCOVER_CONTENT_ROOT_STYLE}
     >
+      <div
+        className="sticky top-0 z-30 h-0 pointer-events-none"
+        data-discover-sticky-name-state={isIdentityCollapsed ? "visible" : "hidden"}
+        aria-hidden={!isIdentityCollapsed}
+      >
+        <div
+          className={`bg-background/95 backdrop-blur-sm border-b px-5 py-3 ${
+            isIdentityCollapsed
+              ? "visible opacity-100 translate-y-0 transition-[opacity,transform] duration-200 ease-out"
+              : "invisible opacity-0 -translate-y-2"
+          }`}
+          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))" }}
+        >
+          <div className="max-w-md mx-auto flex items-center justify-center gap-2">
+            <h1 className="font-serif text-lg font-bold truncate text-center" data-testid="text-discover-sticky-name">
+              {displayProfile.firstName}
+            </h1>
+            {displayProfile.photoVerified && (
+              <BadgeCheck className="w-4 h-4 text-primary shrink-0" />
+            )}
+          </div>
+        </div>
+      </div>
       <div className="bg-background/95 backdrop-blur-sm border-b px-5 py-3">
-        <div className="max-w-md mx-auto flex items-center gap-2">
-          <h1 className="font-serif text-lg font-bold truncate" data-testid="text-discover-sticky-name">
-            {displayProfile.firstName}
-          </h1>
-          {displayProfile.photoVerified && (
-            <BadgeCheck className="w-4 h-4 text-primary shrink-0" />
-          )}
-          <div className="ms-auto flex shrink-0 items-center gap-2">
+        <div className="max-w-md mx-auto flex items-center justify-end">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               className="flex h-11 w-11 items-center justify-center rounded-full border border-muted-foreground/20 bg-background text-foreground shadow-sm transition-colors active:scale-95 disabled:opacity-40"
