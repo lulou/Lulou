@@ -1,0 +1,672 @@
+FIX THE LULOU CALL SYSTEM END-TO-END. Do not treat this as separate cosmetic issues.
+
+When I say the call process must be working, I mean it must behave like a NORMAL PHONE CALL between two users.
+
+The required flow is:
+
+USER A taps Start Call
+→ USER B immediately receives an incoming call
+→ USER B sees a proper incoming-call screen
+→ USER B slides horizontally to answer
+→ the two users actually CONNECT
+→ both users enter the live call screen
+→ a 10:00 countdown timer begins
+→ a RED End Call button is visible
+→ either user can end the call
+→ both users return to the correct post-call state
+
+Anything less than this means the call system is NOT working.
+
+==================================================
+1. START CALL MUST ACTUALLY CALL THE OTHER USER
+==================================================
+
+When User A taps:
+
+“Start First Call”
+
+do NOT simply:
+
+- change some local state
+- display “call in progress”
+- add a chat system message
+- change availability state
+
+It must actually initiate a real call session.
+
+Required:
+
+Start Call
+→ server creates ONE call session
+→ caller enters Calling/Ringing state
+→ recipient receives the call event immediately
+→ recipient sees incoming-call UI
+
+No refresh.
+No reopening chat.
+No noticeable delay.
+
+==================================================
+2. RECIPIENT MUST SEE AN INCOMING CALL
+==================================================
+
+User B must see an incoming-call experience similar to an ordinary phone call.
+
+It should clearly show:
+
+- caller profile photo if available
+- caller name
+- “Incoming audio call”
+- ringing state
+
+This incoming call should appear even if User B is elsewhere inside Lulou.
+
+Do not require User B to already be inside the chatroom.
+
+==================================================
+3. HORIZONTAL SLIDE TO ANSWER — NON-NEGOTIABLE
+==================================================
+
+The primary answer interaction MUST be a horizontal drag.
+
+Use a premium iPhone-style slider:
+
+[ phone icon → → → → Slide to answer ]
+
+Requirements:
+
+- draggable phone thumb starts on left
+- user drags horizontally toward right
+- acceptance threshold approximately 75–85%
+- crossing threshold answers call
+- releasing before threshold returns thumb smoothly to beginning
+- support touch/pointer events correctly on iPhone PWA
+- accessible tap alternative may exist, but should not replace the requested visual interaction
+
+Do NOT show a giant green “Answer” button as the primary control.
+
+Keep a smaller separate Decline action.
+
+==================================================
+4. ANSWERING MUST ESTABLISH THE ACTUAL CALL
+==================================================
+
+Sliding to answer must trigger the real connection sequence:
+
+callee accepts
+→ answer signaling sent
+→ caller receives answer
+→ ICE exchange completes
+→ WebRTC connection establishes
+→ local microphone track exists
+→ remote audio track is received
+→ both users reach actual CONNECTED state
+
+Do NOT mark the call connected simply because the user accepted.
+
+The source of truth should be the actual peer connection state.
+
+==================================================
+5. WEBRTC CONNECTED STATE IS AUTHORITATIVE
+==================================================
+
+Use:
+
+RTCPeerConnection.connectionState
+
+or equivalent existing authoritative connection state.
+
+Expected:
+
+new
+→ connecting
+→ connected
+
+Only when genuinely `connected`:
+
+- enter live call screen
+- start countdown
+- mark call connected_at
+- show End Call control
+
+If state becomes:
+
+failed
+→ terminate as failed
+
+closed
+→ terminate
+
+disconnected
+→ attempt existing short recovery behavior if appropriate, otherwise end safely
+
+Do not leave fake connected states.
+
+==================================================
+6. LIVE CALL SCREEN
+==================================================
+
+Once connected, BOTH users must leave the ordinary ringing/chat call-stage state and see a proper active audio-call experience.
+
+Required live screen:
+
+Other user's photo/avatar
+Other user's name
+
+“Audio call”
+
+Large countdown:
+
+10:00
+
+then:
+
+09:59
+09:58
+09:57
+...
+
+And a prominent:
+
+RED END CALL BUTTON
+
+Optional existing controls may include:
+
+- mute
+- speaker/earpiece state
+
+But do not clutter it.
+
+The page should look like a real premium call interface.
+
+==================================================
+7. COUNTDOWN TIMER
+==================================================
+
+First included audio call duration:
+
+10 minutes.
+
+The timer MUST begin only when the two users genuinely connect.
+
+Do not start it when:
+
+- Start Call clicked
+- recipient starts ringing
+- recipient drags answer
+- signaling begins
+
+Use authoritative connected time such as:
+
+connected_at
+
+Then derive remaining time from:
+
+10 minutes - elapsed connected time
+
+This means both devices stay synchronized rather than each starting an unrelated local timer.
+
+==================================================
+8. TIMER MUST SURVIVE UI EVENTS
+==================================================
+
+If:
+
+- component rerenders
+- screen orientation changes
+- call overlay remounts
+
+timer should still calculate from connected_at.
+
+Do not reset to 10:00 accidentally.
+
+==================================================
+9. RED END CALL BUTTON
+==================================================
+
+During connected call there MUST be a clearly visible RED End Call control.
+
+Use a phone/hang-up icon.
+
+Tapping it:
+
+→ requests call termination
+→ updates server session
+→ informs other participant immediately
+→ stops countdown
+→ stops microphone/media tracks
+→ closes RTCPeerConnection
+→ clears signaling subscriptions
+→ both users leave live call screen
+
+No stale call.
+
+No microphone continuing afterward.
+
+==================================================
+10. EITHER USER CAN END
+==================================================
+
+If User A ends:
+
+User B must immediately leave the call too.
+
+If User B ends:
+
+User A must immediately leave too.
+
+Do not require the other user to tap anything.
+
+==================================================
+11. 00:00 AUTO-END
+==================================================
+
+When countdown reaches:
+
+00:00
+
+automatically end the first call.
+
+Both devices should:
+
+- end immediately
+- clean up media
+- transition into post-call progression
+
+Do not allow the included call to continue indefinitely.
+
+==================================================
+12. MISSED CALL
+==================================================
+
+If recipient never answers:
+
+- caller eventually gets unanswered/missed result
+- recipient can receive missed call event
+- no call entitlement consumed
+- no fake connected state
+- no timer
+
+==================================================
+13. DECLINED CALL
+==================================================
+
+If User B declines:
+
+- caller immediately sees declined state
+- call session ends
+- no entitlement consumed
+- no timer
+
+==================================================
+14. CONNECTION FAILURE
+==================================================
+
+If WebRTC fails:
+
+show something clear like:
+
+“Call couldn’t connect”
+
+Then:
+
+- clean up
+- return both users safely
+- do NOT consume free call
+- allow retry according to existing rules
+
+==================================================
+15. AVAILABILITY IS NOT THE CALL
+==================================================
+
+Availability only determines when the call can be started.
+
+Selecting:
+
+Available now
+
+must NOT itself start the call.
+
+Correct sequence:
+
+availability selected
+→ both users become ready
+→ Start First Call becomes available
+→ one user presses Start First Call
+→ OTHER USER receives incoming call
+
+Do not conflate availability with calling.
+
+==================================================
+16. INCOMING CALL MUST WORK GLOBALLY
+==================================================
+
+Incoming call listener cannot exist only inside the chatroom.
+
+If recipient is on:
+
+- Discover
+- Intent
+- Likes
+- Connections
+- Profile
+- another chat
+
+they should still receive the incoming-call experience.
+
+Use the authenticated app-level realtime layer.
+
+==================================================
+17. ONE AUTHORITATIVE CALL SESSION
+==================================================
+
+There must be one authoritative call session containing appropriate state such as:
+
+callId
+matchId
+callerId
+calleeId
+type
+status
+createdAt
+answeredAt
+connectedAt
+endedAt
+endedBy
+failureReason
+
+Use the project's existing schema if already implemented.
+
+Do NOT create duplicate parallel call records.
+
+==================================================
+18. CALL STATE MACHINE
+==================================================
+
+Implement/enforce a clear state machine:
+
+idle
+→ creating
+→ ringing
+→ answering
+→ connecting
+→ connected
+→ ended
+
+Alternative terminal states:
+
+declined
+missed
+failed
+cancelled
+
+Prevent invalid jumps.
+
+Example:
+
+ringing → connected
+
+should NOT happen without answer + actual WebRTC connection.
+
+==================================================
+19. REALTIME STATE BETWEEN DEVICES
+==================================================
+
+Every major state transition must reach the other user immediately:
+
+call created
+→ recipient sees ringing
+
+answered
+→ caller begins connecting
+
+connected
+→ both see live call
+
+ended
+→ both exit
+
+No polling-dependent multi-second delays.
+
+==================================================
+20. AUDIT THE CURRENT BROKEN START CALL BUTTON
+==================================================
+
+Right now Start Call has previously done nothing.
+
+Trace its exact production handler.
+
+Find:
+
+button
+→ handler
+→ API
+→ server route
+→ call creation
+→ realtime event
+→ recipient
+
+Identify the FIRST failing point.
+
+Do not create another button on top of the broken handler.
+
+==================================================
+21. AUDIT DUPLICATE CALL IMPLEMENTATIONS
+==================================================
+
+Search entire project for all:
+
+- Start First Call controls
+- incoming call overlays
+- Answer buttons
+- call rooms
+- call state hooks
+- WebRTC hooks
+- signaling clients
+
+We have already had problems where edits were made to components that were not actually mounted in production.
+
+Identify which components are ACTUALLY live.
+
+Remove/deactivate conflicting legacy paths where safe.
+
+==================================================
+22. TURN / STUN
+==================================================
+
+Verify existing:
+
+VITE_TURN_URL / TURN URLs
+TURN username
+TURN credential
+STUN
+
+are correctly supplied to RTCPeerConnection.
+
+Do not expose credentials in logs.
+
+Test connection through TURN where possible, because mobile networks/NAT can otherwise make calls appear to work only on the same network.
+
+==================================================
+23. IPHONE AUDIO
+==================================================
+
+Test the actual installed iPhone PWA.
+
+Verify:
+
+- microphone permission
+- audio track captured
+- remote audio playback
+- iOS user-gesture restrictions handled
+- no silent connected call
+- microphone released after hangup
+
+Keep existing requirement:
+
+first audio call defaults to earpiece where supported.
+
+==================================================
+24. DUPLICATE TAP PROTECTION
+==================================================
+
+Rapidly tapping Start Call must not create multiple calls.
+
+Rapid slide completion must not answer twice.
+
+End Call must be idempotent.
+
+==================================================
+25. CALL COMPLETION / VOICE NOTES
+==================================================
+
+Preserve existing progression.
+
+Voice notes unlock only after the first VALID included call completes according to the existing authoritative completion rule.
+
+Missed/failed/declined calls must NOT unlock voice notes.
+
+Do not change that rule.
+
+==================================================
+26. TWO-DEVICE ACCEPTANCE TEST — REQUIRED
+==================================================
+
+Do not claim this is fixed without testing the complete flow with two authenticated users.
+
+USER A:
+reaches first-call stage.
+
+USER B:
+reaches first-call stage.
+
+Both select compatible availability.
+
+USER A:
+taps Start First Call.
+
+EXPECTED USER A:
+“Calling Ceebs…”
+
+EXPECTED USER B:
+Incoming call screen appears immediately.
+
+USER B:
+sees horizontal slide-to-answer.
+
+User drags halfway:
+→ releases
+→ slider returns.
+
+User drags fully:
+→ answer accepted.
+
+Then:
+
+A + B:
+→ Connecting…
+
+Then REAL WebRTC connection reaches connected.
+
+Then BOTH see:
+
+10:00
+
+and RED End Call button.
+
+Confirm audio A → B.
+
+Confirm audio B → A.
+
+Wait several seconds:
+timer should agree on both devices.
+
+User B taps End Call.
+
+Immediately:
+
+A + B leave call.
+
+Microphones released.
+
+Call session ends correctly.
+
+==================================================
+27. FAILURE TESTS
+==================================================
+
+Also test:
+
+- decline
+- unanswered
+- caller cancels before answer
+- connection failure
+- background/foreground during ringing
+- background/foreground during active call if PWA permits
+- double Start Call
+- repeated answer gesture
+
+==================================================
+28. DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- 15-message first stage
+- first call duration
+- later stage quotas
+- voice-note rules
+- paid calls
+- payments
+- Discover
+- profile
+- bottom nav
+
+Fix the call system only.
+
+==================================================
+29. DEPLOYMENT
+==================================================
+
+After fix:
+
+- production build
+- call regression tests
+- WebRTC tests
+- commit
+- push GitHub main
+- verify Vercel frontend deployment
+- verify Railway backend deployment
+- verify live revision
+- then perform the REAL two-user test
+
+Do NOT report success just because the code compiles.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact reason Start Call previously did nothing
+2. actual live Start Call component
+3. actual live incoming-call component
+4. how global incoming-call realtime works
+5. slide-to-answer implementation
+6. actual WebRTC failure/root cause found
+7. connected-state source of truth
+8. synchronized 10-minute countdown implementation
+9. red End Call implementation
+10. remote-end synchronization
+11. TURN/STUN verification
+12. files changed
+13. tests
+14. production commit
+15. Vercel/Railway revision
+16. REAL two-device result:
+  - ringing works yes/no
+  - slide to answer works yes/no
+  - call connects yes/no
+  - two-way audio works yes/no
+  - timer works yes/no
+  - End Call works on both devices yes/no

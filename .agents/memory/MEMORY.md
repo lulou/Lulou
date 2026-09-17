@@ -56,3 +56,4 @@
 - [Onboarding revalidation fallback](onboarding-revalidation-fallback.md) — TanStack Query errors may coexist with last-known-good data; completed users stay in-app during transient status failures.
 - [Stripe live-charge capability](stripe-live-charge-capability.md) — live keys and valid AUD prices are insufficient when Stripe reports charges_enabled=false or card_payments inactive.
 - [Atomic call availability](atomic-call-availability.md) — availability, agreement, and persisted revision must change in one row-locked DB operation; call start must match that revision.
+- [Cross-database call settlement](cross-db-call-settlement.md) — reserve paid credits before call creation; terminal outcomes use a per-session outbox and block newer calls until settlement completes.
