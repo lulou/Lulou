@@ -181,6 +181,11 @@ export function ActiveCallOverlay({
     Number.isFinite(initialConnectedAtMs) ? initialConnectedAtMs : null,
   );
   const connectedSyncInFlightRef = useRef(false);
+  const connectedSyncRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectedSyncAttemptRef = useRef(0);
+  const connectedDurationAccumulatedRef = useRef(0);
+  const connectedIntervalStartRef = useRef<number | null>(null);
+  const [audioNeedsGesture, setAudioNeedsGesture] = useState(false);
 
   // Update call debug log with session ID and partner context as soon as they are known.
   useEffect(() => {
@@ -255,30 +260,58 @@ export function ActiveCallOverlay({
   useEffect(() => {
     if (!isConnected || authoritativeConnectedAtMs !== null || connectedSyncInFlightRef.current) return;
     connectedSyncInFlightRef.current = true;
-    apiRequest("POST", `/api/matches/${matchId}/call/connected`, { callSessionId })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`call_connected_http_${res.status}`);
-        const data = await res.json();
-        const value = data.connectedAt ?? data.callConnectedAt;
-        const connectedAtMs = value ? new Date(value).getTime() : NaN;
-        if (!Number.isFinite(connectedAtMs)) throw new Error("call_connected_missing_timestamp");
-        connectedAtRef.current = connectedAtMs;
-        setAuthoritativeConnectedAtMs(connectedAtMs);
-        console.log("[CALL_PROGRESSION] authoritative_call_connected", {
-          matchId,
-          callSessionId,
-          connectedAt: new Date(connectedAtMs).toISOString(),
-        });
-      })
-      .catch((error) => {
-        console.error("[CALL_CONNECTED] Failed to persist authoritative connected time", {
-          matchId,
-          callSessionId,
-          error: error?.message,
-        });
-        connectedSyncInFlightRef.current = false;
-        finishCallRef.current?.("connection_failed");
+    let cancelled = false;
+    const persistConnectedAt = async () => {
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= 4 && !cancelled && !endedRef.current; attempt++) {
+        connectedSyncAttemptRef.current = attempt;
+        try {
+          const res = await apiRequest("POST", `/api/matches/${matchId}/call/connected`, { callSessionId });
+          if (!res.ok) throw new Error(`call_connected_http_${res.status}`);
+          const data = await res.json();
+          const value = data.connectedAt ?? data.callConnectedAt;
+          const connectedAtMs = value ? new Date(value).getTime() : NaN;
+          if (!Number.isFinite(connectedAtMs)) throw new Error("call_connected_missing_timestamp");
+          connectedAtRef.current = connectedAtMs;
+          setAuthoritativeConnectedAtMs(connectedAtMs);
+          connectedSyncAttemptRef.current = 0;
+          console.log("[CALL_PROGRESSION] authoritative_call_connected", {
+            matchId, callSessionId, connectedAt: new Date(connectedAtMs).toISOString(),
+          });
+          connectedSyncInFlightRef.current = false;
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 4 && !cancelled && !endedRef.current) {
+            const delayMs = 500 * 2 ** (attempt - 1);
+            console.warn("[CALL_CONNECTED] transient persistence failure; retry scheduled", {
+              matchId, callSessionId, attempt, delayMs,
+            });
+            await new Promise<void>(resolve => {
+              connectedSyncRetryTimerRef.current = setTimeout(() => {
+                connectedSyncRetryTimerRef.current = null;
+                resolve();
+              }, delayMs);
+            });
+          }
+        }
+      }
+      if (cancelled || endedRef.current) return;
+      console.error("[CALL_CONNECTED] Failed to persist authoritative connected time", {
+        matchId, callSessionId, error: (lastError as Error)?.message,
       });
+      connectedSyncInFlightRef.current = false;
+      finishCallRef.current?.("connection_failed");
+    };
+    void persistConnectedAt();
+    return () => {
+      cancelled = true;
+      if (connectedSyncRetryTimerRef.current) {
+        clearTimeout(connectedSyncRetryTimerRef.current);
+        connectedSyncRetryTimerRef.current = null;
+      }
+      connectedSyncInFlightRef.current = false;
+    };
   }, [isConnected, authoritativeConnectedAtMs, matchId, callSessionId]);
 
   const stageLabel = callStage === 0 ? t("first_call_stage_label") : callStage === 1 ? t("second_call_stage_label") : t("face_call_stage_label_audio");
@@ -324,6 +357,19 @@ export function ActiveCallOverlay({
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const audioResume = useCallback(() => {
+    const audio = remoteAudioRef.current;
+    if (!audio?.srcObject) return;
+    audio.play().then(() => {
+      setAudioNeedsGesture(false);
+      console.log("[CALL_AUDIO] remote audio resumed by user gesture", { matchId });
+    }).catch((error: unknown) => {
+      console.warn("[CALL_AUDIO] remote audio gesture resume failed", {
+        matchId,
+        error: (error as Error)?.message ?? String(error),
+      });
+    });
+  }, [matchId]);
 
   // On unmount: detach the remote stream from the audio/video elements and
   // run a final cleanupCallAudio() to stop any ringtone that somehow survived.
@@ -613,8 +659,13 @@ export function ActiveCallOverlay({
         console.log("[CALL_UI] CALL_STATE:connected_pending_server_time", { matchId, callSessionId, isCaller });
         console.log("[CALL_DEBUG] CONNECTED: WebRTC ICE established — call is live", { matchId, isCaller });
       }
-      // If the connection recovers after a drop, clear disconnectedAt so we don't
-      // accidentally cap the duration at the moment of the earlier brief interruption.
+      if (connectedIntervalStartRef.current === null) {
+        connectedIntervalStartRef.current = Date.now();
+      } else if (disconnectedAtRef.current !== null) {
+        connectedDurationAccumulatedRef.current +=
+          disconnectedAtRef.current - connectedIntervalStartRef.current;
+        connectedIntervalStartRef.current = Date.now();
+      }
       disconnectedAtRef.current = null;
     } else if (connectionState === "failed") {
       console.error("[CALL_UI] CALL_STATE:failed", { matchId, callSessionId, isCaller, hadConnection: connectedAtRef.current !== null });
@@ -622,6 +673,11 @@ export function ActiveCallOverlay({
       // Stamp the physical disconnection time now — not when the user presses End Call.
       if (connectedAtRef.current !== null && disconnectedAtRef.current === null) {
         disconnectedAtRef.current = Date.now();
+        if (connectedIntervalStartRef.current !== null) {
+          connectedDurationAccumulatedRef.current +=
+            disconnectedAtRef.current - connectedIntervalStartRef.current;
+          connectedIntervalStartRef.current = null;
+        }
         console.log("[CALL_PROGRESSION] call_physically_disconnected", { matchId, connectionState: "failed", disconnectedAt: new Date(disconnectedAtRef.current).toISOString(), connectedDurationSoFar: disconnectedAtRef.current - connectedAtRef.current });
       }
     } else if (connectionState === "reconnecting") {
@@ -630,6 +686,11 @@ export function ActiveCallOverlay({
       // Stamp disconnection time for the reconnecting gap — cleared if connection recovers.
       if (connectedAtRef.current !== null && disconnectedAtRef.current === null) {
         disconnectedAtRef.current = Date.now();
+        if (connectedIntervalStartRef.current !== null) {
+          connectedDurationAccumulatedRef.current +=
+            disconnectedAtRef.current - connectedIntervalStartRef.current;
+          connectedIntervalStartRef.current = null;
+        }
         console.log("[CALL_PROGRESSION] call_physically_disconnected", { matchId, connectionState: "reconnecting", disconnectedAt: new Date(disconnectedAtRef.current).toISOString(), connectedDurationSoFar: disconnectedAtRef.current - connectedAtRef.current });
       }
     }
@@ -868,6 +929,7 @@ export function ActiveCallOverlay({
                 el.play().then(() => {
                   console.log("[CALL_AUDIO] remote audio play success (retry)", { matchId, volume: el.volume });
                 }).catch((e2: unknown) => {
+                    setAudioNeedsGesture(true);
                   console.error("[CALL_AUDIO] remote audio play FAILED on retry", { matchId, error: (e2 as Error)?.message ?? String(e2) });
                 });
               }
@@ -1005,7 +1067,12 @@ export function ActiveCallOverlay({
     // disconnectedAtRef is stamped the instant WebRTC leaves "connected" state.
     // Falling back to Date.now() only when the connection is still live at hang-up.
     const effectiveEnd = disconnectedAtRef.current ?? Date.now();
-    const connectedDurationMs = connectedAtRef.current ? effectiveEnd - connectedAtRef.current : 0;
+    const currentConnectedMs = connectedIntervalStartRef.current !== null
+      ? effectiveEnd - connectedIntervalStartRef.current
+      : 0;
+    const connectedDurationMs = connectedAtRef.current
+      ? connectedDurationAccumulatedRef.current + currentConnectedMs
+      : 0;
     const connected = connectedDurationMs > 0;
     // Must match server MIN_VALID_CALL_MS (server/storage.ts) — 20 seconds
     const MIN_VALID_CALL_MS = 20_000;
@@ -1363,6 +1430,17 @@ export function ActiveCallOverlay({
         style={{ display: "none" }}
         data-testid="audio-remote"
       />
+      {audioNeedsGesture && isConnected && (
+        <button
+          type="button"
+          onClick={audioResume}
+          className="absolute top-5 left-1/2 z-30 -translate-x-1/2 rounded-full bg-white/90 px-4 py-2 text-sm font-medium text-black shadow-lg"
+          aria-label="Enable call audio"
+          data-testid="button-enable-call-audio"
+        >
+          Tap to enable audio
+        </button>
+      )}
 
       {/* Full-screen remote video (video calls only, once connected).
           muted=true: audio is handled exclusively by the hidden <audio> element

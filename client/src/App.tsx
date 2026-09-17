@@ -9,6 +9,7 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import AppLayout from "@/components/app-layout";
 import { LulouOnboardingTour } from "@/components/lulou-onboarding-tour";
+import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
 
 // Main app pages — static imports so Vercel never needs to serve lazy chunks.
 // All pages land in the main bundle; no separate chunk files are requested at runtime.
@@ -937,13 +938,12 @@ function CallDetectors({ userId }: { userId: string }) {
   // threshold caused the incoming-call overlay to vanish mid-ring because
   // isStaleCall fired on the 5 s poll, incomingCall became undefined, and the
   // overlay unmounted — resetting ringEnabled and re-triggering the ringtone.
-  const STALE_RINGING_MS = 90_000;
   const STALE_ANSWERED_MS = 5 * 60_000;
 
   function isStaleCall(m: MatchWithProfile): boolean {
     if (!m.callStartedAt) return false;
     const age = Date.now() - new Date(m.callStartedAt).getTime();
-    if (!m.callAnswered && age > STALE_RINGING_MS) {
+    if (!m.callAnswered && age > CALL_STALE_RINGING_MS) {
       console.log("[CALL_SESSION] STALE_SESSION_CHECK", { matchId: m.id, callSessionId: m.callSessionId, ageMs: age, answered: false, verdict: "stale_ringing" });
       return true;
     }
@@ -1231,6 +1231,7 @@ function CallDetectors({ userId }: { userId: string }) {
     if (incomingMatchForUI) return incomingMatchForUI;
     if (!activeCall) return null;
     if (activeCall.callInitiatorId === userId) return null; // caller, not receiver
+    if (activeCall.callAnswered === true) return null; // authoritative answer already accepted
     const sessionKey = `${activeCall.id}:${activeCall.callSessionId}`;
     if (locallyAnsweredKey === sessionKey) return null; // receiver pressed Answer here
     // Receiver hasn't pressed Answer on this device — show green+red buttons
@@ -1291,68 +1292,38 @@ function CallDetectors({ userId }: { userId: string }) {
   return (
     <>
       {/* ── OVERLAY ROUTING ────────────────────────────────────────────────────
-          Priority order (highest first):
-            1. FORCED INCOMING: any match in `matches` where the current user is
-               the receiver (callInitiatorId !== userId), the call is started
-               (callStartedAt exists), not yet answered by receiver, and not
-               completed. Scans `matches` RAW — bypasses all timing/stale/cancelled
-               guards that can silently drop `incomingCall` to null.
-            2. ActiveCallOverlay: answered call or caller-outgoing call (activeCall).
-            3. Nothing. */}
+          Both overlay types are selected only from the guarded, session-aware
+          derived call state above. Never scan raw match rows here: a stale poll
+          must not resurrect a cancelled or replaced session. */}
       {startupVerified && (() => {
-        // ── Priority 1: forced incoming receiver check ──────────────────────
-        // Scan matches directly. No APP_LOAD_TIME guard, no cancelledTick guard,
-        // no dismissedCallKey. If this user is the receiver and the call is live
-        // they must see IncomingCallOverlay regardless of how the derived memos
-        // classified the call.
-        // [RING_FIX] forcedIncomingMatch: same guard chain as incomingCall memo so
-        // cancelled/stale/ended calls never trigger IncomingCallOverlay or its ringtone.
-        // Previously this scan had NO guards — any match with callStartedAt in the DB
-        // (including declined/cancelled calls the server hadn't cleared yet) would mount
-        // the overlay and play the ringtone the moment a 5 s poll returned stale data.
-        const forcedIncomingMatch = (matches ?? []).find(m =>
-          !!m.callStartedAt &&
-          !!m.callInitiatorId &&            // require a valid initiator (mirrors incomingCall memo)
-          m.callCompleted !== true &&
-          m.callInitiatorId !== userId &&   // current user is receiver
-          m.callAnswered !== true &&        // receiver has not answered yet
-          !!m.callSessionId &&
-          isArmedSession(m.callSessionId) &&              // MUST be armed by live Realtime call:ring
-          !isCallSessionCancelled(m.id, m.callSessionId) &&  // skip declined/cancelled
-          !isEndedCall(m) &&                                  // skip locally-ended calls
-          !isStaleCall(m) &&                                  // skip >90 s unanswered calls
-          // Respect the user's explicit dismiss action (same guard as incomingCall memo).
-          // Without this check, pressing Decline sets dismissedCallKey but forcedIncomingMatch
-          // ignores it → overlay re-mounts immediately → appears as a random incoming call.
-          `${m.id}:${m.callSessionId}` !== dismissedCallKey
-          && `${m.id}:${m.callSessionId}` !== locallyAnsweredKey
-        ) ?? null;
-
         const overlayForActive = activeCall ?? null;
 
-        // ── Priority 1: receiver sees IncomingCallOverlay ───────────────────
-        if (forcedIncomingMatch) {
+        // IncomingCallOverlay is intentionally driven by matchForIncoming,
+        // which is derived from the same live-session guards as activeCall.
+        // This prevents a delayed /api/matches response from reviving a dead
+        // session after cancel, decline, end, or replacement.
+        if (matchForIncoming) {
           const forcedIsFaceCall =
-            isVideoCallSession(forcedIncomingMatch.callSessionId) ||
-            (forcedIncomingMatch.callStage || 0) === 1 ||
-            ((forcedIncomingMatch.callStage || 0) === 3 &&
-              !!forcedIncomingMatch.faceCallUser1Accepted &&
-              !!forcedIncomingMatch.faceCallUser2Accepted);
+            isVideoCallSession(matchForIncoming.callSessionId) ||
+            (matchForIncoming.callStage || 0) === 1 ||
+            ((matchForIncoming.callStage || 0) === 3 &&
+              !!matchForIncoming.faceCallUser1Accepted &&
+              !!matchForIncoming.faceCallUser2Accepted);
 
           return (
             <Suspense fallback={null}>
                 <CallOverlayErrorBoundary
-                  key={`forced-incoming:${forcedIncomingMatch.id}:${forcedIncomingMatch.callSessionId}`}
-                  matchId={forcedIncomingMatch.id}
-                  callSessionId={forcedIncomingMatch.callSessionId}
+                  key={`incoming:${matchForIncoming.id}:${matchForIncoming.callSessionId}`}
+                  matchId={matchForIncoming.id}
+                  callSessionId={matchForIncoming.callSessionId}
                   onError={handleOverlayError}
                 >
                   <IncomingCallOverlay
-                    match={forcedIncomingMatch}
+                    match={matchForIncoming}
                     isFaceCall={forcedIsFaceCall}
                     onDismiss={handleDismiss}
                     onAnswer={(answeredMatch) => {
-                      console.log("[CALLEE_FIX] onAnswer fired (forced path)", {
+                      console.log("[CALLEE_FIX] onAnswer fired (session-authoritative path)", {
                         matchId: answeredMatch.id,
                         sessionId: answeredMatch.callSessionId,
                       });

@@ -22,9 +22,9 @@ describe("production regression guards", () => {
     expect(app).toContain('stopAllCallSounds("calldetectors_mount")');
     expect(app).toContain("startupVerified &&");
     expect(app).toContain("isArmedSession(m.callSessionId)");
-    expect(app).toContain("!isCallSessionCancelled(m.id, m.callSessionId)");
-    expect(app).toContain("!isEndedCall(m)");
-    expect(app).toContain("!isStaleCall(m)");
+    expect(app).toContain("isCallSessionCancelled(m.id, m.callSessionId)");
+    expect(app).toContain("isEndedCall(m)");
+    expect(app).toContain("isStaleCall(m)");
     expect(signaling).toContain("isStartupSweepComplete()");
     expect(audio).toContain("isStartupSweepComplete");
   });
@@ -45,7 +45,7 @@ describe("production regression guards", () => {
     expect(incoming).toContain("onAnswer?.(answeredMatch)");
     expect(app).toContain("answeredCall || locallyAnsweredCall || callerRingingCall");
     expect(app).toContain("setLocallyAnsweredCall(answeredMatch)");
-    expect(app).toContain("!== locallyAnsweredKey");
+    expect(app).toContain("locallyAnsweredKey === sessionKey");
     expect(app).toContain("!isArmedSession(sessionId)");
     expect(app).toContain("isCallSessionCancelled(locallyAnsweredCall.id, sessionId)");
     expect(routes).toContain("callSessionId is required");
@@ -59,7 +59,7 @@ describe("production regression guards", () => {
       expect(consumer).toContain("isCallSessionCancelled");
     }
     expect(active).toContain("const CALL_DURATIONS_SEC: Record<number, number> = { 0: 10 * 60");
-    expect(active).toContain("useCountdownTimer(isConnected, stageDuration)");
+    expect(active).toContain("useCountdownTimer(authoritativeConnectedAtMs, stageDuration)");
     expect(active).toContain('data-testid="text-call-timer"');
     expect(active).toContain('data-testid="button-end-call"');
   });

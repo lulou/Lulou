@@ -45,6 +45,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
   const sliderStartXRef      = useRef(0);
   const sliderCurrentXRef    = useRef(0);
   const sliderAnsweredRef    = useRef(false);               // one-way latch: prevent duplicate answer
+  const sliderPointerIdRef   = useRef<number | null>(null);
   const sliderRafRef         = useRef(0);
   // Updated every render so the gesture effect always calls the freshest answerCall.mutate
   const answerLiveRef        = useRef<() => void>(() => {});
@@ -373,10 +374,19 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
     const fill   = trackFillRef.current;
     if (!thumb || !slider || !fill) return;
 
+    const releasePointer = () => {
+      const pointerId = sliderPointerIdRef.current;
+      if (pointerId !== null && thumb.hasPointerCapture?.(pointerId)) {
+        thumb.releasePointerCapture(pointerId);
+      }
+      sliderPointerIdRef.current = null;
+    };
+
     const snapBack = () => {
       cancelAnimationFrame(sliderRafRef.current);
       sliderActiveRef.current   = false;
       sliderCurrentXRef.current = 0;
+      releasePointer();
       thumb.style.transition = "transform 0.32s cubic-bezier(0.22,1,0.36,1)";
       fill.style.transition  = "width 0.32s cubic-bezier(0.22,1,0.36,1)";
       thumb.style.transform  = "translate3d(0, 0, 0)";
@@ -417,7 +427,6 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         thumb.style.transform = `translate3d(${clamped}px, 0, 0)`;
         fill.style.width      = `${(clamped / maxDx) * 100}%`;
       });
-      if (clamped >= maxDx * 0.8) doAnswer();
     };
 
      const end = () => {
@@ -433,6 +442,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
      const onPointerDown = (ev: PointerEvent) => {
        if (ev.pointerType === "mouse" && ev.button !== 0) return;
        ev.preventDefault();
+       sliderPointerIdRef.current = ev.pointerId;
        thumb.setPointerCapture?.(ev.pointerId);
        begin(ev.clientX);
      };
@@ -442,7 +452,10 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
        move(ev.clientX);
      };
      const onPointerUp = (ev: PointerEvent) => {
-       thumb.releasePointerCapture?.(ev.pointerId);
+       if (sliderPointerIdRef.current === ev.pointerId) {
+         thumb.releasePointerCapture?.(ev.pointerId);
+         sliderPointerIdRef.current = null;
+       }
        end();
      };
      const onTouchStart = (ev: TouchEvent) => {
@@ -462,7 +475,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
        thumb.addEventListener("pointerdown", onPointerDown);
        thumb.addEventListener("pointermove", onPointerMove);
        thumb.addEventListener("pointerup", onPointerUp);
-       thumb.addEventListener("pointercancel", snapBack);
+      thumb.addEventListener("pointercancel", snapBack);
      } else {
        thumb.addEventListener("touchstart", onTouchStart, { passive: false });
        thumb.addEventListener("touchmove", onTouchMove, { passive: false });
@@ -471,11 +484,12 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
      }
     return () => {
       cancelAnimationFrame(sliderRafRef.current);
+       releasePointer();
        if (supportsPointer) {
          thumb.removeEventListener("pointerdown", onPointerDown);
          thumb.removeEventListener("pointermove", onPointerMove);
          thumb.removeEventListener("pointerup", onPointerUp);
-         thumb.removeEventListener("pointercancel", snapBack);
+          thumb.removeEventListener("pointercancel", snapBack);
        } else {
          thumb.removeEventListener("touchstart", onTouchStart);
          thumb.removeEventListener("touchmove", onTouchMove);

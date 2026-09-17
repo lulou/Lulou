@@ -8,6 +8,7 @@ import {
   membershipSubscriptions, userBenefits, sparkBalances, sparkPurchases,
 } from "@shared/schema";
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
+import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db, pool as localPool } from "./db";
@@ -2345,14 +2346,13 @@ export class SupabaseStorage implements IStorage {
 
     if (match.callStartedAt && match.callInitiatorId) {
       const callAge = Date.now() - new Date(match.callStartedAt).getTime();
-      const STALE_RINGING_MS = 2 * 60 * 1000;
       const STALE_ANSWERED_MS = 5 * 60 * 1000;
       const connectedAge = match.callConnectedAt
         ? Date.now() - new Date(match.callConnectedAt).getTime()
         : 0;
       const STALE_CONNECTED_MS = 20 * 60 * 1000;
       const isStale =
-        (!match.callAnswered && callAge > STALE_RINGING_MS)
+        (!match.callAnswered && callAge > CALL_STALE_RINGING_MS)
         || (match.callAnswered && !match.callConnectedAt && callAge > STALE_ANSWERED_MS)
         || (!!match.callConnectedAt && connectedAge > STALE_CONNECTED_MS);
 

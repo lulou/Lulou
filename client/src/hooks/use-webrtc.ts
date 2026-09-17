@@ -252,6 +252,8 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
   // completes — so a second sendOffer() can slip through the signalingState check
   // while the first createOffer() is still pending.
   const isNegotiatingRef = useRef(false);
+  const pendingIceRestartRef = useRef(false);
+  const iceRestartRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   onRemoteHangupRef.current = onRemoteHangup;
 
   const cleanup = useCallback(() => {
@@ -266,6 +268,11 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
     }
+    if (iceRestartRetryTimerRef.current) {
+      clearTimeout(iceRestartRetryTimerRef.current);
+      iceRestartRetryTimerRef.current = null;
+    }
+    pendingIceRestartRef.current = false;
     if (connectionTimeoutRef.current) {
       clearTimeout(connectionTimeoutRef.current);
       connectionTimeoutRef.current = null;
@@ -335,6 +342,7 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       // Guard 1: signalingState must be stable before we can create a new offer.
       if (pc.signalingState !== "stable") {
         console.warn("[WebRTC] SEND_OFFER_SKIPPED: signalingState is", pc.signalingState, "(expected stable)");
+        if (iceRestart) pendingIceRestartRef.current = true;
         return;
       }
       // Guard 2: isNegotiatingRef prevents a second concurrent sendOffer() from
@@ -343,9 +351,11 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       // arriving while createOffer() is in-flight would otherwise pass guard 1.
       if (isNegotiatingRef.current) {
         console.warn("[WebRTC] SEND_OFFER_SKIPPED: negotiation already in progress (isNegotiating=true)");
+        if (iceRestart) pendingIceRestartRef.current = true;
         return;
       }
       isNegotiatingRef.current = true;
+      if (iceRestart) pendingIceRestartRef.current = false;
       try {
         console.log("[WebRTC] SEND_OFFER_START: calling createOffer, signalingState:", pc.signalingState, iceRestart ? "(ICE RESTART)" : "");
         callDebug.event(iceRestart ? "offer: createOffer (ICE RESTART)" : "offer: createOffer start");
@@ -1131,6 +1141,21 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
         callDebug.update({ signalingStates: [...callDebug.get().signalingStates, s] });
         callDebug.event(`signaling: → ${s}`);
         console.log("[WebRTC] signalingState:", s);
+        if (
+          s === "stable"
+          && pendingIceRestartRef.current
+          && !isNegotiatingRef.current
+          && !iceRestartRetryTimerRef.current
+          && !cleanedUpRef.current
+        ) {
+          iceRestartRetryTimerRef.current = setTimeout(() => {
+            iceRestartRetryTimerRef.current = null;
+            if (pendingIceRestartRef.current && !cleanedUpRef.current) {
+              console.log("[WebRTC] ICE_RESTART: deferred retry now stable", { matchId });
+              void sendOffer(true);
+            }
+          }, 0);
+        }
       };
 
       pc.onconnectionstatechange = () => {

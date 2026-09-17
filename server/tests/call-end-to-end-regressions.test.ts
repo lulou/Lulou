@@ -30,7 +30,23 @@ describe("end-to-end call regressions", () => {
     expect(incoming).toContain("maxDx * 0.8");
     expect(incoming).toContain('addEventListener("pointermove"');
     expect(incoming).toContain('addEventListener("touchmove"');
+    expect(incoming).toContain('addEventListener("pointerup"');
+    expect(incoming).toContain('addEventListener("touchend"');
     expect(incoming).toContain("snapBack");
+    expect(incoming).toContain("releasePointer");
+    const moveHandler = incoming.slice(
+      incoming.indexOf("const move ="),
+      incoming.indexOf("const end ="),
+    );
+    expect(moveHandler).not.toContain("doAnswer()");
+  });
+
+  it("routes incoming UI only from guarded live-session state", () => {
+    expect(app).toContain("if (matchForIncoming)");
+    expect(app).toContain("Never scan raw match rows here");
+    expect(app).not.toContain("const forcedIncomingMatch =");
+    expect(app).not.toContain("forced-incoming:");
+    expect(app).toContain("if (activeCall.callAnswered === true) return null");
   });
 
   it("uses RTCPeerConnection.connectionState rather than ICE as connected authority", () => {
@@ -57,6 +73,25 @@ describe("end-to-end call regressions", () => {
     expect(active).toContain("authoritativeConnectedAtMs");
     expect(active).toContain('/call/connected`');
     expect(signaling).toContain('event.type === "call:connected"');
+  });
+
+  it("retries connected-time persistence before failing a physical call", () => {
+    expect(active).toContain("for (let attempt = 1; attempt <= 4");
+    expect(active).toContain("transient persistence failure; retry scheduled");
+    expect(active).toContain("500 * 2 ** (attempt - 1)");
+    expect(active).not.toContain("connectedSyncInFlightRef.current = false;\n        finishCallRef.current?.(\"connection_failed\");");
+  });
+
+  it("offers a user-gesture fallback when remote audio autoplay is blocked", () => {
+    expect(active).toContain("audioNeedsGesture");
+    expect(active).toContain("button-enable-call-audio");
+    expect(active).toContain("remote audio resumed by user gesture");
+  });
+
+  it("defers ICE restart until signaling returns to stable", () => {
+    expect(webrtc).toContain("pendingIceRestartRef");
+    expect(webrtc).toContain('s === "stable"');
+    expect(webrtc).toContain("deferred retry now stable");
   });
 
   it("binds cancel and complete to the exact session and requires server-confirmed connection", () => {
@@ -97,5 +132,36 @@ describe("end-to-end call regressions", () => {
     expect(routes).toContain("TURN_URLS || process.env.TURN_URL");
     expect(webrtc).toContain("configure TURN_URLS (or TURN_URL), TURN_USERNAME, and TURN_CREDENTIAL");
     expect(webrtc).not.toContain("add VITE_TURN_URL");
+  });
+
+  it("makes stale cleanup conditional on the exact inspected session and start time", () => {
+    expect(routes).toContain('.eq("call_session_id", m.call_session_id)');
+    expect(routes).toContain('.eq("call_started_at", m.call_started_at)');
+    expect(routes).toContain(".eq(\"call_session_id\", row.call_session_id)");
+    expect(routes).toContain(".eq(\"call_started_at\", row.call_started_at)");
+    expect(routes).toContain('import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle"');
+    expect(storage).toContain('import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle"');
+    expect(app).toContain('import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle"');
+    expect(routes).toContain("CALL_STALE_NEGOTIATING_MS");
+    expect(routes).toContain("CALL_STALE_CONNECTED_MS");
+  });
+
+  it("does not re-ring a replaced call session", () => {
+    expect(routes).toContain("call_session_id === match.callSessionId");
+    expect(routes).toContain("select(\"call_answered,call_completed,call_initiator_id,call_started_at,call_session_id\")");
+  });
+
+  it("derives TURN availability from effective filtered relay URLs", () => {
+    expect(routes).toContain("const hasTurn = turnUrls.length > 0 && !!turnUsername && !!turnCredential");
+    expect(routes).not.toContain("const hasTurn = !!(turnUrlsRaw && turnUsername && turnCredential)");
+  });
+
+  it("uses the authoritative counted completion result for voice-note unlock", () => {
+    const completion = routes.slice(
+      routes.indexOf('app.post("/api/matches/:matchId/call/complete"'),
+      routes.indexOf('// face-call/accept'),
+    );
+    expect(completion).toContain("if (result.counted && !priorIsPaid && persistedCallType === \"phone\" && priorCallStage === 0)");
+    expect(completion).not.toContain("connectedDurationMs >= 30_000");
   });
 });

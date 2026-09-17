@@ -52,6 +52,7 @@ import {
   isDailySpinEntitlement,
 } from "./spinEligibility";
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
+import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -113,6 +114,12 @@ function isCallReadyToStart(agreedCallAt: Date): boolean {
 
 /** Availability expires this many minutes after agreed_call_at. */
 const AVAIL_EXPIRY_GRACE_MIN = 30;
+
+// One expiry policy for every server-side stale-call sweep. Keep these values
+// aligned with the client-facing repair/sweep behavior; every cleanup write
+// must still be conditional on the exact session snapshot it inspected.
+const CALL_STALE_NEGOTIATING_MS = 5 * 60 * 1000;
+const CALL_STALE_CONNECTED_MS = 20 * 60 * 1000;
 
 /**
  * True when the agreed call time has passed the expiry grace window.
@@ -863,9 +870,6 @@ function generateAutoReply(profile: Profile | undefined, msgIndex: number): stri
 
 async function clearStaleCallsOnStartup(): Promise<void> {
   try {
-    const STALE_RINGING_MS = 2 * 60 * 1000;
-    const STALE_NEGOTIATING_MS = 5 * 60 * 1000;
-    const STALE_CONNECTED_MS = 20 * 60 * 1000;
     const maintenanceStorage = new SupabaseStorage(supabaseAdmin);
     const { data: activeMatches, error } = await supabaseAdmin
       .from("matches")
@@ -880,9 +884,9 @@ async function clearStaleCallsOnStartup(): Promise<void> {
         ? Date.now() - new Date(m.call_connected_at).getTime()
         : 0;
       const isStale =
-        (!m.call_answered && startedAge > STALE_RINGING_MS)
-        || (m.call_answered && !m.call_connected_at && startedAge > STALE_NEGOTIATING_MS)
-        || (!!m.call_connected_at && connectedAge > STALE_CONNECTED_MS);
+        (!m.call_answered && startedAge > CALL_STALE_RINGING_MS)
+        || (m.call_answered && !m.call_connected_at && startedAge > CALL_STALE_NEGOTIATING_MS)
+        || (!!m.call_connected_at && connectedAge > CALL_STALE_CONNECTED_MS);
       if (!isStale || !m.call_session_id) continue;
 
       await ensureCallSettlementTable();
@@ -908,6 +912,7 @@ async function clearStaleCallsOnStartup(): Promise<void> {
         })
         .eq("id", m.id)
         .eq("call_session_id", m.call_session_id)
+        .eq("call_started_at", m.call_started_at)
         .select("id")
         .maybeSingle();
       if (cleared) {
@@ -1010,9 +1015,6 @@ export async function registerRoutes(
   // clients update in real-time rather than waiting for the next 5 s poll.
   setInterval(async () => {
     try {
-      const STALE_RINGING_MS = 2 * 60 * 1000;   // 2 min unanswered
-      const STALE_NEGOTIATING_MS = 5 * 60 * 1000;
-      const STALE_CONNECTED_MS = 20 * 60 * 1000;
       const maintenanceStorage = new SupabaseStorage(supabaseAdmin);
       const { data: activeMatches, error } = await supabaseAdmin
         .from("matches")
@@ -1026,9 +1028,9 @@ export async function registerRoutes(
           ? Date.now() - new Date(m.call_connected_at).getTime()
           : 0;
         const isStale =
-          (!m.call_answered && age > STALE_RINGING_MS)
-          || (m.call_answered && !m.call_connected_at && age > STALE_NEGOTIATING_MS)
-          || (!!m.call_connected_at && connectedAge > STALE_CONNECTED_MS);
+          (!m.call_answered && age > CALL_STALE_RINGING_MS)
+          || (m.call_answered && !m.call_connected_at && age > CALL_STALE_NEGOTIATING_MS)
+          || (!!m.call_connected_at && connectedAge > CALL_STALE_CONNECTED_MS);
         if (!isStale || !m.call_session_id) continue;
 
         await ensureCallSettlementTable();
@@ -1054,6 +1056,7 @@ export async function registerRoutes(
           })
           .eq("id", m.id)
           .eq("call_session_id", m.call_session_id)
+          .eq("call_started_at", m.call_started_at)
           .select("id")
           .maybeSingle();
         if (!cleared) continue;
@@ -4562,8 +4565,14 @@ export async function registerRoutes(
       const scheduleRering = (delayMs: number) => {
         setTimeout(async () => {
           try {
-            const { data: recheck } = await supabaseAdmin.from("matches").select("call_answered,call_completed,call_initiator_id,call_started_at").eq("id", matchId).maybeSingle();
-            if (recheck && recheck.call_initiator_id === userId && recheck.call_started_at && !recheck.call_answered && !recheck.call_completed) {
+            const { data: recheck } = await supabaseAdmin.from("matches").select("call_answered,call_completed,call_initiator_id,call_started_at,call_session_id").eq("id", matchId).maybeSingle();
+            if (recheck
+              && recheck.call_initiator_id === userId
+              && recheck.call_started_at
+              && recheck.call_session_id === match.callSessionId
+              && !recheck.call_answered
+              && !recheck.call_completed
+            ) {
               console.log("[CALL_START] DELAYED_RERING", { matchId, delayMs, callSessionId: match.callSessionId });
               broadcastCallEvent(matchId, { ...ringPayload, serverBroadcastAt: Date.now() });
             }
@@ -4672,9 +4681,9 @@ export async function registerRoutes(
         return res.json({ status: "noop", reason: "no_active_call", match: m });
       }
       const callAge = Date.now() - new Date(m.callStartedAt).getTime();
-      const REPAIR_RINGING_MS = 2 * 60 * 1000;
-      const REPAIR_ANSWERED_MS = 5 * 60 * 1000;
-      const isStuck = (!m.callAnswered && callAge > REPAIR_RINGING_MS) || (m.callAnswered && callAge > REPAIR_ANSWERED_MS);
+      const isStuck = (!m.callAnswered && callAge > CALL_STALE_RINGING_MS)
+        || (m.callAnswered && !m.callConnectedAt && callAge > CALL_STALE_NEGOTIATING_MS)
+        || (!!m.callConnectedAt && Date.now() - new Date(m.callConnectedAt).getTime() > CALL_STALE_CONNECTED_MS);
       if (!isStuck) {
         console.log("[CALL_REPAIR] NOT_YET_STUCK", { matchId, userId, callAgeMs: callAge, callAnswered: m.callAnswered, callSessionId: m.callSessionId });
         return res.json({ status: "noop", reason: "call_still_fresh", callAgeMs: callAge, callAnswered: m.callAnswered, match: m });
@@ -4684,6 +4693,8 @@ export async function registerRoutes(
         .from("matches")
         .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false, call_session_id: null, call_connected_at: null, call_is_paid: false, call_media_type: "phone", call_payer_id: null })
         .eq("id", matchId)
+        .eq("call_session_id", m.callSessionId)
+        .eq("call_started_at", m.callStartedAt?.toISOString())
         .select()
         .maybeSingle();
       if (clearError || !cleared) {
@@ -4701,14 +4712,12 @@ export async function registerRoutes(
 
   // ── User-wide expired-call sweep ─────────────────────────────────────────
   // Called by the client immediately after a successful login to clear any
-  // ringing call records left open from the previous session.  Uses a 90-second
-  // unanswered threshold — tighter than the background repair job (2 min) — so
-  // stale rows are removed before the client's startup sweep runs and before any
-  // Realtime rering broadcast can re-arm them.
+  // ringing call records left open from the previous session. It uses the same
+  // unanswered expiry as the background sweeps so cleanup cannot race into a
+  // newer session.
   app.post("/api/calls/sweep-expired", isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
     try {
-      const EXPIRED_RINGING_MS = 90_000; // 90 s — matches client-side stale cutoff
       const { data: rows, error } = await supabaseAdmin
         .from("matches")
         .select("id, call_started_at, call_answered, call_completed, call_session_id, call_initiator_id")
@@ -4723,7 +4732,7 @@ export async function registerRoutes(
       const now = Date.now();
       const expired = (rows ?? []).filter((r: any) => {
         const age = now - new Date(r.call_started_at).getTime();
-        return age > EXPIRED_RINGING_MS;
+        return age > CALL_STALE_RINGING_MS;
       });
       if (expired.length === 0) {
         console.log("[CALL_SWEEP] NO_EXPIRED_CALLS", { userId });
@@ -4738,14 +4747,19 @@ export async function registerRoutes(
           callSessionId: row.call_session_id,
           callAgeMs: age,
         });
-        const { error: clearErr } = await supabaseAdmin
+        const { data: clearedRow, error: clearErr } = await supabaseAdmin
           .from("matches")
           .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false, call_session_id: null, call_connected_at: null, call_is_paid: false, call_media_type: "phone", call_payer_id: null })
-          .eq("id", row.id);
+          .eq("id", row.id)
+          .eq("call_session_id", row.call_session_id)
+          .eq("call_started_at", row.call_started_at)
+          .select("id")
+          .maybeSingle();
         if (clearErr) {
           console.error("[CALL_SWEEP] CLEAR_ERROR", { matchId: row.id, error: clearErr.message });
           continue;
         }
+        if (!clearedRow) continue;
         // Broadcast call:ended so any still-listening device dismisses the overlay.
         await broadcastCallEvent(row.id, {
           type: "call:ended",
@@ -7460,13 +7474,15 @@ export async function registerRoutes(
       { urls: "stun:stun2.l.google.com:19302" },
     ];
 
-    const hasTurn = !!(turnUrlsRaw && turnUsername && turnCredential);
+    // Split comma-separated URLs and derive availability from the effective
+    // values, not the raw secret string. Invalid entries must not advertise
+    // TURN to clients when the response only contains STUN servers.
+    const turnUrls = (turnUrlsRaw ?? "")
+      .split(",")
+      .map(u => stripSecretQuotes(u))
+      .filter(u => u.startsWith("turn:") || u.startsWith("turns:"));
+    const hasTurn = turnUrls.length > 0 && !!turnUsername && !!turnCredential;
     if (hasTurn) {
-      // Split comma-separated URLs; strip quotes from each entry individually.
-      const turnUrls = turnUrlsRaw
-        .split(",")
-        .map(u => stripSecretQuotes(u))
-        .filter(u => u.startsWith("turn:") || u.startsWith("turns:"));
       for (const url of turnUrls) {
         iceServers.push({ urls: url, username: turnUsername!, credential: turnCredential! });
       }
