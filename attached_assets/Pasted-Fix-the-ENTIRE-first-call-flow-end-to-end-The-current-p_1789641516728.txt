@@ -1,0 +1,642 @@
+Fix the ENTIRE first-call flow end-to-end. The current production behavior is still fragmented and wrong.
+
+Use the attached real screenshots and the recent failures as the source of truth.
+
+CURRENT PROBLEMS:
+
+1. Availability selection has recently stopped responding.
+2. Availability changes are too slow to appear for the other user.
+3. “Start First Call” has previously done nothing.
+4. When a call does start, the caller can get stuck on a full-screen “Ringing…” page.
+5. If the caller leaves the chatroom, that ringing overlay can remain globally stuck over the app.
+6. The callee still does not consistently receive a proper incoming-call experience.
+7. There is still no proper horizontal slide-to-answer flow.
+8. Accepted calls still do not reliably establish a real WebRTC connection.
+9. Connected calls still do not consistently show the proper 10:00 countdown.
+10. Connected calls still do not consistently show a clear red End Call button.
+11. Call state is being treated as local UI state instead of one synchronized authoritative call session.
+12. Leaving the chatroom during ringing should NOT leave the whole app trapped in a stale ringing screen.
+
+This needs to be fixed as ONE call system, not as separate little UI patches.
+
+==================================================
+PRIMARY PRODUCT BEHAVIOR
+==================================================
+
+The first call must behave like a normal phone call:
+
+User A and User B reach the first-call stage.
+
+Both choose availability.
+
+Availability syncs instantly.
+
+User A taps Start First Call.
+
+User A:
+→ immediately sees Calling/Ringing state
+
+User B:
+→ immediately sees Incoming audio call
+
+User B:
+→ sees horizontal slide-to-answer
+
+User B slides fully:
+→ answer accepted
+
+Then:
+→ WebRTC actually connects
+
+BOTH USERS:
+→ enter active call screen
+→ see 10:00 countdown
+→ see red End Call button
+→ hear each other
+
+If either user ends:
+→ call ends for both immediately
+→ media closes
+→ both return to correct post-call state
+
+Anything less than this means the call system is still broken.
+
+==================================================
+1. FIX AVAILABILITY SELECTION
+==================================================
+
+The availability controls must work reliably again:
+
+- Available now
+- In 30 minutes
+- In 1 hour
+- In 2 hours
+- Pick a specific time
+
+Each must:
+
+tap/click
+→ visibly select immediately
+→ persist immediately
+→ sync immediately to the other user
+
+Audit for:
+
+- dead click handlers
+- pointer-events
+- overlay intercepting clicks
+- disabled state
+- stale loading state
+- desktop/mobile event mismatch
+- wrong mounted component
+
+Do not just restyle them.
+
+==================================================
+2. AVAILABILITY MUST SYNC IN REALTIME
+==================================================
+
+When User A selects or changes availability:
+
+- save authoritative state
+- User B sees it immediately
+- ready/waiting copy updates immediately
+- Start First Call eligibility updates immediately
+
+No refresh.
+No several-second delay.
+No stale “waiting for user”.
+
+Use realtime as primary path.
+
+==================================================
+3. START FIRST CALL MUST DO SOMETHING IMMEDIATELY
+==================================================
+
+When user taps Start First Call:
+
+DO NOT allow a dead button.
+
+Expected:
+
+tap
+→ pending state immediately
+→ call session created
+→ caller enters Calling/Ringing
+→ recipient receives incoming-call event
+
+If start fails:
+show a clear safe error.
+
+Do not silently do nothing.
+
+==================================================
+4. ONE AUTHORITATIVE CALL SESSION
+==================================================
+
+Use one server-backed call session as the source of truth.
+
+It should contain the equivalent of:
+
+callId
+matchId
+callerId
+calleeId
+type
+status
+createdAt
+answeredAt
+connectedAt
+endedAt
+endedBy
+failureReason
+
+Use current schema if already present.
+
+Do NOT let each screen invent separate local call state.
+
+==================================================
+5. CALL STATE MACHINE
+==================================================
+
+Use a clear state machine:
+
+idle
+→ ready
+→ creating
+→ ringing
+→ answering
+→ connecting
+→ connected
+→ ended
+
+Terminal alternatives:
+
+declined
+missed
+failed
+cancelled
+expired
+
+Prevent invalid transitions.
+
+==================================================
+6. FIX THE STUCK GLOBAL RINGING SCREEN
+==================================================
+
+The attached screenshot shows the caller leaving the chatroom and then being stuck on a full-screen “Ringing…” page elsewhere in the app.
+
+That is wrong.
+
+The call overlay must be state-aware and dismiss correctly when the call ends/cancels/fails.
+
+If the caller leaves the chatroom while still ringing:
+
+- the active call/ringing UI may remain globally accessible if intentionally designed
+- BUT it must remain tied to the actual live call session
+- it must not become a stale orphaned overlay
+- navigation must not duplicate or corrupt call UI
+- cancelling from the ringing screen must end the actual call session
+
+If call is no longer active:
+the ringing screen must disappear immediately.
+
+==================================================
+7. OUTGOING CALL UI
+==================================================
+
+Caller should see:
+
+- recipient name
+- recipient photo/avatar
+- “Ringing…”
+- Cancel Call button
+
+Cancel must:
+
+- end server call session
+- notify recipient immediately
+- remove incoming-call UI from recipient
+- return caller to correct state
+
+No stale overlay.
+
+==================================================
+8. RECIPIENT MUST GET INCOMING CALL GLOBALLY
+==================================================
+
+The recipient must receive the incoming call even if they are on:
+
+- Discover
+- Intent
+- Likes
+- Connections
+- Profile
+- another chat
+
+Incoming-call listener must exist at authenticated app level.
+
+Do not require recipient to already be in the chat.
+
+==================================================
+9. HORIZONTAL SLIDE TO ANSWER
+==================================================
+
+Incoming call screen must use the requested horizontal drag-to-answer control.
+
+Requirements:
+
+- phone icon draggable left → right
+- visual “slide to answer”
+- threshold around 75–85%
+- release before threshold → snap back
+- cross threshold → answer once
+- support iPhone PWA touch/pointer events
+
+Keep Decline separately.
+
+Do NOT use a giant green Answer button as the main interaction.
+
+==================================================
+10. ANSWER MUST ACTUALLY CONNECT
+==================================================
+
+Sliding to answer must start the real signaling path:
+
+callee accepts
+→ answer sent
+→ caller receives answer
+→ ICE exchange
+→ WebRTC connects
+→ remote audio available
+→ connected state reached
+
+Do not mark connected just because answer was tapped.
+
+==================================================
+11. WEBRTC CONNECTED STATE IS AUTHORITATIVE
+==================================================
+
+Only when actual peer connection reports connected:
+
+- enter active call screen
+- set connectedAt
+- start countdown
+- show End Call
+
+If failed:
+- show failure
+- clean up
+- do not consume call
+
+If disconnected:
+- recover briefly if existing logic supports it
+- otherwise terminate safely
+
+==================================================
+12. ACTIVE CALL SCREEN
+==================================================
+
+Once connected, both users must see a proper active call experience.
+
+Show:
+
+- other user avatar/photo
+- other user name
+- audio call status
+- countdown timer
+- red End Call button
+
+Do not leave user in ordinary chat with just:
+“First call in progress”.
+
+The call needs an actual active-call UI.
+
+==================================================
+13. 10:00 COUNTDOWN
+==================================================
+
+First included audio call = 10 minutes.
+
+Timer starts ONLY when connection is genuinely established.
+
+Use shared connectedAt as source of truth.
+
+Both devices calculate remaining time from the same timestamp.
+
+No separate unsynchronized local timers.
+
+No resetting timer on rerender/navigation.
+
+==================================================
+14. RED END CALL BUTTON
+==================================================
+
+During connected call there must be an obvious red End Call control.
+
+Tapping it:
+
+- ends call server-side
+- notifies other user
+- stops timer
+- stops mic/media tracks
+- closes RTCPeerConnection
+- removes call overlay
+- returns both users to correct post-call state
+
+Either user can end.
+
+==================================================
+15. 00:00 AUTO-END
+==================================================
+
+At 00:00:
+
+- call ends automatically
+- both users leave call
+- media closes
+- progression updates correctly
+
+Do not let free call run indefinitely.
+
+==================================================
+16. FAILED / DECLINED / MISSED
+==================================================
+
+DECLINED:
+- caller sees declined
+- session ends
+- no entitlement consumed
+
+MISSED:
+- caller sees unanswered/missed
+- no entitlement consumed
+
+FAILED:
+- clear “Call couldn’t connect”
+- clean up
+- no entitlement consumed
+
+CANCELLED:
+- recipient incoming screen disappears instantly
+
+==================================================
+17. GLOBAL CALL UI MUST FOLLOW SESSION STATE
+==================================================
+
+If user navigates away from chat during:
+
+- ringing
+- connecting
+- connected
+
+the call UI may remain globally available if desired.
+
+But it must be bound to the actual call session.
+
+No stale ringing screen after:
+- cancel
+- decline
+- missed
+- failed
+- ended
+
+No duplicate call overlays.
+
+==================================================
+18. DUPLICATE / LEGACY IMPLEMENTATION AUDIT
+==================================================
+
+Search the whole app for:
+
+- availability picker
+- Start First Call button
+- outgoing ringing screen
+- incoming call overlay
+- slide-to-answer
+- active call screen
+- WebRTC hook
+- call state hook
+- signaling subscriptions
+
+Identify which ones are ACTUALLY mounted in production.
+
+Remove/deactivate conflicting legacy paths where safe.
+
+Do not keep two separate call systems.
+
+==================================================
+19. REALTIME EVENT FLOW
+==================================================
+
+Required realtime chain:
+
+availability update
+→ other user updates immediately
+
+call created
+→ recipient sees incoming call
+
+answer accepted
+→ caller begins connecting
+
+connected
+→ both enter active call UI
+
+ended
+→ both exit immediately
+
+No slow polling dependency.
+
+==================================================
+20. TURN / STUN / AUDIO
+==================================================
+
+Verify existing TURN/STUN configuration is actually used by RTCPeerConnection.
+
+Verify:
+
+- microphone permission
+- local audio track
+- remote audio track
+- remote audio playback
+- stream cleanup
+- no mic staying active after hangup
+
+Do not expose credentials.
+
+==================================================
+21. DO NOT BREAK VOICE NOTE PROGRESSION
+==================================================
+
+Preserve rule:
+
+voice notes unlock only after first VALID included call completes.
+
+Missed/failed/declined/cancelled calls must NOT unlock voice notes.
+
+==================================================
+22. SAFE DIAGNOSTICS
+==================================================
+
+Add safe logs around:
+
+availability_click
+availability_saved
+availability_realtime_received
+
+start_call_click
+eligibility_result
+call_created
+ringing_event_sent
+ringing_event_received
+answer_event_sent
+answer_event_received
+webrtc_connecting
+webrtc_connected
+call_ended
+
+Do not log:
+- tokens
+- credentials
+- private content
+
+==================================================
+23. TWO-DEVICE ACCEPTANCE TEST — REQUIRED
+==================================================
+
+Use two real authenticated accounts.
+
+TEST 1 — AVAILABILITY
+A selects Available now.
+B updates immediately.
+
+B selects compatible availability.
+A updates immediately.
+
+TEST 2 — START CALL
+A taps Start First Call.
+
+A immediately sees Ringing.
+B immediately sees Incoming Call.
+
+TEST 3 — SLIDE ANSWER
+B drags halfway.
+Release.
+Slider returns.
+
+B drags fully.
+Answer accepted.
+
+TEST 4 — CONNECT
+Both transition through Connecting.
+
+Actual WebRTC reaches connected.
+
+TEST 5 — ACTIVE CALL
+Both show:
+10:00
+red End Call button
+
+Two-way audio works.
+
+TEST 6 — NAVIGATION DURING RINGING
+A starts call.
+A leaves chatroom.
+
+Expected:
+- no stale orphaned ringing screen
+- global call state remains valid
+- Cancel ends real session
+- B incoming call disappears immediately
+
+TEST 7 — END
+Either user taps End Call.
+Both exit immediately.
+Mic released.
+
+TEST 8 — DECLINE
+B declines.
+A sees declined immediately.
+
+TEST 9 — MISSED
+B does not answer.
+Call ends as missed.
+No entitlement consumed.
+
+TEST 10 — FAILURE
+Force failed connection.
+Both clean up.
+No fake connected state.
+
+==================================================
+24. DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- message quotas
+- call duration
+- stage ordering
+- voice-note unlock rule
+- paid-call rules
+- payments
+- Discover
+- profile
+- Intent Wheel
+- bottom nav
+
+This task is ONLY making the first-call system work properly end-to-end.
+
+==================================================
+25. DEPLOYMENT
+==================================================
+
+After implementation:
+
+- run call regression tests
+- run WebRTC tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify Vercel
+- verify Railway
+- verify live revision
+- perform REAL two-user test
+
+Do not claim success based on local source only.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact cause availability selection broke
+2. exact cause availability sync was delayed
+3. exact reason Start First Call previously failed
+4. exact cause of stuck global Ringing screen
+5. actual production components used
+6. global incoming-call architecture
+7. slide-to-answer implementation
+8. actual WebRTC connection fix
+9. connected-state source of truth
+10. 10-minute synchronized timer implementation
+11. red End Call implementation
+12. navigation/ringing cleanup behavior
+13. TURN/STUN verification
+14. files changed
+15. tests
+16. production commit
+17. Vercel/Railway revision
+18. REAL two-device results:
+  - availability sync works yes/no
+  - Start Call works yes/no
+  - recipient rings yes/no
+  - slide-to-answer works yes/no
+  - call connects yes/no
+  - two-way audio works yes/no
+  - timer works yes/no
+  - End Call works yes/no
+  - leaving chat during ringing behaves correctly yes/no
