@@ -31,11 +31,17 @@ describe("profile collapsing name header", () => {
 
   it("applies the same measured behavior to the production Discover profile renderer", () => {
     expect(discover).toContain("discoverIdentityRef");
+    expect(discover).toContain("discoverToolbarRef");
     expect(discover).toContain('data-testid="discover-profile-identity"');
     expect(discover).toContain('document.querySelector(\'[data-scroll-owner="app-layout-main"]\')');
-    expect(discover).toContain("entry.boundingClientRect.top <= rootTop + 1");
-    expect(discover).toContain("hasCrossedTop && entry.intersectionRatio < 1");
+    expect(discover).toContain("const coveredTop = stickyTop + toolbar.getBoundingClientRect().height");
+    expect(discover).toContain('rootMargin: `-${coveredTop}px 0px 0px 0px`');
+    expect(discover).toContain("hasCrossedToolbar && entry.intersectionRatio < 1");
     expect(discover).toContain('data-discover-sticky-name-state={isIdentityCollapsed ? "visible" : "hidden"}');
+    expect(discover).toContain('className="sticky z-40 bg-background/95 backdrop-blur-sm border-b px-5 py-3"');
+    expect(discover).toContain('style={{ top: "env(safe-area-inset-top, 0px)" }}');
+    expect(discover).toContain('style={{ height: "env(safe-area-inset-top, 0px)" }}');
+    expect(discover).not.toContain("sticky top-0 z-30 h-0");
     expect(discover).toContain('? "invisible opacity-0 -translate-y-1"');
     expect(discover).toContain(': "invisible opacity-0 -translate-y-2"');
   });
@@ -43,7 +49,7 @@ describe("profile collapsing name header", () => {
   it("keeps Discover controls but removes the unconditional header name", () => {
     expect(discover).toContain('data-testid="button-undo-pass"');
     expect(discover).toContain('data-testid="button-discover-safety-menu"');
-    expect(discover).toContain('className="max-w-md mx-auto flex items-center justify-end"');
+    expect(discover).toContain('className="relative max-w-md mx-auto flex items-center justify-end"');
     expect(discover.match(/data-testid="text-discover-sticky-name"/g)).toHaveLength(1);
   });
 });

@@ -733,6 +733,7 @@ export default function Discover() {
   }, [currentProfile, photoData?.photos]);
   const discoverContentRef = useRef<HTMLDivElement>(null);
   const discoverIdentityRef = useRef<HTMLDivElement>(null);
+  const discoverToolbarRef = useRef<HTMLDivElement>(null);
   const [isIdentityCollapsed, setIsIdentityCollapsed] = useState(false);
   useDiscoverScrollDiagnostics({
     rootRef: discoverContentRef,
@@ -749,19 +750,43 @@ export default function Discover() {
     if (!isTabActive || !displayProfile?.id) return;
 
     const identity = discoverIdentityRef.current;
+    const toolbar = discoverToolbarRef.current;
     const scrollOwner = document.querySelector('[data-scroll-owner="app-layout-main"]');
-    if (!identity || !scrollOwner || typeof IntersectionObserver === "undefined") return;
+    if (!identity || !toolbar || !scrollOwner || typeof IntersectionObserver === "undefined") return;
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        const rootTop = entry.rootBounds?.top ?? scrollOwner.getBoundingClientRect().top;
-        const hasCrossedTop = entry.boundingClientRect.top <= rootTop + 1;
-        setIsIdentityCollapsed(hasCrossedTop && entry.intersectionRatio < 1);
-      },
-      { root: scrollOwner, threshold: [0, 0.01, 1] },
-    );
-    observer.observe(identity);
-    return () => observer.disconnect();
+    let observer: IntersectionObserver | null = null;
+    const observeAtToolbarBoundary = () => {
+      observer?.disconnect();
+      const stickyTop = Number.parseFloat(getComputedStyle(toolbar).top) || 0;
+      const coveredTop = stickyTop + toolbar.getBoundingClientRect().height;
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          const boundaryTop = entry.rootBounds?.top ?? (
+            scrollOwner.getBoundingClientRect().top + coveredTop
+          );
+          const hasCrossedToolbar = entry.boundingClientRect.top <= boundaryTop + 1;
+          setIsIdentityCollapsed(hasCrossedToolbar && entry.intersectionRatio < 1);
+        },
+        {
+          root: scrollOwner,
+          rootMargin: `-${coveredTop}px 0px 0px 0px`,
+          threshold: [0, 0.01, 1],
+        },
+      );
+      observer.observe(identity);
+    };
+
+    observeAtToolbarBoundary();
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(observeAtToolbarBoundary);
+    resizeObserver?.observe(toolbar);
+    window.addEventListener("orientationchange", observeAtToolbarBoundary);
+    return () => {
+      observer?.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener("orientationchange", observeAtToolbarBoundary);
+    };
   }, [displayProfile?.id, isTabActive]);
 
   const [pendingPhotoUrls, setPendingPhotoUrls] = useState<Set<string>>(new Set());
@@ -1458,19 +1483,27 @@ export default function Discover() {
       style={DISCOVER_CONTENT_ROOT_STYLE}
     >
       <div
-        className="sticky top-0 z-30 h-0 pointer-events-none"
+        ref={discoverToolbarRef}
+        className="sticky z-40 bg-background/95 backdrop-blur-sm border-b px-5 py-3"
+        style={{ top: "env(safe-area-inset-top, 0px)" }}
         data-discover-sticky-name-state={isIdentityCollapsed ? "visible" : "hidden"}
-        aria-hidden={!isIdentityCollapsed}
       >
-        <div
-          className={`bg-background/95 backdrop-blur-sm border-b px-5 py-3 ${
-            isIdentityCollapsed
-              ? "visible opacity-100 translate-y-0 transition-[opacity,transform] duration-200 ease-out"
-              : "invisible opacity-0 -translate-y-2"
-          }`}
-          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))" }}
-        >
-          <div className="max-w-md mx-auto flex items-center justify-center gap-2">
+        {isIdentityCollapsed && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-full bg-background/95 backdrop-blur-sm"
+            style={{ height: "env(safe-area-inset-top, 0px)" }}
+          />
+        )}
+        <div className="relative max-w-md mx-auto flex items-center justify-end">
+          <div
+            className={`pointer-events-none absolute inset-x-24 flex min-w-0 items-center justify-center gap-2 ${
+              isIdentityCollapsed
+                ? "visible opacity-100 translate-y-0 transition-[opacity,transform] duration-200 ease-out"
+                : "invisible opacity-0 -translate-y-2"
+            }`}
+            aria-hidden={!isIdentityCollapsed}
+          >
             <h1 className="font-serif text-lg font-bold truncate text-center" data-testid="text-discover-sticky-name">
               {displayProfile.firstName}
             </h1>
@@ -1478,10 +1511,6 @@ export default function Discover() {
               <BadgeCheck className="w-4 h-4 text-primary shrink-0" />
             )}
           </div>
-        </div>
-      </div>
-      <div className="bg-background/95 backdrop-blur-sm border-b px-5 py-3">
-        <div className="max-w-md mx-auto flex items-center justify-end">
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
