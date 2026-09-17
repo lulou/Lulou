@@ -1,0 +1,225 @@
+Refine ONLY the Lulou Profile page header/name behavior shown in the attached REAL screenshots.
+
+There are TWO changes I want:
+
+1. Recreate the Hinge-style collapsing profile header behavior.
+2. Remove the duplicate profile name currently shown on Lulou.
+
+Do NOT redesign the rest of the Profile page.
+
+## 1. HINGE-STYLE SCROLLING NAME / COLLAPSING HEADER
+
+Use the first two attached Hinge screenshots as the behavior reference.
+
+What I want:
+
+### At the TOP of the profile
+When the user is at the top of their Profile page:
+
+- keep the current full Lulou profile layout
+- profile photo/avatar remains visible
+- Edit Profile remains visible
+- settings icon remains visible
+- user name appears naturally in the profile content area
+
+Do NOT show a second duplicate name above it.
+
+### As the user scrolls DOWN
+Once the main profile identity section begins moving off-screen:
+
+- smoothly collapse the top profile area
+- transition the user’s name into a compact sticky header
+- centre the user’s name horizontally at the top
+- keep it visible while the rest of the profile content scrolls underneath
+
+The result should behave like Hinge:
+
+expanded profile state
+→ scroll down
+→ compact sticky top header
+→ centred name
+
+### As the user scrolls BACK UP
+Reverse the transition cleanly:
+
+centred sticky name
+→ returns to normal profile position
+→ expanded profile identity section becomes visible again
+
+No jump.
+No flicker.
+No duplicate names during the transition.
+
+## 2. REMOVE THE DUPLICATE NAME
+
+The third attached Lulou screenshot currently shows:
+
+- “Leo” in the page/header area
+AND
+- another “Leo” next to the avatar/profile content
+
+That duplicate must be removed.
+
+At any given scroll position there should effectively be ONE visible primary profile name treatment.
+
+### Expanded/top state
+Show the name in the main profile identity area beside/near the avatar.
+
+### Collapsed/scrolled state
+Show the name centred in the sticky top header.
+
+Do not permanently render both.
+
+## 3. TRANSITION BEHAVIOR
+
+Make the transition feel premium and iOS-native.
+
+Use:
+
+- smooth opacity interpolation
+- subtle position movement
+- no sudden snap
+- no large animation
+- no bouncing
+- no flashy effects
+
+The name should appear to naturally move/transition from its expanded position into the centred compact header state.
+
+If a true shared-element animation is unnecessarily risky, use coordinated opacity + translate transitions between the expanded and collapsed copies, but ensure they never visibly overlap as duplicates.
+
+## 4. STICKY HEADER
+
+The compact scrolled header should:
+
+- stay at the top while profile content scrolls
+- respect iPhone safe area
+- centre the name
+- keep appropriate background matching Lulou
+- preserve existing settings/back/logout controls if they belong in the current header
+- not cover profile content incorrectly
+
+Do not introduce a giant toolbar.
+
+## 5. SCROLL THRESHOLD
+
+Use an actual measured threshold based on the main profile identity section.
+
+Do not hardcode a random large scroll position.
+
+A sensible pattern:
+
+- observe when the expanded name/avatar block begins leaving the viewport
+- then activate collapsed header state
+
+Use:
+
+- IntersectionObserver
+or
+- a reliable scroll-position measurement
+
+Prefer the least fragile solution.
+
+## 6. CURRENT PROFILE CONTENT MUST STAY UNCHANGED
+
+Do not alter:
+
+- avatar/photo
+- age
+- location
+- star sign
+- Edit Profile button
+- settings
+- Photos accordion
+- conversation starters
+- viewer question
+- green flags
+- personality traits
+- More about me
+- bottom navigation
+- profile image further down page
+
+This task is only header/name behavior + removing duplicate name.
+
+## 7. DO NOT BREAK PROFILE EDITING
+
+Make sure:
+
+- Edit Profile still opens correctly
+- settings still opens correctly
+- profile accordions still work
+- scrolling still works
+- bottom nav still works
+- no click targets become covered by sticky header
+
+## 8. IPHONE / PWA
+
+Verify specifically on installed iPhone PWA.
+
+Test:
+
+- top of profile
+- slow scroll down
+- fast scroll down
+- scroll back up
+- overscroll/bounce
+- background/resume
+- 375px and 390px iPhone widths
+
+## 9. EXACT VISUAL EXPECTATION
+
+At top:
+
+avatar + Leo + Edit Profile + settings
+
+No extra “Leo” sitting in a separate top row.
+
+After scrolling:
+
+compact header with
+
+Leo
+
+centred at top.
+
+Scroll back up:
+
+centred header name disappears/transitions back
+and the main profile name becomes the visible one again.
+
+## 10. DO NOT CHANGE
+
+Do not change:
+
+- colours
+- typography family
+- profile data
+- routing
+- profile API
+- bottom nav
+- account settings
+- any other page
+
+This is a focused profile-header interaction refinement.
+
+## DEPLOYMENT
+
+After implementation:
+
+- test expanded/collapsed transitions
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify live Vercel bundle
+
+At the end report only:
+
+1. exact cause of duplicate name
+2. files changed
+3. sticky/collapsed header implementation
+4. scroll threshold mechanism
+5. duplicate-name removal method
+6. confirmation Edit Profile/settings/accordions were untouched
+7. tests
+8. production commit
+9. live deployment verification

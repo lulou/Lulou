@@ -1,0 +1,46 @@
+Fix the first audio call flow in Lulou without breaking anything else.
+
+Issues to fix:
+
+1) Incoming call accept UI
+- Change the current incoming call accept layout.
+- I want a more premium iPhone-style horizontal drag-to-answer control using a phone icon.
+- Replace the current big “Decline” and “Answer” button layout with a horizontal call-answer interaction that feels cleaner and more premium.
+- Keep decline available too, but the overall incoming call UI should look polished, premium, and intuitive.
+
+2) After call is accepted
+- Right now after the user accepts the call, they do NOT actually transition properly into the live call state.
+- Instead, it stays on the chat page and only shows “First call in progress,” which is wrong.
+- After accepting the call, both users must be taken into the proper active call experience immediately.
+
+3) Active call UI requirements
+Once the call is accepted, show the correct live first-call interface with:
+- a visible countdown timer for the full 10-minute first audio call
+- a clear cancel/end-call button
+- proper in-call state for both users
+- correct syncing between both users so both see the same live call session state
+- no duplicate “You’ve reached your call stage” system messages
+- no stuck chat screen pretending a call is active when the real call UI never opened
+
+4) Functional behavior
+- Accepting the call must actually connect the call, not just update text in chat.
+- The first call should enter the real active audio call state.
+- The countdown must begin only when the call is actually connected.
+- Ending/cancelling must immediately update both users correctly.
+- If the call fails to connect, show the correct failed state rather than a fake in-progress state.
+
+5) Important constraints
+- Do not break chat.
+- Do not break stage progression.
+- Do not break message quotas or call unlocking.
+- Do not break notifications or incoming call behavior.
+- Preserve Lulou styling and keep the UI premium and iOS-like.
+
+After making the fix:
+- verify incoming call screen
+- verify drag-to-answer style accept UI
+- verify transition into real active call screen
+- verify 10-minute countdown is visible
+- verify cancel/end button works
+- verify both users stay synced
+- verify no duplicate stage messages appear
