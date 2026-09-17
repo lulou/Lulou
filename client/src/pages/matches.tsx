@@ -3912,7 +3912,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           36px wide, full height, z-index above messages but below header buttons. */}
       <div
         ref={swipeEdgeRef}
-        style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 44, zIndex: 5, touchAction: "none" }}
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: 0,
+          width: 44,
+          zIndex: 5,
+          touchAction: "none",
+          // This transparent swipe target otherwise sits above the left side of
+          // every availability row and absorbs clicks/taps before they reach
+          // the option. Navigation gestures are non-essential while choosing.
+          pointerEvents:
+            callStageState === "CHOOSING_AVAILABILITY" || showAvailPicker
+              ? "none"
+              : "auto",
+        }}
+        aria-hidden="true"
       />
 
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
@@ -4670,14 +4686,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </div>
                   <div className="space-y-1.5">
                     {availOptions.map(opt => (
-                      <Button
+                      <button
+                        type="button"
                         key={opt.key}
-                        size="sm"
-                        variant="outline"
-                        className={`w-full justify-start ${
+                        className={`relative z-10 flex min-h-11 w-full touch-manipulation items-center justify-start rounded-lg border px-3 py-2.5 text-left text-xs font-medium transition-colors ${
                           selectedAvailability === opt.key
-                            ? "border-primary/60 bg-primary/10 text-primary hover:border-primary/60 hover:bg-primary/10 hover:text-primary shadow-[0_0_14px_hsl(var(--primary)/0.16)]"
-                            : ""
+                            ? "border-green-600 bg-green-50 text-green-700 shadow-[0_0_14px_rgba(22,163,74,0.16)] dark:border-green-500 dark:bg-green-950/35 dark:text-green-400"
+                            : "border-border bg-background text-foreground hover:bg-muted/60 active:bg-muted"
                         }`}
                         onClick={() => {
                           const previousKey = selectedAvailability;
@@ -4704,8 +4719,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         aria-pressed={selectedAvailability === opt.key}
                         data-testid={`button-avail-${opt.key}-${match.id}`}
                       >
+                        <span
+                          className={`me-2 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                            selectedAvailability === opt.key
+                              ? "border-green-600 bg-green-600 text-white dark:border-green-500 dark:bg-green-500"
+                              : "border-muted-foreground/35"
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {selectedAvailability === opt.key && <Check className="h-3 w-3" />}
+                        </span>
                         {opt.label}
-                      </Button>
+                      </button>
                     ))}
                   </div>
                   {/* Inline specific-time picker — shown when user presses "Pick a specific time" */}

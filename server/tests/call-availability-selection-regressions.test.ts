@@ -94,12 +94,25 @@ describe("call availability selection regressions", () => {
     expect(matchesPage).toContain("setSelectedAvailability(selection.previousKey)");
   });
 
-  it("uses Lulou primary tokens for only the selected option", () => {
+  it("uses the approved active-call green treatment for only the selected option", () => {
     expect(matchesPage).toContain("selectedAvailability === opt.key");
     expect(matchesPage).toContain(
-      "border-primary/60 bg-primary/10 text-primary",
+      "border-green-600 bg-green-50 text-green-700",
     );
-    expect(matchesPage).toContain("hsl(var(--primary)/0.16)");
+    expect(matchesPage).toContain("bg-green-600 text-white");
+  });
+
+  it("keeps the availability controls above overlays with real touch-sized buttons", () => {
+    const picker = matchesPage.slice(
+      matchesPage.indexOf("/* ── Step 2: Pick your availability slot"),
+      matchesPage.indexOf("/* ── Step 3: Waiting for the other user"),
+    );
+    expect(picker).toContain('<button');
+    expect(picker).toContain('type="button"');
+    expect(picker).toContain("min-h-11");
+    expect(picker).toContain("touch-manipulation");
+    expect(matchesPage).toContain('callStageState === "CHOOSING_AVAILABILITY" || showAvailPicker');
+    expect(matchesPage).toContain('? "none"');
   });
 
   it("persists through the existing absolute timestamp schema", () => {
