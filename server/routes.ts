@@ -4358,7 +4358,7 @@ export async function registerRoutes(
         callSessionId: match.callSessionId,
         isVideo: !!isVideo,
       };
-      broadcastCallEvent(matchId, ringPayload);
+      await broadcastCallEvent(matchId, ringPayload);
 
       // Fire-and-forget push to the receiver — rings their device even if app is closed
       const pushPayload = buildPush.incomingCall(callerName, matchId, match.callSessionId);
@@ -4451,6 +4451,7 @@ export async function registerRoutes(
         callerId: userId,
         callerName,
         callSessionId: m.callSessionId,
+        isVideo: req.body?.isVideo === true,
       });
       res.json({ status: "rebroadcast" });
     } catch (err: any) {
@@ -4582,7 +4583,7 @@ export async function registerRoutes(
         return res.status(404).json({ message: "No active call to answer — it may have been cancelled" });
       }
       console.log("[CALL_ANSWER] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: match.callSessionId, userId });
-      broadcastCallEvent(matchId, {
+      await broadcastCallEvent(matchId, {
         type: "call:answered",
         matchId,
         userId,
@@ -4666,24 +4667,33 @@ export async function registerRoutes(
       // we know who was the caller and can compute a dedup key for the event message.
       let preCancelInitiatorId: string | null = null;
       let preCancelStartedAt: string | null = null;
+      let preCancelSessionId: string | null = null;
       try {
         const { data: pre } = await supabaseAdmin
           .from("matches")
-          .select("call_initiator_id, call_started_at")
+          .select("call_initiator_id, call_started_at, call_session_id")
           .eq("id", matchId)
           .maybeSingle();
         preCancelInitiatorId = pre?.call_initiator_id ?? null;
         preCancelStartedAt   = pre?.call_started_at   ?? null;
+        preCancelSessionId   = pre?.call_session_id   ?? null;
       } catch { /* non-fatal — fall back to treating userId as caller */ }
+      const requestedSessionId = typeof req.body?.callSessionId === "string"
+        ? req.body.callSessionId
+        : null;
+      if (requestedSessionId && requestedSessionId !== preCancelSessionId) {
+        return res.status(409).json({ message: "Call session is no longer active" });
+      }
 
       const match = await serverStorage.cancelCall(matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
       }
-      broadcastCallEvent(matchId, {
+      await broadcastCallEvent(matchId, {
         type: "call:cancelled",
         matchId,
         userId,
+        callSessionId: preCancelSessionId,
       });
       res.json(match);
 
@@ -4799,7 +4809,7 @@ export async function registerRoutes(
       const matchId = req.params.matchId;
 
       // Parse connection quality info sent by the client
-      const { connected, connectedDurationMs, callState, callType } = req.body || {};
+      const { callSessionId, connected, connectedDurationMs, callState, callType } = req.body || {};
       const resolvedCallType: "phone" | "video" = callType === "video" ? "video" : "phone";
       const options: CompleteCallOptions = {
         connected: connected !== undefined ? Boolean(connected) : undefined,
@@ -4819,10 +4829,14 @@ export async function registerRoutes(
       // ensure only the caller is charged (prevents double deduction).
       const { data: priorMatchRow } = await supabaseAdmin
         .from("matches")
-        .select("call_initiator_id")
+        .select("call_initiator_id, call_session_id")
         .eq("id", matchId)
         .single();
       const priorInitiatorId: string | null = priorMatchRow?.call_initiator_id ?? null;
+      const activeSessionId: string | null = priorMatchRow?.call_session_id ?? null;
+      if (typeof callSessionId === "string" && callSessionId !== activeSessionId) {
+        return res.status(409).json({ message: "Call session is no longer active" });
+      }
 
       const result = await serverStorage.completeCall(matchId, userId, options);
       if (!result) {
@@ -4848,11 +4862,12 @@ export async function registerRoutes(
         }
       }
 
-      broadcastCallEvent(matchId, {
+      await broadcastCallEvent(matchId, {
         type: "call:ended",
         matchId,
         userId,
         callCounted: result.counted,
+        callSessionId: activeSessionId,
       });
 
       // Insert a "Call ended" system message once — only the first completer

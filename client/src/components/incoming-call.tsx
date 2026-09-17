@@ -284,7 +284,9 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         role: "receiver",
         source: "incoming_overlay",
       });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {
+        callSessionId: match.callSessionId,
+      });
       return await res.json();
     },
     onSuccess: () => {

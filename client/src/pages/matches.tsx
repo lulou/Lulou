@@ -2269,17 +2269,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         if (isVideo) markSessionAsVideo(callSessionId);
         console.log("[LIVE_CALL] caller session armed via startCall", { callSessionId: callSessionId.slice(0, 8) });
       }
-      if (callSessionId && user?.id) {
-        broadcastCallSignal(match.id, {
-          type: "call:ring",
-          matchId: match.id,
-          callerId: user.id,
-          callerName: "",
-          callSessionId,
-          isVideo,
-        });
-        console.log("[CALL_UI] CALL_RING_CLIENT_BROADCAST", { matchId: match.id, callSessionId, callerId: user.id });
-      }
+      // The server is the single authority for call:ring. Emitting the same ring
+      // here produced duplicate receiver handling and could race the committed
+      // call row. The start response now waits for the server broadcast attempt.
     },
     onError: (error: Error) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
@@ -2380,17 +2372,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         console.log("[LIVE_CALL] caller session armed via startPaidCall", { callSessionId: callSessionId.slice(0, 8), isVideo });
       }
       mergeCallFields(queryClient, match.id, m);
-      if (callSessionId && user?.id) {
-        broadcastCallSignal(match.id, {
-          type: "call:ring",
-          matchId: match.id,
-          callerId: user.id,
-          callerName: "",
-          callSessionId,
-          isVideo,
-        });
-        console.log("[CALL_UI] PAID_CALL_RING_BROADCAST", { matchId: match.id, callSessionId, isVideo });
-      }
+      // Server owns call:ring delivery for paid calls too; do not duplicate it.
     },
     onError: (error: Error) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
@@ -2450,7 +2432,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.log("[CALL_UI] CALL_CANCELLED", { matchId: match.id, callSessionId: sessionId, userId: user?.id, role: "caller" });
       console.log("[CALL_UI] CALL_STAGE_EXITED", { matchId: match.id, reason: "caller_cancelled" });
       if (DEBUG_CALLS) console.log("[BUG2_PROOF] POST_cancel_sending", { matchId: match.id, ts: Date.now() });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, { callSessionId: sessionId });
       if (DEBUG_CALLS) console.log("[BUG2_PROOF] POST_cancel_response_received", { matchId: match.id, ts: Date.now() });
       return res.json();
     },
@@ -2483,13 +2465,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const completeCall = useMutation({
     mutationFn: async (vars: { connectedDurationMs: number; callState?: string; callType?: string } = { connectedDurationMs: 0 }) => {
       const body = {
+        callSessionId: lastCallSessionIdRef.current,
         // CallTimer only shows when the call is active in the DB — treat as connected
         connected: vars.connectedDurationMs > 0,
         connectedDurationMs: vars.connectedDurationMs,
         callState: vars.callState ?? "ended",
         callType: vars.callType ?? "phone",
       };
-      console.log("[CALL_UI] CALL_STATE:ended", { matchId: match.id, callSessionId: lastCallSessionIdRef.current, userId: user?.id, isCaller: iAmCaller, source: "inline_chat", ...body });
+      console.log("[CALL_UI] CALL_STATE:ended", { matchId: match.id, userId: user?.id, isCaller: iAmCaller, source: "inline_chat", ...body });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/complete`, body);
       return res.json();
     },
@@ -2498,6 +2481,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         type: "call:ended" as any,
         matchId: match.id,
         userId: user!.id,
+        callSessionId: lastCallSessionIdRef.current ?? undefined,
       });
       console.log("[CALL_UI] CALL_STATE_CLEARED", { matchId: match.id, newStage: data.callStage, callCounted: data.callCounted });
       mergeCallFields(queryClient, match.id, data);
@@ -2520,7 +2504,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.error("[CALL_COMPLETE] FRONTEND_ERROR", { matchId: match.id, error: error.message });
       markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
-      broadcastCallSignal(match.id, { type: "call:ended" as any, matchId: match.id, userId: user?.id || "" });
+      broadcastCallSignal(match.id, {
+        type: "call:ended" as any,
+        matchId: match.id,
+        userId: user?.id || "",
+        callSessionId: lastCallSessionIdRef.current ?? undefined,
+      });
       toast({ title: t("call_ended_title"), description: t("connection_lost_desc"), variant: "destructive" });
     },
   });
@@ -2583,7 +2572,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const listSessionId = cachedList?.find((m: any) => m.id === match.id)?.callSessionId ?? null;
       console.log("[CALL_DECLINE] clicked — ref:", sessionId, "list:", listSessionId);
       console.log("[CALL_UI] CALL_DECLINED", { matchId: match.id, callSessionId: sessionId ?? listSessionId, userId: user?.id, role: "receiver", source: "inline_chat" });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
+      const effectiveSessionId = sessionId || listSessionId;
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {
+        callSessionId: effectiveSessionId,
+      });
       return await res.json();
     },
     onSuccess: () => {

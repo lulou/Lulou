@@ -653,7 +653,9 @@ function CallDetectors({ userId }: { userId: string }) {
     const send = () => {
       const ts = new Date().toISOString();
       console.log("[CALL_TIMING] RERING_ATTEMPT", { matchId: rerMatchId, callSessionId: rerSessionId, ts });
-      apiRequest("POST", `/api/matches/${rerMatchId}/call/rering`)
+      apiRequest("POST", `/api/matches/${rerMatchId}/call/rering`, {
+        isVideo: isVideoCallSession(rerSessionId),
+      })
         .then(() => console.log("[CALL_TIMING] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId, ts: new Date().toISOString() }))
         .catch(() => console.warn("[CALL_UI] RERING_FAILED", { matchId: rerMatchId }));
     };

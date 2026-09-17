@@ -600,21 +600,15 @@ export function ActiveCallOverlay({
     }
   }, [remaining, isConnected, callStage, matchId, callSessionId, stageDuration]);
 
-  // Auto-end call when connection fails — prevents restart loop on network recovery.
-  // The "Connection failed" screen is shown for 10s so the failure reason is readable,
-  // then finishCall cleans up server state, broadcasts call:ended to the peer,
-  // and calls onCallEnd() so the overlay is dismissed and the call cannot re-trigger.
+  // End immediately when the connection fails. Leaving the authoritative call row
+  // active for a display delay kept the other peer stuck in a dead call and allowed
+  // polling to remount stale overlays. The failure is logged before teardown.
   useEffect(() => {
     if (!isFailed || !webrtcEnabled) return;
-    // failureReason is now provided directly by useWebRTC — no log scraping needed.
-    console.log("[CALL_UI] AUTO_END_SCHEDULED", { matchId, callSessionId, delayMs: 10000, failureReason });
-    const tid2 = setTimeout(() => {
-      if (!endedRef.current) {
-        console.log("[CALL_UI] AUTO_END_EXECUTING connection_failed", { matchId, callSessionId });
-        finishCallRef.current?.("connection_failed");
-      }
-    }, 10000);
-    return () => clearTimeout(tid2);
+    if (!endedRef.current) {
+      console.log("[CALL_UI] AUTO_END_EXECUTING connection_failed", { matchId, callSessionId, failureReason });
+      finishCallRef.current?.("connection_failed");
+    }
   }, [isFailed, webrtcEnabled, matchId, callSessionId]);
 
   // ── Remote stream → audio + video ────────────────────────────────────────
@@ -1058,7 +1052,9 @@ export function ActiveCallOverlay({
     // always lands after call_stage is committed to the DB.
 
     // Only /call/complete receives connection quality data; /call/cancel gets no body
-    const body = isCancelRinging ? undefined : { connected, connectedDurationMs, callState, callType: isVideo ? "video" : "phone" };
+    const body = isCancelRinging
+      ? { callSessionId }
+      : { callSessionId, connected, connectedDurationMs, callState, callType: isVideo ? "video" : "phone" };
 
     apiRequest("POST", endpoint, body)
       .then(async (res) => {
@@ -1158,7 +1154,12 @@ export function ActiveCallOverlay({
       if (!endedRef.current) {
         endedRef.current = true;
         console.warn("[CALL_UI] UNMOUNT_SAFETY_NET triggered — calling /complete to prevent stuck state", { matchId, callSessionId });
-        apiRequest("POST", `/api/matches/${matchId}/call/complete`, { connected: false, connectedDurationMs: 0, callState: "failed" })
+        apiRequest("POST", `/api/matches/${matchId}/call/complete`, {
+          callSessionId,
+          connected: false,
+          connectedDurationMs: 0,
+          callState: "failed",
+        })
           .then(() => {
             queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
             queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
@@ -1170,7 +1171,7 @@ export function ActiveCallOverlay({
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchId]);
+  }, [matchId, callSessionId]);
 
   // Show clear failed-connection screen
   if (isFailed && webrtcEnabled) {

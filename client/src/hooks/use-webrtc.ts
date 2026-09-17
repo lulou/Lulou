@@ -288,14 +288,17 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     });
     callDebug.event("effect: webrtc enabled, init starting");
 
-    const broadcastOnChannel = (msg: SignalPayload) => {
+    const broadcastOnChannel = async (msg: SignalPayload): Promise<void> => {
       const channel = channelRef.current;
-      if (!channel) return;
-      channel.send({
+      if (!channel) throw new Error("SIGNAL_CHANNEL_MISSING");
+      const status = await channel.send({
         type: "broadcast",
         event: "signal",
         payload: { ...msg, from: userId },
       });
+      if (status !== "ok") {
+        throw new Error(`SIGNAL_SEND_${String(status).toUpperCase().replace(/\s+/g, "_")}`);
+      }
     };
 
     // iceRestart=true: include new ICE credentials so both sides re-gather candidates.
@@ -329,7 +332,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         console.log("[WebRTC] SEND_OFFER_SLD: calling setLocalDescription");
         await pc.setLocalDescription(offer);
         console.log("[WebRTC] SEND_OFFER_SLD_DONE: signalingState after setLocalDescription:", pc.signalingState);
-        broadcastOnChannel({ type: "webrtc:offer", sdp: offer.sdp! });
+        await broadcastOnChannel({ type: "webrtc:offer", sdp: offer.sdp! });
         console.log("[CALL_CONNECT] offer set", { matchId, sdpLength: offer.sdp?.length, signalingState: pc.signalingState });
         callDebug.update({ offerSent: true });
         callDebug.event("offer: broadcast sent on channel");
@@ -467,7 +470,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           await pc.setLocalDescription(answer);
           console.log("[WebRTC] OFFER — after setLocalDescription, signalingState:", pc.signalingState, "— sending answer");
           console.log("[CALL_ANSWER] answer_sent_to_caller", { matchId, signalingState: pc.signalingState, ts: new Date().toISOString() });
-          broadcastOnChannel({ type: "webrtc:answer", sdp: answer.sdp! });
+          await broadcastOnChannel({ type: "webrtc:answer", sdp: answer.sdp! });
           console.log("[CALLEE_FIX] answer sent", { matchId, signalingState: pc.signalingState });
           console.log("[CALL_CONNECT] answer sent", { matchId, sdpLength: answer.sdp?.length, signalingState: pc.signalingState });
           callDebug.update({ answerSent: true });
@@ -511,6 +514,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         }
       } catch (e) {
         console.error("[WebRTC] FAILURE_TRIGGER: signal_handling_exception", e);
+        setFailureReason(`signal_handling_exception — ${(e as any)?.message ?? String(e)}`);
         setConnectionState("failed");
       }
     };
@@ -1067,7 +1071,8 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             port: event.candidate.port,
             totals: { ...candidateCountsRef.current },
           });
-          broadcastOnChannel({ type: "webrtc:ice", candidate: event.candidate.toJSON() });
+          void broadcastOnChannel({ type: "webrtc:ice", candidate: event.candidate.toJSON() })
+            .catch((err) => console.warn("[WebRTC] ICE_SIGNAL_SEND_FAILED", { matchId, error: err?.message }));
           console.log("[CALL_CONNECT] ice candidate sent", { type: ctype, protocol: event.candidate.protocol });
         } else {
           const totals = candidateCountsRef.current;
@@ -1357,7 +1362,8 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           callDebug.event(`ready: sent #${count}`);
           console.log("[CALLEE_FIX] ready sent", { matchId, count });
           console.log("[WebRTC] Sending webrtc:ready (retry if offer not yet received)");
-          broadcastOnChannel({ type: "webrtc:ready" });
+          void broadcastOnChannel({ type: "webrtc:ready" })
+            .catch((err) => console.warn("[WebRTC] READY_SIGNAL_SEND_FAILED", { matchId, error: err?.message }));
         };
         sendReady();
         readyRetryIntervalRef.current = setInterval(sendReady, 2000);
