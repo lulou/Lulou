@@ -61,6 +61,8 @@ export default function ProfilePage() {
   const distanceSectionRef = useRef<HTMLDivElement>(null);
   const [showExtendedInfo, setShowExtendedInfo] = useState(false);
   const [showElevateModal, setShowElevateModal] = useState(false);
+  const identityRowRef = useRef<HTMLDivElement>(null);
+  const [identityInView, setIdentityInView] = useState(true);
 
   // Reset the "More about me" drawer whenever this tab comes back into view
   // (PersistentTabs keeps this component mounted, so state persists across navigation)
@@ -144,6 +146,22 @@ export default function ProfilePage() {
       return data;
     },
   });
+
+  // The profile page is mounted inside AppLayout's own scroll container. Observe
+  // the real identity row against that container so the compact title follows
+  // the actual iPhone scroll position rather than an assumed offset.
+  useEffect(() => {
+    const identityRow = identityRowRef.current;
+    const scrollOwner = document.querySelector('[data-scroll-owner="app-layout-main"]');
+    if (!identityRow || !scrollOwner || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setIdentityInView(entry.isIntersecting && entry.intersectionRatio > 0),
+      { root: scrollOwner, threshold: [0, 0.01] },
+    );
+    observer.observe(identityRow);
+    return () => observer.disconnect();
+  }, [profile?.firstName]);
 
   useEffect(() => {
     if (_DEV) console.log("[PROFILE_PAGE] query state — isLoading:", isLoading, "isError:", isError, "hasData:", !!profile);
@@ -722,15 +740,26 @@ export default function ProfilePage() {
 
   return (
     <div className="flex-1">
-      <div className="bg-background/95 backdrop-blur-sm border-b px-6 py-3 max-w-lg mx-auto w-full">
-        <h1 className="font-serif text-lg font-bold truncate" data-testid="text-profile-sticky-name">
-          {profile.firstName}
-        </h1>
+      <div
+        className="sticky top-0 z-30 h-0 pointer-events-none"
+        data-profile-sticky-name-state={identityInView ? "hidden" : "visible"}
+        aria-hidden={identityInView}
+      >
+        <div
+          className={`bg-background/95 backdrop-blur-sm border-b px-6 py-3 max-w-lg mx-auto w-full transition-[opacity,transform] duration-200 ease-out ${
+            identityInView ? "opacity-0 -translate-y-2" : "opacity-100 translate-y-0"
+          }`}
+          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))" }}
+        >
+          <h1 className="font-serif text-lg font-bold truncate text-center" data-testid="text-profile-sticky-name">
+            {profile.firstName}
+          </h1>
+        </div>
       </div>
       <div className="p-6 space-y-5 max-w-lg mx-auto w-full pb-28">
 
       {/* ① Name + avatar — very top */}
-      <div className="flex items-center gap-4">
+      <div ref={identityRowRef} className="flex items-center gap-4" data-testid="profile-identity-row">
         <button
           className="relative shrink-0 group"
           onClick={startEditingPhotos}
