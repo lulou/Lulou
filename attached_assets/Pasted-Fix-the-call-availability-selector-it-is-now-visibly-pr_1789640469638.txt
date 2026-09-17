@@ -1,0 +1,198 @@
+Fix the call availability selector — it is now visibly present but the options are not selectable.
+
+The attached REAL production screenshot shows the first-call availability section with:
+
+- Available now
+- In 30 minutes
+- In 1 hour
+- In 2 hours
+- Pick a specific time
+
+but tapping/clicking them is doing nothing.
+
+This is a regression and needs fixing WITHOUT breaking the call work already in progress.
+
+## PRIMARY GOAL
+
+Every availability option must be immediately selectable again.
+
+Expected:
+
+tap/click option
+→ selection registers instantly
+→ selected option visibly changes state
+→ authoritative availability is saved
+→ other user receives the update in realtime
+
+## 1. FIND WHY TAPS ARE NOT FIRING
+
+Audit the exact production availability controls.
+
+Check for:
+
+- disabled attribute
+- `pointer-events: none`
+- transparent overlay
+- z-index issue
+- parent intercepting click/touch
+- stale pending/loading state never cleared
+- `preventDefault`
+- `stopPropagation`
+- nested button issue
+- touch handler mismatch
+- desktop vs iPhone event difference
+- duplicate renderer mounted over the real controls
+
+Do not just restyle them.
+
+Find the actual interaction blocker.
+
+## 2. BUTTONS MUST BE REAL INTERACTIVE CONTROLS
+
+Use proper button elements where possible.
+
+Each option must have:
+
+- working click/tap
+- clear selected state
+- at least 44px touch target
+- no invisible overlay covering it
+
+Do not require double tap.
+
+## 3. SELECTED STATE
+
+When selected, show the current Lulou active treatment.
+
+Use the approved active-call green state for call availability/ready controls.
+
+Example:
+
+unselected
+→ neutral Lulou surface
+
+selected
+→ green active highlight/border/icon/text
+
+Do NOT change the rest of the app palette.
+
+## 4. SAVE IMMEDIATELY
+
+When user chooses:
+
+Available now
+
+persist it immediately.
+
+Same for:
+
+30 minutes
+1 hour
+2 hours
+specific time
+
+Do not wait for a separate Save button.
+
+## 5. REALTIME TO OTHER USER
+
+Once persisted:
+
+other user should receive the updated availability immediately.
+
+No refresh.
+
+No polling delay.
+
+This should update:
+
+- waiting copy
+- ready state
+- Call time state
+- Start First Call eligibility
+
+## 6. SPECIFIC TIME
+
+If user selects:
+
+“Pick a specific time”
+
+open the intended time picker.
+
+After confirmation:
+
+- save exact time
+- show selected state
+- sync to other user
+
+## 7. DO NOT BREAK START CALL
+
+This availability fix must not regress:
+
+- Start First Call button
+- incoming call event
+- slide-to-answer
+- WebRTC connection
+- 10-minute countdown
+- red End Call button
+
+Availability is just the prerequisite.
+
+## 8. TEST BOTH DESKTOP AND IPHONE
+
+The screenshot is desktop/browser, so test:
+
+### DESKTOP
+- click each option
+- selection registers
+
+### IPHONE PWA
+- tap each option
+- selection registers
+
+No pointer/touch discrepancy.
+
+## 9. EXACT TEST
+
+1. User A clicks Available now.
+2. Option highlights immediately.
+3. Server confirms saved state.
+4. User B sees updated availability immediately.
+
+5. User A switches to In 30 minutes.
+6. old selection clears
+7. new selection highlights
+8. User B updates immediately.
+
+9. Select specific time.
+10. picker opens.
+11. confirm.
+12. persisted + synced.
+
+## 10. DO NOT CHANGE
+
+Do not change:
+
+- message quotas
+- call-stage eligibility
+- call duration
+- voice-note rules
+- payment logic
+- chat layout
+- call UI
+
+This is only fixing the broken availability controls and their realtime sync.
+
+## FINAL REPORT
+
+Report ONLY:
+
+1. exact cause taps/clicks stopped working
+2. exact production component
+3. interaction fix
+4. selected-state implementation
+5. persistence path
+6. realtime sync path
+7. files changed
+8. tests
+9. production commit
+10. live desktop + iPhone verification
