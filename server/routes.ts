@@ -4391,7 +4391,7 @@ export async function registerRoutes(
       if (isSeedUser(otherUserId)) {
         setTimeout(async () => {
           try {
-            await serverStorage.answerCall(matchId, otherUserId);
+            await serverStorage.answerCall(matchId, otherUserId, match.callSessionId ?? undefined);
             console.log("[CALL_AUTO_ANSWER] CALL_SESSION_JOINED", { matchId, callSessionId: match.callSessionId, userId: otherUserId });
             broadcastCallEvent(matchId, {
               type: "call:answered",
@@ -4569,8 +4569,14 @@ export async function registerRoutes(
       const serverStorage = getCallStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
+      const callSessionId = typeof req.body?.callSessionId === "string"
+        ? req.body.callSessionId
+        : null;
+      if (!callSessionId) {
+        return res.status(400).json({ message: "callSessionId is required" });
+      }
       console.log("[CALL_ANSWER] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/answer", matchId, userId, timestamp: new Date().toISOString() });
-      const match = await serverStorage.answerCall(matchId, userId);
+      const match = await serverStorage.answerCall(matchId, userId, callSessionId);
       if (!match) {
         console.log("[CALL_ANSWER] CALL_API_RESPONSE_404", { matchId, userId, reason: "answerCall returned null — match not found, user not in match, no active call, or trying to answer own call" });
         return res.status(404).json({ message: "No active call to answer — it may have been cancelled" });

@@ -7,7 +7,8 @@ import { useToast } from "@/hooks/use-toast";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { useAuth } from "@/hooks/use-auth";
 import type { Profile, Match } from "@shared/schema";
-import { markCallSessionCancelled } from "@/lib/cancelled-calls";
+import { isCallSessionCancelled, markCallSessionCancelled } from "@/lib/cancelled-calls";
+import { isArmedSession } from "@/lib/live-call-sessions";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { cleanupCallAudio, isAudioUnlocked, onAudioUnlocked, unlockAudioNow } from "@/lib/call-audio";
 import { calleePresubscribe, calleePresubSendReady } from "@/hooks/use-webrtc";
@@ -18,8 +19,8 @@ type IncomingCallProps = {
   match: MatchWithProfile;
   isFaceCall: boolean;
   onDismiss: () => void;
-  /** Called when the receiver successfully answers — triggers locallyAnsweredKey in App.tsx */
-  onAnswer?: (matchId: string, sessionId: string | null) => void;
+  /** Called with the authoritative answered match so App can mount the live call immediately. */
+  onAnswer?: (match: MatchWithProfile) => void;
 };
 
 export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAnswer }: IncomingCallProps) {
@@ -179,7 +180,9 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       });
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, role: "receiver" });
       console.log("[CALL_ANSWER] calling_answer_api", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {
+        callSessionId: match.callSessionId,
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
         console.error("[CALL_ANSWER] FAILURE_REASON: answer API failed", {
@@ -191,7 +194,22 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       }
       console.log("[CALL_TIMING] ANSWER_API_OK", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
       console.log("[CALL_ANSWER] answer_api_ok", { matchId: match.id, status: res.status, ts: new Date().toISOString() });
-      return await res.json();
+      const data = await res.json();
+      if (
+        data?.callSessionId !== match.callSessionId ||
+        !data?.callStartedAt ||
+        data?.callCompleted === true ||
+        !isArmedSession(match.callSessionId) ||
+        isCallSessionCancelled(match.id, match.callSessionId)
+      ) {
+        console.error("[CALL_ANSWER] answer response no longer represents a live session", {
+          matchId: match.id,
+          expectedSessionId: match.callSessionId,
+          responseSessionId: data?.callSessionId,
+        });
+        throw new Error("This call is no longer available");
+      }
+      return data;
     },
     onSuccess: (data) => {
       console.log("[CALL_ANSWER] onSuccess_start — broadcasting call:answered and updating cache", {
@@ -206,9 +224,19 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         userId: user!.id,
         callSessionId: match.callSessionId,
       } as any);
+      const answeredMatch: MatchWithProfile = {
+        ...match,
+        ...data,
+        profile: match.profile,
+        callAnswered: true,
+      };
       queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
         if (!old || !Array.isArray(old)) return old;
-        return old.map(m => m.id === match.id ? { ...m, callAnswered: true } : m);
+        return old.map(m => m.id === match.id ? { ...m, ...answeredMatch } : m);
+      });
+      queryClient.setQueriesData<MatchWithProfile>({ queryKey: ["/api/matches", match.id] }, old => {
+        if (!old || Array.isArray(old)) return old;
+        return { ...old, ...answeredMatch };
       });
       // Immediately send webrtc:ready on the pre-subscribed signalling channel.
       // The channel was subscribed when this overlay mounted (calleePresubscribe),
@@ -217,7 +245,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       calleePresubSendReady(match.id, user!.id);
       // Notify App.tsx that the receiver has answered on this device so
       // matchForIncoming transitions to null and ActiveCallOverlay can mount.
-      onAnswer?.(match.id, match.callSessionId);
+      onAnswer?.(answeredMatch);
       console.log("[CALL_ANSWER] cache_updated_callAnswered_true — calling onDismiss", {
         matchId: match.id,
         ts: new Date().toISOString(),
@@ -331,10 +359,10 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
   // Refresh the live ref every render — gesture effect reads this, never the stale closure
   answerLiveRef.current = () => answerCall.mutate();
 
-  // ── Slide-to-answer touch gesture ─────────────────────────────────────────
-  // Attached once on mount. All visual updates go directly to DOM via RAF —
-  // no React state updates per pixel. answerLiveRef is read at completion time
-  // so it always invokes the latest answerCall.mutate().
+   // ── Slide-to-answer gesture ───────────────────────────────────────────────
+   // Attached once on mount. All visual updates go directly to DOM via RAF —
+   // no React state updates per pixel. Pointer events cover touch, mouse and
+   // trackpad; the touch fallback keeps older iOS WebViews reliable.
   useEffect(() => {
     const thumb  = thumbRef.current;
     const slider = sliderRef.current;
@@ -364,21 +392,19 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       answerLiveRef.current();
     };
 
-    const onTS = (ev: TouchEvent) => {
+     const begin = (clientX: number) => {
       if (sliderAnsweredRef.current) return;
-      ev.preventDefault();
       cancelAnimationFrame(sliderRafRef.current);
       thumb.style.transition = "none";
       fill.style.transition  = "none";
       sliderActiveRef.current   = true;
       sliderCurrentXRef.current = 0;
-      sliderStartXRef.current   = ev.touches[0].clientX;
+       sliderStartXRef.current   = clientX;
     };
 
-    const onTM = (ev: TouchEvent) => {
+     const move = (clientX: number) => {
       if (!sliderActiveRef.current || sliderAnsweredRef.current) return;
-      ev.preventDefault();
-      const dx    = Math.max(0, ev.touches[0].clientX - sliderStartXRef.current);
+       const dx    = Math.max(0, clientX - sliderStartXRef.current);
       const maxDx = Math.max(1, slider.offsetWidth - thumb.offsetWidth - 8);
       const clamped = Math.min(dx, maxDx);
       sliderCurrentXRef.current = clamped;
@@ -390,7 +416,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       if (clamped >= maxDx * 0.8) doAnswer();
     };
 
-    const onTE = () => {
+     const end = () => {
       if (!sliderActiveRef.current) return;
       const maxDx = Math.max(1, slider.offsetWidth - thumb.offsetWidth - 8);
       if (!sliderAnsweredRef.current && sliderCurrentXRef.current >= maxDx * 0.8) {
@@ -400,16 +426,58 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       }
     };
 
-    thumb.addEventListener("touchstart",  onTS, { passive: false });
-    thumb.addEventListener("touchmove",   onTM, { passive: false });
-    thumb.addEventListener("touchend",    onTE);
-    thumb.addEventListener("touchcancel", snapBack);
+     const onPointerDown = (ev: PointerEvent) => {
+       if (ev.pointerType === "mouse" && ev.button !== 0) return;
+       ev.preventDefault();
+       thumb.setPointerCapture?.(ev.pointerId);
+       begin(ev.clientX);
+     };
+     const onPointerMove = (ev: PointerEvent) => {
+       if (!sliderActiveRef.current) return;
+       ev.preventDefault();
+       move(ev.clientX);
+     };
+     const onPointerUp = (ev: PointerEvent) => {
+       thumb.releasePointerCapture?.(ev.pointerId);
+       end();
+     };
+     const onTouchStart = (ev: TouchEvent) => {
+       ev.preventDefault();
+       begin(ev.touches[0].clientX);
+     };
+     const onTouchMove = (ev: TouchEvent) => {
+       ev.preventDefault();
+       move(ev.touches[0].clientX);
+     };
+     const onTouchEnd = () => end();
+
+     // Pointer events are the single path in modern browsers. Registering
+     // touch listeners only as a fallback avoids a double gesture on iOS.
+     const supportsPointer = typeof window !== "undefined" && "PointerEvent" in window;
+     if (supportsPointer) {
+       thumb.addEventListener("pointerdown", onPointerDown);
+       thumb.addEventListener("pointermove", onPointerMove);
+       thumb.addEventListener("pointerup", onPointerUp);
+       thumb.addEventListener("pointercancel", snapBack);
+     } else {
+       thumb.addEventListener("touchstart", onTouchStart, { passive: false });
+       thumb.addEventListener("touchmove", onTouchMove, { passive: false });
+       thumb.addEventListener("touchend", onTouchEnd);
+       thumb.addEventListener("touchcancel", snapBack);
+     }
     return () => {
       cancelAnimationFrame(sliderRafRef.current);
-      thumb.removeEventListener("touchstart",  onTS);
-      thumb.removeEventListener("touchmove",   onTM);
-      thumb.removeEventListener("touchend",    onTE);
-      thumb.removeEventListener("touchcancel", snapBack);
+       if (supportsPointer) {
+         thumb.removeEventListener("pointerdown", onPointerDown);
+         thumb.removeEventListener("pointermove", onPointerMove);
+         thumb.removeEventListener("pointerup", onPointerUp);
+         thumb.removeEventListener("pointercancel", snapBack);
+       } else {
+         thumb.removeEventListener("touchstart", onTouchStart);
+         thumb.removeEventListener("touchmove", onTouchMove);
+         thumb.removeEventListener("touchend", onTouchEnd);
+         thumb.removeEventListener("touchcancel", snapBack);
+       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -572,15 +640,19 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 32px)" }}
         data-testid="callee-button-bar"
       >
-        {/* ── Slide-to-answer track ── */}
+        {/* ── Slide-to-answer track ──
+            The single horizontal control keeps the answer action deliberate:
+            the thumb has a generous target, while the quiet track makes the
+            direction and completion threshold obvious at a glance. */}
         <div
           ref={sliderRef}
           style={{
-            position: "relative", width: "100%", maxWidth: 300,
-            height: 64, borderRadius: 32,
-            background: "rgba(255,255,255,0.08)",
-            border: "1.5px solid rgba(255,255,255,0.18)",
-            overflow: "hidden", userSelect: "none",
+            position: "relative", width: "100%", maxWidth: 336,
+            height: 72, borderRadius: 36,
+            background: "linear-gradient(105deg, rgba(255,255,255,0.14), rgba(255,255,255,0.055))",
+            border: "1px solid rgba(255,255,255,0.24)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.1), 0 18px 42px rgba(0,0,0,0.18)",
+            overflow: "hidden", userSelect: "none", touchAction: "pan-y",
           }}
           aria-label={isFaceCall ? "Slide to answer face call" : "Slide to answer audio call"}
           role="presentation"
@@ -590,7 +662,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
             ref={trackFillRef}
             style={{
               position: "absolute", top: 0, left: 0, bottom: 0, width: "0%",
-              background: "linear-gradient(90deg, hsl(142 65% 40% / 0.4), hsl(142 65% 52% / 0.6))",
+               background: "linear-gradient(90deg, hsl(142 58% 38% / 0.32), hsl(142 66% 52% / 0.7))",
               borderRadius: 32, pointerEvents: "none",
             }}
           />
@@ -598,40 +670,37 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
           <span style={{
             position: "absolute", inset: 0,
             display: "flex", alignItems: "center", justifyContent: "center",
-            paddingLeft: 72, paddingRight: 12,
-            color: "rgba(255,255,255,0.45)", fontSize: 13,
-            letterSpacing: "0.06em", pointerEvents: "none",
+             paddingLeft: 76, paddingRight: 16,
+             color: "rgba(255,255,255,0.58)", fontSize: 12,
+             fontWeight: 600, letterSpacing: "0.13em", pointerEvents: "none",
             userSelect: "none", whiteSpace: "nowrap",
           }}>
-            slide to answer
+             SLIDE TO ANSWER
           </span>
           {/* Draggable thumb — touch-action:none so iOS delivers all touches here */}
           <div
             ref={thumbRef}
             style={{
-              position: "absolute", left: 4, top: 4,
-              width: 56, height: 56, borderRadius: "50%",
-              background: "linear-gradient(145deg, hsl(142 70% 45%), hsl(142 70% 32%))",
-              border: "2px solid hsl(142 70% 62%)",
-              boxShadow: "0 4px 20px hsl(142 70% 40% / 0.65)",
+               position: "absolute", left: 5, top: 5,
+               width: 62, height: 62, borderRadius: "50%",
+               background: "linear-gradient(145deg, hsl(142 70% 51%), hsl(142 65% 34%))",
+               border: "2px solid hsl(142 72% 72%)",
+               boxShadow: "0 5px 22px hsl(142 70% 24% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.28)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              touchAction: "none", zIndex: 1,
+               touchAction: "none", cursor: "grab", zIndex: 1,
             }}
           >
             {isFaceCall
               ? <Video style={{ width: 22, height: 22, color: "white", flexShrink: 0 }} />
               : <Phone style={{ width: 22, height: 22, color: "white", flexShrink: 0 }} />}
           </div>
-          {/* Accessible button — visible to assistive technology only.
-              pointer-events:none prevents accidental tap-to-answer on touch devices;
-              keyboard Enter/Space still triggers via onKeyDown for AT users. */}
+           {/* Keyboard and assistive-technology answer path. The visual thumb
+               owns pointer gestures; this remains a real, focusable button. */}
           <button
-            style={{ position: "absolute", inset: 0, opacity: 0, pointerEvents: "none" }}
+             className="sr-only"
             aria-label={isFaceCall ? "Answer face call" : "Answer audio call"}
             tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); answerLiveRef.current(); }
-            }}
+             onClick={() => answerLiveRef.current()}
             data-testid="button-answer-call"
           />
         </div>

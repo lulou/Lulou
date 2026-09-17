@@ -481,6 +481,11 @@ function CallDetectors({ userId }: { userId: string }) {
   // With locallyAnsweredKey: IncomingCallOverlay is shown for any unanswered
   // receiver-role call until the receiver explicitly presses Answer on this device.
   const [locallyAnsweredKey, setLocallyAnsweredKey] = useState<string | null>(null);
+  // Keep the successful answer response locally until the shared matches query
+  // reflects it. This closes the render gap where the incoming overlay has been
+  // dismissed but a stale refetch still says callAnswered=false, leaving chat
+  // visible instead of mounting the real WebRTC call screen.
+  const [locallyAnsweredCall, setLocallyAnsweredCall] = useState<MatchWithProfile | null>(null);
 
   // On mount: silence any stale audio, then register the iOS audio-unlock
   // listeners so the first user gesture warms the singleton ring elements.
@@ -1047,7 +1052,27 @@ function CallDetectors({ userId }: { userId: string }) {
     return true;
   }), [matches, userId, isEndedCall, cancelledTick, armedTick]);
 
-  const activeCall = answeredCall || callerRingingCall;
+  const activeCall = answeredCall || locallyAnsweredCall || callerRingingCall;
+
+  // Release the local answer bridge only on an explicit end/cancel/disarm or a
+  // confirmed non-null replacement session. A null/unanswered query result can
+  // be a stale in-flight poll from before the answer and must not tear down a
+  // valid WebRTC overlay (whose unmount safety net would then end the call).
+  useEffect(() => {
+    if (!locallyAnsweredCall) return;
+    const current = matches?.find(m => m.id === locallyAnsweredCall.id);
+    const sessionId = locallyAnsweredCall.callSessionId;
+    if (
+      !sessionId ||
+      !isArmedSession(sessionId) ||
+      isCallSessionCancelled(locallyAnsweredCall.id, sessionId) ||
+      isEndedCall(locallyAnsweredCall) ||
+      (!!current?.callSessionId && current.callSessionId !== sessionId)
+    ) {
+      setLocallyAnsweredCall(null);
+      setLocallyAnsweredKey(null);
+    }
+  }, [matches, locallyAnsweredCall, cancelledTick, armedTick, isEndedCall]);
 
   // Update ref so the location-change effect knows whether a call is live.
   // Must be set during render (not in an effect) so it reflects the current
@@ -1238,6 +1263,8 @@ function CallDetectors({ userId }: { userId: string }) {
       console.log("[CALL_SESSION] CALL_STAGE_EXITED", { matchId, callSessionId, reason: "user_hangup_overlay" });
       console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId, callSessionId, note: "overlay ended — chat intact" });
       markCallEnded(matchId, callSessionId, "user_hangup");
+      setLocallyAnsweredCall(null);
+      setLocallyAnsweredKey(null);
     }
   }, [activeCall?.id, activeCall?.callSessionId, activeCall?.callInitiatorId, userId, markCallEnded]);
 
@@ -1285,6 +1312,7 @@ function CallDetectors({ userId }: { userId: string }) {
           // Without this check, pressing Decline sets dismissedCallKey but forcedIncomingMatch
           // ignores it → overlay re-mounts immediately → appears as a random incoming call.
           `${m.id}:${m.callSessionId}` !== dismissedCallKey
+          && `${m.id}:${m.callSessionId}` !== locallyAnsweredKey
         ) ?? null;
 
         const overlayForActive = activeCall ?? null;
@@ -1310,9 +1338,13 @@ function CallDetectors({ userId }: { userId: string }) {
                     match={forcedIncomingMatch}
                     isFaceCall={forcedIsFaceCall}
                     onDismiss={handleDismiss}
-                    onAnswer={(matchId, sessionId) => {
-                      console.log("[CALLEE_FIX] onAnswer fired (forced path)", { matchId, sessionId });
-                      setLocallyAnsweredKey(`${matchId}:${sessionId}`);
+                    onAnswer={(answeredMatch) => {
+                      console.log("[CALLEE_FIX] onAnswer fired (forced path)", {
+                        matchId: answeredMatch.id,
+                        sessionId: answeredMatch.callSessionId,
+                      });
+                      setLocallyAnsweredCall(answeredMatch);
+                      setLocallyAnsweredKey(`${answeredMatch.id}:${answeredMatch.callSessionId}`);
                     }}
                   />
                 </CallOverlayErrorBoundary>

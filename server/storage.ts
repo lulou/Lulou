@@ -772,7 +772,7 @@ export interface IStorage {
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
   startCall(matchId: string, userId: string, isPaidCredit?: boolean): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined>;
-  answerCall(matchId: string, userId: string): Promise<Match | undefined>;
+  answerCall(matchId: string, userId: string, expectedSessionId?: string): Promise<Match | undefined>;
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined>;
   setDateChoice(matchId: string, userId: string, choice: 'plan' | 'keep' | null): Promise<Match | undefined>;
@@ -2376,8 +2376,8 @@ export class SupabaseStorage implements IStorage {
     return { match: result, status: "created" };
   }
 
-  async answerCall(matchId: string, userId: string): Promise<Match | undefined> {
-    console.log("[answerCall] Reading match", { matchId, userId });
+  async answerCall(matchId: string, userId: string, expectedSessionId?: string): Promise<Match | undefined> {
+    console.log("[answerCall] Reading match", { matchId, userId, expectedSessionId });
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
       .select("*")
@@ -2404,13 +2404,29 @@ export class SupabaseStorage implements IStorage {
       console.log("[answerCall] No active call to answer:", { matchId, callStartedAt: match.callStartedAt, callInitiatorId: match.callInitiatorId });
       return undefined;
     }
+    if (expectedSessionId && match.callSessionId !== expectedSessionId) {
+      console.log("[answerCall] Session changed before answer:", {
+        matchId,
+        expectedSessionId,
+        currentSessionId: match.callSessionId,
+      });
+      return undefined;
+    }
 
-    const { data: updated, error } = await this.sb
+    let update = this.sb
       .from("matches")
       .update({
         call_answered: true,
       })
       .eq("id", matchId)
+      .eq("call_answered", false)
+      .eq("call_completed", false)
+      .not("call_started_at", "is", null)
+      .not("call_initiator_id", "is", null);
+    if (expectedSessionId) {
+      update = update.eq("call_session_id", expectedSessionId);
+    }
+    const { data: updated, error } = await update
       .select()
       .maybeSingle();
     if (error) {

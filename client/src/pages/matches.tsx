@@ -37,7 +37,7 @@ import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { PostCallMilestone } from "@/components/post-call-milestone";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
-import { armCallSession, markSessionAsPaid, markSessionAsVideo } from "@/lib/live-call-sessions";
+import { armCallSession, isArmedSession, markSessionAsPaid, markSessionAsVideo } from "@/lib/live-call-sessions";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
@@ -2527,18 +2527,43 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   const inlineAnswerCall = useMutation({
     mutationFn: async () => {
-      console.log("[CALL_UI] CALL_ANSWERED", { matchId: match.id, callSessionId: lastCallSessionIdRef.current, userId: user?.id, role: "receiver", source: "inline_chat" });
+      const cachedList = queryClient.getQueryData<any[]>(["/api/matches"]);
+      const listSessionId = cachedList?.find((m: any) => m.id === match.id)?.callSessionId ?? null;
+      const callSessionId = lastCallSessionIdRef.current || listSessionId;
+      if (
+        !callSessionId ||
+        !isArmedSession(callSessionId) ||
+        isCallSessionCancelled(match.id, callSessionId)
+      ) {
+        throw new Error("This call is no longer available");
+      }
+      console.log("[CALL_UI] CALL_ANSWERED", { matchId: match.id, callSessionId, userId: user?.id, role: "receiver", source: "inline_chat" });
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, role: "receiver", callStage });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
-      return await res.json();
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, { callSessionId });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+        throw new Error(body?.message || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (
+        data?.callSessionId !== callSessionId ||
+        !data?.callStartedAt ||
+        data?.callCompleted === true ||
+        !isArmedSession(callSessionId) ||
+        isCallSessionCancelled(match.id, callSessionId)
+      ) {
+        throw new Error("This call is no longer available");
+      }
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       broadcastCallSignal(match.id, {
         type: "call:answered",
         matchId: match.id,
         userId: user!.id,
+        callSessionId: data.callSessionId,
       } as any);
-      mergeCallFields(queryClient, match.id, { callAnswered: true });
+      mergeCallFields(queryClient, match.id, data);
     },
     onError: (error: Error) => {
       console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
