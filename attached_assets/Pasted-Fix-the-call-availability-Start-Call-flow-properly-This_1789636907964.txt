@@ -1,0 +1,380 @@
+Fix the call availability + Start Call flow properly. This needs to work in REALTIME between both users with no noticeable delay and no dead buttons.
+
+There are TWO current production problems:
+
+1. When one user chooses their availability for the first call, the other user does not see that update quickly enough.
+2. When the user taps “Start Call”, nothing happens.
+
+I need the whole first-call flow to work smoothly from availability → ready state → ringing → answer → connected call.
+
+DO NOT just patch the button visually.
+Trace and fix the actual production flow end-to-end.
+
+==================================================
+1. AVAILABILITY MUST SYNC INSTANTLY
+==================================================
+
+When either user selects:
+
+- Available now
+- In 30 minutes
+- In 1 hour
+- In 2 hours
+- Pick a specific time
+
+that selection must register immediately for the other user.
+
+Expected flow:
+
+User A selects availability
+→ server persists it immediately
+→ User B receives realtime update immediately
+→ User B UI updates without refresh
+→ if both users are now compatible/ready, the call-ready state appears immediately
+
+No:
+- page refresh
+- tab change
+- waiting several seconds
+- stale “waiting for other user” copy
+
+Target:
+perceived update should feel instant.
+
+Use the existing realtime infrastructure rather than slow polling if possible.
+
+==================================================
+2. AUTHORITATIVE AVAILABILITY STATE
+==================================================
+
+Audit exactly where availability is stored.
+
+Check:
+
+- database row/table
+- match ID
+- user ID
+- availability timestamp/type
+- expiry time
+- timezone handling
+- active call stage
+
+Make sure BOTH users read from the same authoritative persisted state.
+
+Do not keep one user’s availability only in local React state.
+
+==================================================
+3. REALTIME AVAILABILITY SUBSCRIPTION
+==================================================
+
+Add/repair realtime subscription for availability changes.
+
+When availability changes for the current match:
+
+immediately update:
+
+- selected state
+- waiting message
+- compatibility of both users’ times
+- “Call time” state
+- Start First Call availability
+- expiry messaging
+
+Do not wait for a polling interval.
+
+If React Query/TanStack Query is used:
+
+- update cache immediately from realtime event
+- invalidate/reconcile authoritative query in background
+
+==================================================
+4. NO STALE AVAILABILITY
+==================================================
+
+If one user changes their availability:
+
+the other user should immediately see the new value.
+
+If availability expires:
+
+both users should immediately move to the correct expired state.
+
+No stale:
+
+“Available now”
+
+after it has expired.
+
+No stale:
+
+“Waiting for user”
+
+after both are ready.
+
+==================================================
+5. START CALL BUTTON CURRENTLY DOES NOTHING
+==================================================
+
+Trace the exact production Start Call path:
+
+tap Start First Call
+→ click handler
+→ eligibility check
+→ availability validation
+→ call-session creation
+→ signaling session created
+→ caller enters outgoing/ringing state
+→ recipient receives incoming call
+→ incoming call overlay appears
+
+Find the FIRST point where it currently stops.
+
+Do not just add another handler on top.
+
+Report the exact failing step.
+
+==================================================
+6. START CALL MUST RESPOND IMMEDIATELY
+==================================================
+
+When user taps Start First Call:
+
+- button enters pending/loading state immediately
+- prevent double tap
+- create call session
+- transition caller into “Calling…” state
+- recipient gets ringing state immediately
+
+Do NOT leave the user tapping a button that appears dead.
+
+If call cannot start:
+
+show a clear reason such as:
+
+- other user no longer available
+- call already active
+- session expired
+- connection failed
+
+Do not fail silently.
+
+==================================================
+7. CALL ELIGIBILITY
+==================================================
+
+Preserve the existing first-call rules.
+
+Start First Call should only activate when:
+
+- correct call stage reached
+- both users satisfy required message quota
+- availability rules are satisfied
+- no other call already active
+
+Do not weaken entitlement/stage checks.
+
+But once eligible, the button MUST work.
+
+==================================================
+8. INCOMING CALL MUST APPEAR IN REALTIME
+==================================================
+
+When caller starts:
+
+recipient should immediately receive:
+
+- ringing state
+- incoming call overlay
+- horizontal drag-to-answer control
+
+No refresh.
+
+No waiting until opening the chat.
+
+The call event must propagate globally enough to reach the recipient even if they are elsewhere in the app.
+
+==================================================
+9. ANSWER FLOW
+==================================================
+
+After recipient drags to answer:
+
+- send answer signal immediately
+- establish WebRTC
+- both users transition to connected state
+- start 10-minute countdown
+- show red End Call button
+
+Do not show fake “in progress” state before connection is real.
+
+==================================================
+10. CALL STATE MACHINE
+==================================================
+
+Use one clear shared call state machine.
+
+At minimum:
+
+idle
+→ availability_ready
+→ creating
+→ ringing
+→ answering
+→ connecting
+→ connected
+→ ended
+
+Error states:
+
+declined
+missed
+failed
+expired
+
+Do not let separate components invent conflicting call states.
+
+==================================================
+11. DUPLICATE/LEGACY CALL FLOW AUDIT
+==================================================
+
+Search for all implementations of:
+
+- availability picker
+- Start First Call
+- incoming call overlay
+- ringing state
+- WebRTC session
+- active call screen
+
+Verify which one production actually mounts.
+
+If old and new flows both exist, consolidate or ensure only one authoritative path is active.
+
+==================================================
+12. SERVER-SIDE START CALL VALIDATION
+==================================================
+
+Before creating call:
+
+server should re-check:
+
+- match exists
+- caller belongs to match
+- call stage eligible
+- both availability states valid
+- no active call already exists
+- first-call entitlement valid
+
+Return a precise safe error if not.
+
+Do not rely solely on client eligibility.
+
+==================================================
+13. REALTIME SPEED
+==================================================
+
+Measure:
+
+- availability selection → other user UI update
+- Start Call tap → caller ringing state
+- Start Call tap → recipient incoming overlay
+
+Add safe diagnostics:
+
+availability_write_ms
+availability_realtime_ms
+call_create_ms
+incoming_call_realtime_ms
+
+Do not log private user content.
+
+==================================================
+14. DO NOT BREAK EXISTING FLOW
+==================================================
+
+Do not change:
+
+- message quotas
+- first-call duration
+- voice-note unlock rule
+- call completion threshold
+- paid call rules
+- chat UI
+- profile UI
+- payments
+- bottom nav
+
+This task is only call availability sync + Start Call reliability.
+
+==================================================
+15. TEST EXACTLY WITH TWO REAL USERS
+==================================================
+
+### AVAILABILITY
+1. User A selects “Available now”.
+2. User B sees update immediately.
+
+3. User B selects compatible availability.
+4. Both sides immediately show ready state.
+
+5. B changes availability.
+6. A updates immediately.
+
+### START CALL
+7. User A taps Start First Call.
+8. Button immediately shows pending/calling state.
+9. User B immediately receives incoming call.
+
+### ANSWER
+10. B sees horizontal drag-to-answer.
+11. B drags fully.
+12. WebRTC connects.
+13. Both enter connected call UI.
+14. 10:00 countdown starts.
+15. Red End Call button visible.
+
+### FAILURE
+16. Make B unavailable before A starts.
+17. A gets clear failure reason.
+18. No fake call session.
+
+### DUPLICATE SAFETY
+19. Rapid double tap Start Call.
+20. Only one call session created.
+
+### EXPIRY
+21. Availability expires.
+22. Both sides update immediately.
+
+==================================================
+16. DEPLOYMENT
+==================================================
+
+After implementation:
+
+- run realtime availability tests
+- run Start Call tests
+- run WebRTC call tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify Vercel/Railway
+- test with two real accounts/devices
+
+At the end report ONLY:
+
+1. exact cause of availability delay
+2. exact authoritative availability source
+3. realtime availability mechanism
+4. exact reason Start Call did nothing
+5. exact Start Call production component
+6. server validation added/fixed
+7. incoming-call realtime path
+8. call state machine
+9. measured before/after latency
+10. files changed
+11. tests
+12. production commit
+13. live Vercel/Railway verification
+14. real two-device validation result
