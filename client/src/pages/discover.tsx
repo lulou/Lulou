@@ -732,7 +732,7 @@ export default function Discover() {
     return { ...currentProfile, photos: photoData?.photos ?? EMPTY_PHOTOS };
   }, [currentProfile, photoData?.photos]);
   const discoverContentRef = useRef<HTMLDivElement>(null);
-  const discoverIdentityRef = useRef<HTMLDivElement>(null);
+  const discoverHeaderSentinelRef = useRef<HTMLDivElement>(null);
   const discoverToolbarRef = useRef<HTMLDivElement>(null);
   const [isIdentityCollapsed, setIsIdentityCollapsed] = useState(false);
   useDiscoverScrollDiagnostics({
@@ -741,18 +741,20 @@ export default function Discover() {
     profileLoaded: !!displayProfile,
   });
 
-  // Discover is rendered inside AppLayout's scrolling <main>, not a window
-  // scroller. Observe the real identity section and only collapse after it has
-  // crossed the top edge. This distinction matters because the identity card
-  // can begin below the viewport beneath the profile photos.
+  // Discover scrolls inside AppLayout's <main>, not window. A zero-height
+  // sentinel at the beginning of the profile content provides a measured
+  // expanded-header boundary: at the top it sits below the sticky toolbar;
+  // once scrolling carries it behind the toolbar, the name moves to the
+  // compact centred position. This avoids coupling header behavior to the
+  // identity card much farther down the profile.
   useEffect(() => {
     setIsIdentityCollapsed(false);
     if (!isTabActive || !displayProfile?.id) return;
 
-    const identity = discoverIdentityRef.current;
+    const sentinel = discoverHeaderSentinelRef.current;
     const toolbar = discoverToolbarRef.current;
     const scrollOwner = document.querySelector('[data-scroll-owner="app-layout-main"]');
-    if (!identity || !toolbar || !scrollOwner || typeof IntersectionObserver === "undefined") return;
+    if (!sentinel || !toolbar || !scrollOwner || typeof IntersectionObserver === "undefined") return;
 
     let observer: IntersectionObserver | null = null;
     const observeAtToolbarBoundary = () => {
@@ -764,16 +766,15 @@ export default function Discover() {
           const boundaryTop = entry.rootBounds?.top ?? (
             scrollOwner.getBoundingClientRect().top + coveredTop
           );
-          const hasCrossedToolbar = entry.boundingClientRect.top <= boundaryTop + 1;
-          setIsIdentityCollapsed(hasCrossedToolbar && entry.intersectionRatio < 1);
+          setIsIdentityCollapsed(entry.boundingClientRect.top <= boundaryTop + 1);
         },
         {
           root: scrollOwner,
           rootMargin: `-${coveredTop}px 0px 0px 0px`,
-          threshold: [0, 0.01, 1],
+          threshold: [0, 1],
         },
       );
-      observer.observe(identity);
+      observer.observe(sentinel);
     };
 
     observeAtToolbarBoundary();
@@ -1304,19 +1305,11 @@ export default function Discover() {
       node: (
         <div
           key="identity"
-          ref={discoverIdentityRef}
           className="space-y-1.5"
           style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}
           data-testid="discover-profile-identity"
         >
-          <div
-            className={`flex items-center gap-2 ${
-              isIdentityCollapsed
-                ? "invisible opacity-0 -translate-y-1"
-                : "visible opacity-100 translate-y-0 transition-[opacity,transform] duration-200 ease-out"
-            }`}
-            aria-hidden={isIdentityCollapsed}
-          >
+          <div className="flex items-center gap-2">
             <h2 className="font-serif text-4xl font-bold tracking-tight" data-testid="text-profile-name">
               {displayProfile.firstName}
             </h2>
@@ -1479,7 +1472,7 @@ export default function Discover() {
     <div
       ref={discoverContentRef}
       data-discover-scroll-root="discover-root"
-      data-ui-version="discover-103"
+      data-ui-version="discover-104-header-name"
       style={DISCOVER_CONTENT_ROOT_STYLE}
     >
       <div
@@ -1495,11 +1488,26 @@ export default function Discover() {
             style={{ height: "env(safe-area-inset-top, 0px)" }}
           />
         )}
-        <div className="relative max-w-md mx-auto flex items-center justify-end">
+        <div className="relative max-w-md mx-auto flex items-center justify-between">
           <div
-            className={`pointer-events-none absolute inset-x-24 flex min-w-0 items-center justify-center gap-2 ${
+            className={`flex min-w-0 items-center gap-2 transition-[opacity,transform] duration-200 ease-out ${
               isIdentityCollapsed
-                ? "visible opacity-100 translate-y-0 transition-[opacity,transform] duration-200 ease-out"
+                ? "invisible opacity-0 -translate-y-1"
+                : "visible opacity-100 translate-y-0"
+            }`}
+            aria-hidden={isIdentityCollapsed}
+          >
+            <h1 className="font-serif text-lg font-bold truncate text-start" data-testid="text-discover-expanded-name">
+              {displayProfile.firstName}
+            </h1>
+            {displayProfile.photoVerified && (
+              <BadgeCheck className="w-4 h-4 text-primary shrink-0" />
+            )}
+          </div>
+          <div
+            className={`pointer-events-none absolute inset-x-24 flex min-w-0 items-center justify-center gap-2 transition-[opacity,transform] duration-200 ease-out ${
+              isIdentityCollapsed
+                ? "visible opacity-100 translate-y-0"
                 : "invisible opacity-0 -translate-y-2"
             }`}
             aria-hidden={!isIdentityCollapsed}
@@ -1539,6 +1547,12 @@ export default function Discover() {
         </div>
       </div>
       <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
+        <div
+          ref={discoverHeaderSentinelRef}
+          className="h-px"
+          aria-hidden="true"
+          data-testid="discover-header-collapse-sentinel"
+        />
         {/*
           Pure CSS fade-in — replaces framer-motion AnimatePresence.
           React unmounts the old card and mounts the new one when the key

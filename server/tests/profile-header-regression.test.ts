@@ -30,26 +30,30 @@ describe("profile collapsing name header", () => {
   });
 
   it("applies the same measured behavior to the production Discover profile renderer", () => {
-    expect(discover).toContain("discoverIdentityRef");
+    expect(discover).toContain("discoverHeaderSentinelRef");
     expect(discover).toContain("discoverToolbarRef");
+    expect(discover).toContain('data-testid="discover-header-collapse-sentinel"');
     expect(discover).toContain('data-testid="discover-profile-identity"');
     expect(discover).toContain('document.querySelector(\'[data-scroll-owner="app-layout-main"]\')');
     expect(discover).toContain("const coveredTop = stickyTop + toolbar.getBoundingClientRect().height");
     expect(discover).toContain('rootMargin: `-${coveredTop}px 0px 0px 0px`');
-    expect(discover).toContain("hasCrossedToolbar && entry.intersectionRatio < 1");
+    expect(discover).toContain("entry.boundingClientRect.top <= boundaryTop + 1");
     expect(discover).toContain('data-discover-sticky-name-state={isIdentityCollapsed ? "visible" : "hidden"}');
     expect(discover).toContain('className="sticky z-40 bg-background/95 backdrop-blur-sm border-b px-5 py-3"');
     expect(discover).toContain('style={{ top: "env(safe-area-inset-top, 0px)" }}');
     expect(discover).toContain('style={{ height: "env(safe-area-inset-top, 0px)" }}');
     expect(discover).not.toContain("sticky top-0 z-30 h-0");
-    expect(discover).toContain('? "invisible opacity-0 -translate-y-1"');
+    expect(discover).toContain('data-testid="text-discover-expanded-name"');
     expect(discover).toContain(': "invisible opacity-0 -translate-y-2"');
   });
 
-  it("keeps Discover controls but removes the unconditional header name", () => {
+  it("keeps Discover controls and coordinates expanded and compact header names", () => {
     expect(discover).toContain('data-testid="button-undo-pass"');
     expect(discover).toContain('data-testid="button-discover-safety-menu"');
-    expect(discover).toContain('className="relative max-w-md mx-auto flex items-center justify-end"');
+    expect(discover).toContain('className="relative max-w-md mx-auto flex items-center justify-between"');
+    expect(discover.match(/data-testid="text-discover-expanded-name"/g)).toHaveLength(1);
     expect(discover.match(/data-testid="text-discover-sticky-name"/g)).toHaveLength(1);
+    expect(discover).toContain('aria-hidden={isIdentityCollapsed}');
+    expect(discover).toContain('aria-hidden={!isIdentityCollapsed}');
   });
 });
