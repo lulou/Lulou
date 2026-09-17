@@ -1,0 +1,259 @@
+STOP making further visual tweaks until you verify why the last requested changes are NOT visible in production.
+
+The attached REAL iPhone screenshots are the source of truth.
+
+They prove that the previous work has either:
+
+- not deployed,
+- been applied to the wrong component/renderer,
+- been overwritten,
+- or is hidden behind an old duplicate implementation.
+
+There are TWO previously requested changes that are still visibly missing.
+
+==================================================
+1. PROFILE / DISCOVER NAME BEHAVIOUR IS STILL WRONG
+==================================================
+
+Current production screenshot still shows:
+
+“Aria”
+
+in the fixed top/header area
+
+AND
+
+“Aria”
+
+again inside the profile information card.
+
+This is exactly the duplicate-name problem we asked to remove.
+
+There is also NO Hinge-style collapsing name behaviour.
+
+REQUIRED BEHAVIOUR:
+
+At top of profile:
+
+- the name exists naturally in the profile identity/content section
+- no duplicate fixed-header name
+
+As user scrolls down:
+
+- when that main name/identity section begins leaving the viewport,
+- a compact sticky header appears
+- user name becomes centred at the top
+
+As user scrolls back up:
+
+- centred sticky name disappears
+- original name becomes visible in its natural profile position again
+
+There must never be two visible primary copies of the name.
+
+DO NOT simply hide one permanently.
+
+The transition must be driven by scroll position / IntersectionObserver.
+
+IMPORTANT:
+
+The production screenshot suggests the change may have been made to the wrong profile component.
+
+Trace the ACTUAL production renderer responsible for the screen shown in the screenshot.
+
+Search for EVERY renderer/component containing:
+
+- profile name
+- Discover full profile
+- profile viewer
+- expanded profile
+- sticky profile header
+- profile-details card
+
+Determine which one production is actually using.
+
+==================================================
+2. FIRST CALL FLOW STILL LOOKS LIKE OLD IMPLEMENTATION
+==================================================
+
+The current production screenshot still shows:
+
+“Ready for your first call”
+“Start First Call”
+“Change availability”
+“End Match”
+
+This means the previous first-call work has not visibly replaced the active production flow.
+
+We asked for:
+
+A. Incoming call:
+- premium horizontal drag-to-answer control
+- not two giant Answer / Decline buttons
+
+B. Accepted call:
+- BOTH users enter the real active call state
+- visible 10:00 countdown
+- countdown begins when connection is genuinely established
+- visible End Call button
+- real connected WebRTC state
+- no fake “call in progress” chat placeholder
+- no remaining stuck on ordinary chat screen
+
+The production flow shown still appears to be the old call-stage UI.
+
+Trace:
+
+Start First Call
+→ outgoing call creation
+→ recipient ringing
+→ drag-to-answer
+→ accept
+→ WebRTC connected
+→ active call room
+→ 10-minute timer
+→ End Call
+→ completion
+
+Do NOT create another parallel call implementation.
+
+Find the currently mounted production call renderer and modify THAT one.
+
+==================================================
+3. CHECK FOR DUPLICATE / LEGACY RENDERERS
+==================================================
+
+This project has previously had duplicate chat/profile renderers.
+
+Audit for duplicate implementations of:
+
+- Discover profile
+- profile viewer
+- own Profile page
+- messaging/chat
+- call stage
+- incoming call overlay
+- active call screen
+
+For each requested change, identify:
+
+1. component edited previously
+2. component actually mounted in production
+3. whether they are the same component
+
+If they are different, that is the root cause.
+
+Do not leave two competing implementations.
+
+==================================================
+4. VERIFY DEPLOYMENT BEFORE CLAIMING SUCCESS
+==================================================
+
+Do NOT report “implemented” based only on local source.
+
+After changing the correct production components:
+
+- commit
+- push GitHub main
+- wait for Vercel/Railway
+- confirm live commit SHA
+- confirm live JS asset hash changed
+- inspect the live bundle for the new implementation
+
+Then verify against the exact screens shown in the screenshots.
+
+==================================================
+5. PROFILE ACCEPTANCE TEST
+==================================================
+
+Real iPhone:
+
+At top:
+- no duplicate primary name
+- name is in natural profile content position
+
+Scroll down:
+- original name leaves
+- compact sticky header appears
+- name centred
+
+Scroll up:
+- sticky name disappears
+- original name returns
+
+No flicker.
+No two names visible simultaneously.
+
+==================================================
+6. CALL ACCEPTANCE TEST
+==================================================
+
+Two real accounts/devices:
+
+Device A:
+- reaches first call stage
+- starts call
+
+Device B:
+- gets incoming call
+- sees horizontal drag-to-answer UI
+
+Device B drags to answer:
+
+BOTH devices:
+- enter actual connected call UI
+- show 10:00 countdown
+- countdown starts only after connection
+- show End Call control
+
+End call:
+- both users leave call cleanly
+- call result/state syncs
+- no fake “in progress” state remains
+- failed/missed calls do not count as completed
+
+==================================================
+DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- profile content/data
+- Open/Close behaviour
+- Discover matching
+- message quotas
+- call duration
+- call completion threshold
+- voice-note unlock rule
+- payments
+- bottom navigation
+- Intention Wheel
+
+This task is specifically:
+
+1. identify why previous changes are not appearing
+2. modify the ACTUAL live production renderers
+3. remove duplicate name behaviour correctly
+4. implement/restore the requested first-call experience
+5. prove production deployment
+
+==================================================
+FINAL REPORT
+==================================================
+
+At the end report ONLY:
+
+1. why previous profile change was not visible
+2. exact production profile component actually mounted
+3. duplicate-name source removed
+4. sticky-name implementation used
+5. why previous call change was not visible
+6. exact production incoming-call component
+7. exact production active-call component
+8. drag-to-answer implementation
+9. 10-minute timer implementation
+10. End Call implementation
+11. files changed
+12. production commit
+13. live Vercel/Railway commit verification
+14. real two-device validation result
