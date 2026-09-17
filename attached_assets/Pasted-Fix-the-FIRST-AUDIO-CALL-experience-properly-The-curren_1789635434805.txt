@@ -1,0 +1,376 @@
+Fix the FIRST AUDIO CALL experience properly. The current production behavior is still wrong.
+
+There are THREE non-negotiable issues:
+
+1. Incoming call still does NOT show the requested horizontal drag-to-answer control.
+2. Accepting the call still does NOT reliably connect both users into the real call.
+3. Once connected, there is still NO proper 10-minute countdown and NO red End Call button.
+
+Do not make another cosmetic patch around the existing broken flow.
+
+Trace and fix the ACTUAL live production call implementation from start to finish.
+
+==================================================
+1. INCOMING CALL — HORIZONTAL DRAG TO ANSWER
+==================================================
+
+Replace the current ordinary Answer button interaction with a proper horizontal slide/drag-to-answer control.
+
+I want a premium iPhone-style interaction:
+
+- horizontal pill/track
+- phone icon inside a draggable thumb
+- user drags the phone icon from left to right
+- when drag reaches the acceptance threshold, answer the call
+- if user releases early, thumb returns to start
+- smooth spring/transition
+- clear affordance such as:
+ “slide to answer”
+
+Do NOT use:
+- giant Answer button
+- tap-only green button as the primary answer interaction
+- gamey animation
+- Android-looking slider
+
+Keep Decline available separately as a secondary action.
+
+The overall incoming-call UI should feel:
+- premium
+- iOS-like
+- clean
+- simple
+- deliberate
+
+==================================================
+2. ANSWER MUST ACTUALLY CONNECT THE CALL
+==================================================
+
+Right now, accepting the call appears to update UI state without consistently entering a real connected call.
+
+Trace this exact flow:
+
+caller taps Start First Call
+→ outgoing call session created
+→ callee receives ringing state
+→ callee drags to answer
+→ answer signal sent
+→ WebRTC peer connection established
+→ both users transition to CONNECTED state
+→ media actually flows
+→ call timer starts
+
+Do not mark a call “in progress” before peer connection is genuinely established.
+
+Use the actual WebRTC connected state as the source of truth.
+
+Audit:
+- offer creation
+- answer creation
+- ICE candidates
+- STUN/TURN config
+- signaling messages
+- recipient acceptance
+- caller state transition
+- callee state transition
+- peer connection lifecycle
+- cleanup on failure
+
+If the call cannot connect:
+- show a clear failed/couldn’t connect state
+- do NOT leave the app pretending the call is active
+
+==================================================
+3. ACTIVE CALL SCREEN
+==================================================
+
+Once the call is genuinely connected, BOTH users must enter the real active-call UI.
+
+The active first-call screen must show:
+
+- other user’s name
+- audio call status
+- visible 10:00 countdown timer
+- red End Call button
+- microphone state if already supported
+- clean premium Lulou styling
+
+The countdown must begin ONLY after connection is established.
+
+Example:
+
+CONNECTED
+→ timer = 10:00
+→ 09:59
+→ 09:58
+→ etc.
+
+Do not start the timer during:
+- ringing
+- dialing
+- waiting
+- availability selection
+- signaling
+
+==================================================
+4. RED END CALL BUTTON
+==================================================
+
+There must be an obvious red End Call control.
+
+Requirements:
+
+- visible throughout connected call
+- clearly tappable
+- ends the call immediately
+- cleans up media streams
+- closes peer connection
+- updates both users
+- stops timer
+- returns both users to correct post-call state
+
+Do not use a hidden cancel icon.
+
+This should look like a real call control.
+
+==================================================
+5. BOTH USERS MUST STAY SYNCHRONIZED
+==================================================
+
+If User A calls User B:
+
+A:
+- dialing
+- ringing
+- connected
+- countdown
+
+B:
+- incoming call
+- slide to answer
+- connected
+- same call session
+- countdown
+
+If either user ends:
+- both leave connected state immediately
+
+No situation where:
+- one user sees connected
+- other user remains in chat
+- one sees timer
+- other sees “call in progress”
+- stale ringing remains
+
+==================================================
+6. DO NOT LEAVE USER IN NORMAL CHAT UI DURING CONNECTED CALL
+==================================================
+
+The current behavior where chat remains visible and a little message says:
+
+“First call in progress”
+
+is NOT enough.
+
+Once connected, the call needs its own proper active-call layer/screen.
+
+Chat can remain underneath if architecturally useful, but the active call UI must clearly take over.
+
+==================================================
+7. 10-MINUTE FIRST CALL RULE
+==================================================
+
+Preserve the existing product rule:
+
+First audio call:
+- 10 minutes
+- free
+- timer begins on real connection
+- failed/unanswered calls do not consume the free call
+
+When countdown reaches 00:00:
+- end the call cleanly
+- mark completion according to existing valid-call rules
+- transition both users correctly
+
+Do not change the existing valid-call completion threshold unless already defined elsewhere.
+
+==================================================
+8. INCOMING CALL NOTIFICATION
+==================================================
+
+Keep the existing incoming call notification/ringing behavior if working.
+
+But opening the incoming-call experience must show the new horizontal slide-to-answer control.
+
+Do not let the notification itself be the only answer method.
+
+==================================================
+9. DUPLICATE/LEGACY CALL COMPONENT AUDIT
+==================================================
+
+This project has had duplicate chat/call renderers before.
+
+Audit ALL call-related components:
+
+- incoming call overlay
+- ringing screen
+- call stage UI
+- active call screen
+- legacy chat call controls
+- current production chat renderer
+
+For each one identify:
+
+1. component previously edited
+2. component actually mounted in production
+3. whether they are the same
+
+If the wrong component was edited previously, fix the ACTUAL production renderer.
+
+Do not leave parallel call flows.
+
+==================================================
+10. WEBRTC CONNECTION STATE
+==================================================
+
+Use real connection state.
+
+Handle at least:
+
+- new
+- connecting
+- connected
+- disconnected
+- failed
+- closed
+
+When peerConnection.connectionState becomes `connected`:
+→ enter active call UI
+→ start countdown
+
+When `failed`:
+→ show failure
+→ clean up
+→ do not consume entitlement
+
+When `disconnected`:
+→ allow brief recovery if appropriate
+→ otherwise terminate cleanly
+
+==================================================
+11. AUDIO / MEDIA
+==================================================
+
+Verify:
+
+- microphone permission requested correctly
+- local audio track added
+- remote audio track received
+- remote audio actually plays
+- audio stream cleaned up after hangup
+- no duplicate stream objects
+- no mic staying active after call ends
+
+Do not break the existing earpiece/speaker behavior.
+
+==================================================
+12. TEST EXACTLY WITH TWO REAL USERS
+==================================================
+
+### INCOMING
+1. User A reaches call stage.
+2. A taps Start First Call.
+3. User B receives incoming call.
+4. B sees horizontal slide-to-answer control.
+
+### PARTIAL DRAG
+5. Drag halfway.
+6. Release.
+7. thumb returns to start.
+8. call remains ringing.
+
+### ANSWER
+9. Drag fully.
+10. call accepts.
+11. WebRTC connects.
+12. BOTH users enter active call UI.
+
+### CONNECTED UI
+13. Both see countdown starting at 10:00.
+14. Both see red End Call button.
+15. Audio works both directions.
+
+### END CALL
+16. User A taps End Call.
+17. both users leave call immediately.
+18. timer stops.
+19. streams close.
+20. chat/post-call state updates correctly.
+
+### FAILURE
+21. Reject/decline.
+22. no entitlement consumed.
+
+23. connection failure.
+24. no fake in-progress state.
+
+### TIMEOUT
+25. let timer reach zero in controlled test.
+26. both users end cleanly.
+
+==================================================
+13. DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- message quotas
+- stage ordering
+- call duration
+- voice-note unlock rule
+- payment rules
+- profile UI
+- Discover
+- Intent Wheel
+- bottom nav
+
+This task is ONLY the first-call experience and actual connection reliability.
+
+==================================================
+14. DEPLOYMENT
+==================================================
+
+After implementation:
+
+- run WebRTC/call tests
+- run production build
+- inspect diff
+- commit
+- push GitHub main
+- verify Vercel/Railway live commit
+- verify TURN/STUN envs are present
+- test with two real devices/accounts
+
+Do NOT claim success from local source only.
+
+==================================================
+FINAL REPORT
+==================================================
+
+At the end report ONLY:
+
+1. why horizontal drag-to-answer was not appearing
+2. exact incoming-call production component
+3. exact active-call production component
+4. WebRTC connection bug found
+5. drag-to-answer implementation
+6. connected-state trigger
+7. 10-minute timer implementation
+8. red End Call implementation
+9. two-user sync behavior
+10. files changed
+11. tests
+12. production commit
+13. live Vercel/Railway verification
+14. real two-device call validation result

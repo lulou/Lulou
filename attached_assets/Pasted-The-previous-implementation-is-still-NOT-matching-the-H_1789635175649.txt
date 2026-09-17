@@ -1,0 +1,163 @@
+The previous implementation is still NOT matching the Hinge behavior from the reference screenshots.
+
+Do NOT make another vague profile-header tweak.
+
+Use the attached Hinge screenshots as the exact interaction reference and the attached Lulou screenshots as proof that the current implementation is still wrong.
+
+CURRENT LULOU PROBLEM:
+
+At the top of the profile:
+- Aria is visible in the content/profile card
+
+After scrolling:
+- Aria disappears
+- BUT NOTHING replaces it in the top header
+- there is no centred sticky name
+- the top area is just blank / only showing the Lulou app chrome
+
+This is NOT the requested Hinge interaction.
+
+## EXACT BEHAVIOR REQUIRED
+
+### STATE 1 — TOP OF PROFILE
+
+When the user is at the top:
+
+- show the user’s name naturally in the profile content area
+- do NOT show a duplicate centred name in the header
+
+Example:
+Aria appears in the profile details section under the photo.
+
+### STATE 2 — SCROLLING DOWN
+
+As the original content name scrolls up and is about to leave the viewport:
+
+- smoothly fade/transition the original name out
+- simultaneously reveal a compact sticky profile header
+- show “Aria” centred horizontally in that sticky header
+
+The sticky centred name must remain visible while the user continues scrolling down the profile.
+
+### STATE 3 — SCROLLING BACK UP
+
+As the original name comes back into view:
+
+- fade the centred sticky header name out
+- restore the original in-content name
+
+There must never be two visible primary names at the same time.
+
+## IMPORTANT
+
+The current implementation only seems to hide/remove the duplicate name.
+
+That is incomplete.
+
+The missing part is the Hinge-style sticky centred name after the original name scrolls away.
+
+## HEADER BEHAVIOR
+
+Use a compact sticky header for the scrolled state.
+
+It should:
+
+- sit below the iPhone safe area
+- remain fixed/sticky while scrolling
+- centre the user’s name
+- match Lulou background
+- not cover profile content
+- not introduce a large toolbar
+- preserve existing app-level controls
+
+Do NOT leave the top area blank after the original name scrolls away.
+
+## SCROLL DETECTION
+
+Use a robust trigger based on the original name/profile identity block.
+
+Preferred:
+
+- IntersectionObserver
+
+or an equivalent measured scroll threshold.
+
+Do NOT use a random hardcoded pixel number.
+
+Logic should effectively be:
+
+original profile-name block visible
+→ show original name
+→ hide sticky name
+
+original profile-name block no longer visible
+→ hide original name naturally with scroll
+→ show centred sticky name
+
+## TRANSITION
+
+Make the transition subtle and premium:
+
+- opacity
+- slight translate
+- short smooth duration
+- no bounce
+- no oversized animation
+- no flicker
+
+If using two DOM copies for the transition, coordinate them so both are never visibly active together.
+
+## VERIFY AGAINST THESE EXACT STATES
+
+### TOP
+- original Aria visible in content
+- no centred sticky Aria
+
+### MID SCROLL / AFTER ORIGINAL NAME LEAVES
+- original Aria no longer visible
+- centred Aria visible in sticky header
+
+### SCROLL BACK UP
+- centred Aria disappears
+- original Aria returns
+
+## DO NOT CHANGE
+
+Do not change:
+
+- profile card design
+- photo
+- Open / Close buttons
+- bottom nav
+- colours
+- typography family
+- profile data
+- Discover behavior
+- matching logic
+
+This task is ONLY the Hinge-style collapsing name/header behavior.
+
+## CRITICAL
+
+Before claiming success:
+
+1. identify the actual production component rendering this exact profile screen
+2. verify the new sticky-name logic is added to that component
+3. deploy
+4. verify the live bundle
+5. test on real iPhone at:
+  - top
+  - mid scroll
+  - deep scroll
+  - scrolling back up
+
+At the end report only:
+
+1. actual production profile component
+2. why previous implementation failed
+3. sticky header implementation
+4. IntersectionObserver/threshold logic
+5. duplicate prevention method
+6. files changed
+7. production commit
+8. live deployment verification

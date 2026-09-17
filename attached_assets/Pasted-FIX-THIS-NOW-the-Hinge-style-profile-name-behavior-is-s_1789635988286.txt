@@ -1,0 +1,223 @@
+FIX THIS NOW — the Hinge-style profile-name behavior is still NOT implemented correctly in the LIVE production Discover profile.
+
+Use the attached REAL iPhone screenshots as the source of truth.
+
+CURRENT WRONG BEHAVIOR:
+
+- At the top of the profile, the user name is NOT shown in the top-left header area.
+- As scrolling begins and the large profile section moves upward, the user name STILL does not appear centred at the top.
+- The screenshots prove the requested Hinge interaction is still missing.
+
+I want the exact behavior below.
+
+==================================================
+1. TOP-OF-PROFILE STATE
+==================================================
+
+When the profile is at the very top:
+
+- show the user’s name in the TOP-LEFT of the profile header area
+- position it where the current blank/empty name area should be
+- keep Undo / 3-dot controls on the right
+- do NOT also show a duplicate sticky centred version at this point
+
+Example:
+
+Aria                                      Undo   •••
+
+The name should be visible immediately without needing to scroll.
+
+==================================================
+2. SCROLLING STATE — NAME MOVES TO CENTRE
+==================================================
+
+As the user starts scrolling DOWN and the top profile header begins collapsing:
+
+- transition the user’s name from the top-left position
+- into a centred sticky header position at the top
+
+The final scrolled state should look like:
+
+                        Aria
+
+centred horizontally in the compact sticky header.
+
+This centred name must remain visible while the user continues scrolling down the profile.
+
+==================================================
+3. SCROLL BACK UP
+==================================================
+
+When the user scrolls back toward the top:
+
+- the centred sticky name should transition back out
+- the top-left name should return
+- no flicker
+- no duplicate names
+
+==================================================
+4. IMPORTANT: THIS IS NOT THE NAME INSIDE THE PROFILE DETAILS CARD
+==================================================
+
+Do NOT confuse the name shown inside the profile details section with the header name.
+
+The current screenshots show “Aria” inside the profile details card.
+
+That can remain as part of the profile content if it is intentionally part of the profile design.
+
+The requested behavior is specifically for the TOP profile header name:
+
+TOP:
+→ name aligned left
+
+SCROLLED:
+→ name centred in sticky header
+
+Do not solve this by only changing the in-content profile card name.
+
+==================================================
+5. IDENTIFY THE ACTUAL LIVE COMPONENT
+==================================================
+
+Before editing:
+
+- find the exact production component rendering this Discover full-profile screen
+- confirm it is the component actually visible in the attached screenshots
+- do not edit a dead/legacy/duplicate profile renderer
+
+Search for all components related to:
+
+- Discover profile
+- full profile viewer
+- profile header
+- sticky header
+- Undo / 3-dot controls
+- Open / Close controls
+
+Then prove which one is mounted in production.
+
+==================================================
+6. IMPLEMENTATION
+==================================================
+
+Use one reliable header state driven by scroll position.
+
+Recommended:
+
+- measure the top profile header / hero threshold
+- use IntersectionObserver or a stable scroll listener
+- expanded state = left-aligned name
+- collapsed state = centred name
+
+Do NOT use a random arbitrary large pixel value.
+
+Do NOT render two visible names simultaneously.
+
+If using two DOM nodes for animation:
+
+- expanded copy opacity 1 → 0
+- collapsed copy opacity 0 → 1
+- coordinate them so overlap is not visible
+
+==================================================
+7. STICKY HEADER
+==================================================
+
+The collapsed header must:
+
+- stick to the top
+- respect iPhone safe area
+- have Lulou background
+- keep name centred
+- preserve Undo / 3-dot behavior if they remain visible
+- not overlap the photo incorrectly
+- not leave a blank empty header like the current screenshot
+
+==================================================
+8. VISUAL TRANSITION
+==================================================
+
+Premium and subtle only:
+
+- short smooth opacity transition
+- slight translate if useful
+- no bouncing
+- no flashy animation
+- no lag
+- no jump
+
+==================================================
+9. EXACT ACCEPTANCE TEST
+==================================================
+
+REAL iPhone:
+
+### TOP
+- Aria visible top-left in header
+- Undo / 3-dot still on right
+- no centred sticky Aria yet
+
+### START SCROLLING
+- left name fades/moves away
+- centred Aria appears at top
+
+### DEEPER SCROLL
+- centred Aria remains sticky and visible
+
+### SCROLL BACK UP
+- centred Aria disappears
+- Aria returns top-left
+
+### NEVER
+- blank header with no name
+- two header names at once
+- name only existing inside profile-details card
+
+==================================================
+10. DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- Open / Close buttons
+- photo sizing
+- profile card layout
+- profile data
+- bottom nav
+- Undo behavior
+- 3-dot menu
+- matching logic
+- Discover routing
+- colours
+- typography family
+
+This task is ONLY fixing the header-name behavior.
+
+==================================================
+11. DEPLOYMENT / PROOF
+==================================================
+
+Do NOT claim done from local source only.
+
+After implementation:
+
+- run production build
+- commit
+- push GitHub main
+- wait for Vercel
+- verify live commit SHA
+- verify live JS asset changed
+- test on real iPhone
+
+At the end report ONLY:
+
+1. actual live production component edited
+2. why previous implementation failed
+3. top-left name implementation
+4. centred sticky name implementation
+5. scroll/IntersectionObserver threshold
+6. duplicate-prevention method
+7. files changed
+8. production commit
+9. live Vercel verification
+10. real-iPhone top/scroll/back-up validation result
