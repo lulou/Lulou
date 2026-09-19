@@ -6,13 +6,14 @@ import { armCallSession, markSessionAsVideo, isPushArmedSession, getLoginTime } 
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
+import { reportCallAvailabilityDiagnostic } from "@/lib/call-availability-diagnostics";
 
 // Set false once Bug 2 (caller-cancel race) is confirmed fixed in production.
 const DEBUG_CALLS = true;
 
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string; isVideo?: boolean }
-  | { type: "call:availability"; matchId: string; userId: string; callAvail1At: string | null; callAvail2At: string | null; agreedCallAt: string | null; availabilityVersion: number; serverBroadcastAt?: number }
+  | { type: "call:availability"; matchId: string; userId: string; callAvail1At: string | null; callAvail2At: string | null; agreedCallAt: string | null; availabilityVersion: number; serverBroadcastAt?: number; availabilityDiagId?: string }
   | { type: "call:answered"; matchId: string; userId: string; callSessionId?: string }
   | { type: "call:connected"; matchId: string; userId: string; callSessionId: string; connectedAt: string }
   | { type: "call:declined"; matchId: string; userId: string; callSessionId: string }
@@ -93,7 +94,30 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         const event = payload as CallSignalEvent;
         if (event.type === "call:availability") {
           const availability = event;
+          if (availability.availabilityDiagId) {
+            reportCallAvailabilityDiagnostic({
+              event: "availability_event_received",
+              diagId: availability.availabilityDiagId,
+              role: "receiver",
+              clientAt: Date.now(),
+              elapsedMs: typeof availability.serverBroadcastAt === "number"
+                ? Math.max(0, Date.now() - availability.serverBroadcastAt)
+                : null,
+              outcome: "started",
+              availabilityVersion: availability.availabilityVersion,
+            });
+          }
           if (!acceptAvailabilityVersion(matchId, availability.availabilityVersion)) {
+            if (availability.availabilityDiagId) {
+              reportCallAvailabilityDiagnostic({
+                event: "availability_ui_updated",
+                diagId: availability.availabilityDiagId,
+                role: "receiver",
+                clientAt: Date.now(),
+                outcome: "stale",
+                availabilityVersion: availability.availabilityVersion,
+              });
+            }
             console.log("[CALL_AVAIL_REALTIME] stale availability ignored", {
               matchId: matchId.slice(0, 8),
               availabilityVersion: availability.availabilityVersion,
@@ -128,6 +152,19 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 ? Math.max(0, Date.now() - availability.serverBroadcastAt)
                 : null,
             });
+            if (availability.availabilityDiagId) {
+              reportCallAvailabilityDiagnostic({
+                event: "availability_ui_updated",
+                diagId: availability.availabilityDiagId,
+                role: "receiver",
+                clientAt: Date.now(),
+                elapsedMs: typeof availability.serverBroadcastAt === "number"
+                  ? Math.max(0, Date.now() - availability.serverBroadcastAt)
+                  : null,
+                outcome: "applied",
+                availabilityVersion: availability.availabilityVersion,
+              });
+            }
           });
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
           queryClient.invalidateQueries({ queryKey: ["/api/matches"] });

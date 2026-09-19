@@ -1365,6 +1365,60 @@ export async function registerRoutes(
     },
   );
 
+  // Temporary privacy-safe production telemetry for the first-call availability
+  // path. It accepts no account, match, availability, token, or message data.
+  const _callAvailabilityDiagHits = new Map<string, { windowStart: number; count: number }>();
+  const callAvailabilityDiagSchema = z.object({
+    event: z.enum([
+      "availability_clicked",
+      "availability_api_sent",
+      "availability_api_response",
+      "availability_event_received",
+      "availability_ui_updated",
+    ]),
+    diagId: z.string().regex(/^[a-zA-Z0-9-]{8,40}$/),
+    role: z.enum(["sender", "receiver"]),
+    clientAt: z.number().int().min(0).max(9_999_999_999_999),
+    elapsedMs: z.number().int().min(0).max(120_000).nullable().optional(),
+    httpStatus: z.number().int().min(100).max(599).nullable().optional(),
+    outcome: z.enum(["started", "success", "error", "applied", "stale"]).optional(),
+    availabilityVersion: z.number().int().min(0).max(2_147_483_647).nullable().optional(),
+  }).strict();
+
+  app.post(
+    "/api/diagnostics/call-availability",
+    express.text({ type: "text/plain", limit: "2kb" }),
+    (req, res) => {
+      const ip = String(req.headers["x-forwarded-for"] ?? req.ip ?? "unknown").split(",")[0].trim();
+      const now = Date.now();
+      const hit = _callAvailabilityDiagHits.get(ip);
+      const current = !hit || now - hit.windowStart > 10 * 60_000
+        ? { windowStart: now, count: 0 }
+        : hit;
+      if (current.count >= 60) {
+        return res.status(429).json({ accepted: false, reason: "rate_limited" });
+      }
+      let parsedBody: unknown;
+      try {
+        parsedBody = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      } catch {
+        return res.status(400).json({ accepted: false, reason: "invalid_json" });
+      }
+      const payload = callAvailabilityDiagSchema.safeParse(parsedBody);
+      if (!payload.success) {
+        return res.status(400).json({ accepted: false, reason: "invalid_payload" });
+      }
+      current.count += 1;
+      _callAvailabilityDiagHits.set(ip, current);
+      console.log("[CALL_AVAIL_DIAG]", JSON.stringify({
+        serverAt: now,
+        receiverCommit: SERVER_COMMIT_HASH,
+        ...payload.data,
+      }));
+      return res.status(202).json({ accepted: true });
+    },
+  );
+
 
   // ── Email verification OTP endpoints ────────────────────────────────────
   // These endpoints intentionally bypass isAuthenticated because unverified
@@ -4872,6 +4926,10 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { matchId } = req.params;
       const { availableAt } = req.body; // normalized key ("available_now" etc.) or ISO timestamp, or null to clear
+      const availabilityDiagId = typeof req.body?.availabilityDiagId === "string"
+        && /^[a-zA-Z0-9-]{8,40}$/.test(req.body.availabilityDiagId)
+        ? req.body.availabilityDiagId
+        : null;
 
       if (availableAt !== null) {
         if (typeof availableAt !== "string") {
@@ -4891,6 +4949,13 @@ export async function registerRoutes(
       if (!updated) {
         return res.status(404).json({ message: "Match not found or not at call stage 0" });
       }
+      console.log("[CALL_AVAIL_DIAG]", JSON.stringify({
+        event: "availability_db_saved",
+        diagId: availabilityDiagId,
+        serverAt: Date.now(),
+        elapsedMs: Date.now() - availabilityWriteStartedAt,
+        availabilityVersion: updated.availabilityRevision,
+      }));
 
       // Prompt bookkeeping is not on the critical realtime path.
       if (availableAt !== null) {
@@ -4912,7 +4977,15 @@ export async function registerRoutes(
         agreedCallAt: updated.agreedCallAt,
         availabilityVersion: updated.availabilityRevision,
         serverBroadcastAt,
+        availabilityDiagId,
       });
+      console.log("[CALL_AVAIL_DIAG]", JSON.stringify({
+        event: "availability_event_emitted",
+        diagId: availabilityDiagId,
+        serverAt: Date.now(),
+        elapsedMs: Date.now() - availabilityWriteStartedAt,
+        availabilityVersion: updated.availabilityRevision,
+      }));
 
       console.log("[CALL_AVAIL] SET", {
         matchId: matchId.slice(0, 8),

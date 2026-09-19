@@ -24,6 +24,10 @@ import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession
 import { requestMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
+import {
+  createCallAvailabilityDiagId,
+  reportCallAvailabilityDiagnostic,
+} from "@/lib/call-availability-diagnostics";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
@@ -2323,17 +2327,35 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       previousKey: string | null;
       requestId: number;
       clickedAt: number;
+      diagId: string;
     }) => {
       const request = availabilityPersistChainRef.current.then(async () => {
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort("availability_write_timeout"), 8_000);
         try {
+          reportCallAvailabilityDiagnostic({
+            event: "availability_api_sent",
+            diagId: selection.diagId,
+            role: "sender",
+            clientAt: Date.now(),
+            elapsedMs: Date.now() - selection.clickedAt,
+            outcome: "started",
+          });
           const r = await apiRequest(
             "POST",
             `/api/matches/${match.id}/call/set-availability`,
-            { availableAt: selection.availableAt },
+            { availableAt: selection.availableAt, availabilityDiagId: selection.diagId },
             { signal: controller.signal },
           );
+          reportCallAvailabilityDiagnostic({
+            event: "availability_api_response",
+            diagId: selection.diagId,
+            role: "sender",
+            clientAt: Date.now(),
+            elapsedMs: Date.now() - selection.clickedAt,
+            httpStatus: r.status,
+            outcome: "success",
+          });
           return r.json();
         } finally {
           window.clearTimeout(timeout);
@@ -2385,9 +2407,27 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           availability_ui_updated_at: Date.now(),
           availability_click_to_ui_ms: Date.now() - selection.clickedAt,
         });
+        reportCallAvailabilityDiagnostic({
+          event: "availability_ui_updated",
+          diagId: selection.diagId,
+          role: "sender",
+          clientAt: Date.now(),
+          elapsedMs: Date.now() - selection.clickedAt,
+          outcome: "applied",
+          availabilityVersion: data.availabilityVersion,
+        });
       });
     },
     onError: (err: any, selection) => {
+      reportCallAvailabilityDiagnostic({
+        event: "availability_api_response",
+        diagId: selection.diagId,
+        role: "sender",
+        clientAt: Date.now(),
+        elapsedMs: Date.now() - selection.clickedAt,
+        httpStatus: typeof err?.status === "number" ? err.status : null,
+        outcome: "error",
+      });
       if (selection.requestId === availabilityRequestIdRef.current) {
         setSelectedAvailability(selection.previousKey);
         queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
@@ -4716,6 +4756,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         }`}
                         onClick={() => {
                           const clickedAt = Date.now();
+                          const diagId = createCallAvailabilityDiagId();
+                          reportCallAvailabilityDiagnostic({
+                            event: "availability_clicked",
+                            diagId,
+                            role: "sender",
+                            clientAt: clickedAt,
+                            elapsedMs: 0,
+                            outcome: "started",
+                          });
                           console.log("[CALL_AVAIL_TIMING] availability_click", {
                             matchId: match.id.slice(0, 8),
                             availability_click_at: clickedAt,
@@ -4740,6 +4789,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                               previousKey,
                               requestId,
                               clickedAt,
+                              diagId,
                             });
                           }
                         }}
@@ -4786,12 +4836,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                           size="sm" className="flex-1"
                           onClick={() => {
                             if (specificTimePending) {
+                               const clickedAt = Date.now();
+                               const diagId = createCallAvailabilityDiagId();
+                               reportCallAvailabilityDiagnostic({
+                                 event: "availability_clicked",
+                                 diagId,
+                                 role: "sender",
+                                 clientAt: clickedAt,
+                                 elapsedMs: 0,
+                                 outcome: "started",
+                               });
                               setCallAvailMutation.mutate({
                                 availableAt: specificTimePending,
                                 key: "specific_time",
                                 previousKey: availabilityBeforeSpecificRef.current,
                                 requestId: ++availabilityRequestIdRef.current,
-                                clickedAt: Date.now(),
+                                 clickedAt,
+                                 diagId,
                               });
                               setShowSpecificTimePicker(false);
                               setSpecificTimePending("");
