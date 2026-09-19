@@ -17,8 +17,9 @@ import { markSelfCancelled } from "@/lib/cancelled-calls";
 import { CallDebugPanel } from "@/components/call-debug-panel";
 import {
   configureVoiceChat,
-  setSpeaker,
   deactivateAudioSession,
+  setSpeaker,
+  setWebSpeakerRoute,
 } from "@/lib/audio-session";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
@@ -155,14 +156,9 @@ export function ActiveCallOverlay({
   // Speaker defaults to OFF for ALL call types (audio and video).
   //
   // WHY NOT `useState(isVideo)` for video calls:
-  //   On iPhone Safari (plain web — NOT Capacitor), configureVoiceChat() and
-  //   setSpeaker() are no-ops.  The ONLY audio routing control is el.volume.
-  //   The iPhone speaker is physically millimetres from the open mic.  At
-  //   volume=1.0 the mic picks up the speaker output; without hardware AEC
-  //   (which requires the native AVAudioSession voiceChat mode, only available
-  //   via Capacitor) the software AEC cannot suppress the feedback loop.
-  //   Result: acoustic feedback builds into screeching and ringing tones.
-  //   At volume=0.25 the signal is weak enough for the software AEC to handle.
+  //   iPhone calls must begin on the receiver route where available. Modern
+  //   Safari can expose real receiver/speaker sinks; older versions fall back
+  //   to low volume so software AEC can suppress acoustic feedback.
   //
   //   Users who want loudspeaker on an audio call can tap the speaker button.
   //   Video calls have no speaker button — they stay at 0.25 (earpiece-safe)
@@ -519,26 +515,21 @@ export function ActiveCallOverlay({
       console.log("[CALL_AUDIO] setSinkId(default) — AEC reference path set", { speakerOn, volume: 1.0, matchId });
       console.log("[CALL_FIX] laptop speaker default", { method: "setSinkId(default)-always", speakerOn, volume: 1.0, matchId });
     } else if (isIOS) {
-      // iOS only: web cannot reach the AVAudioSession earpiece route.
-      // We approximate the two modes with volume:
-      //   speaker OFF (default) → 0.25 — safe low level, reduces acoustic
-      //     echo bleed into the open mic. AEC suppresses the remainder.
-      //   speaker ON            → 1.0  — full loudspeaker volume.
-      // isConnected is in deps so this re-runs after WebRTC connects — iOS
-      // audio session switches on getUserMedia, which can silently reset
-      // el.volume to 1.0 after this effect's initial run on mount.
-      const vol = speakerOn ? 1.0 : 0.25;
-      el.volume = vol;
-      // Native Capacitor path: route audio via AVAudioSession
-      // overrideOutputAudioPort(.speaker/.none). No-op on plain web.
-      setSpeaker(speakerOn);
-      if (speakerOn) {
-        console.log("[CALL_AUDIO] iphone speaker mode active", { volume: vol, matchId });
-      } else {
-        console.log("[CALL_AUDIO] iphone normal mode active", { volume: vol, matchId });
-      }
-      console.log("[CALL_FIX] iphone earpiece/default low volume", { volume: vol, speakerOn, isConnected, matchId });
-      console.log("[CALL_CONTROLS] remote audio volume set", { volume: vol, matchId });
+      void (async () => {
+        // Native Capacitor path, when present.
+        await setSpeaker(speakerOn);
+        // Safari 26+ path: select the actual receiver or loudspeaker sink.
+        const routed = await setWebSpeakerRoute(el, speakerOn);
+        const vol = routed ? 1.0 : (speakerOn ? 1.0 : 0.25);
+        el.volume = vol;
+        console.log("[CALL_CONTROLS] iPhone output applied", {
+          route: speakerOn ? "speaker" : "receiver",
+          routed,
+          volume: vol,
+          isConnected,
+          matchId,
+        });
+      })();
     } else {
       // Non-iOS device that lacks setSinkId (desktop Firefox, desktop Safari).
       // These are always in speaker/desktop mode — use full volume.
@@ -584,8 +575,8 @@ export function ActiveCallOverlay({
   //   in case iOS resets the session during ICE setup, and it also syncs the
   //   speaker toggle state (speakerOnRef) after the session is active.
   //
-  // Web / Android: configureVoiceChat() is a no-op (getPlugin() returns null),
-  // so this effect is harmless on non-iOS platforms.
+  // iOS web uses navigator.audioSession; native iOS additionally configures the
+  // Capacitor bridge. Other platforms remain unchanged.
   useEffect(() => {
     if (!webrtcEnabled) return;
     configureVoiceChat();
@@ -898,9 +889,16 @@ export function ActiveCallOverlay({
         // switches when getUserMedia opens the mic, which can silently reset
         // el.volume to 1.0 after the speaker effect's initial run on mount.
         if (isIOS) {
-          const vol = speakerOn ? 1.0 : 0.25;
-          el.volume = vol;
-          console.log("[CALL_FIX] iphone earpiece/default low volume applied", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
+          void setWebSpeakerRoute(el, speakerOn).then((routed) => {
+            const vol = routed ? 1.0 : (speakerOn ? 1.0 : 0.25);
+            el.volume = vol;
+            console.log("[CALL_CONTROLS] iPhone output applied after stream attach", {
+              route: speakerOn ? "speaker" : "receiver",
+              routed,
+              volume: vol,
+              matchId,
+            });
+          });
         } else if (typeof (el as any).setSinkId !== "function") {
           el.volume = 1.0;
           console.log("[CALL_FIX] laptop speaker default applied", { volume: 1.0, matchId, phase: "srcObject_set" });

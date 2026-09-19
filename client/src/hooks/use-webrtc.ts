@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { cleanupCallAudio } from "@/lib/call-audio";
+import { configureVoiceChat } from "@/lib/audio-session";
 import { callDebug } from "@/lib/call-debug";
 import { API_BASE, getAuthHeaders, requireApiBase } from "@/lib/queryClient";
 
@@ -620,6 +621,9 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       });
 
       // ── Critical: stop ALL ringtone audio BEFORE opening the mic ──────────
+      // Tell Safari this is a real-time call before getUserMedia so iOS selects
+      // the communication audio category and exposes receiver/speaker outputs.
+      await configureVoiceChat();
       // cleanupCallAudio() pauses and clears the ringtone/ringback HTMLAudioElements
       // before getUserMedia() is called. This ensures a completely silent audio
       // environment when the mic opens. The 200 ms pause gives the OS time to
