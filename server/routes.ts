@@ -371,7 +371,7 @@ async function broadcastViaHttpApi(topic: string, event: string, payload: Record
       },
       body: JSON.stringify({
         messages: [
-          { topic: `realtime:${topic}`, event, payload },
+          { topic, event, payload },
         ],
       }),
       signal: controller.signal,

@@ -16,6 +16,11 @@ const storage = readFileSync("server/storage.ts", "utf8");
 const migration = readFileSync("supabase/migrations/add_call_connected_at.sql", "utf8");
 
 describe("end-to-end call regressions", () => {
+  it("uses the unprefixed topic required by the Supabase HTTP broadcast API", () => {
+    expect(routes).toContain("{ topic, event, payload }");
+    expect(routes).not.toContain("{ topic: `realtime:${topic}`, event, payload }");
+  });
+
   it("persists one session ID at call creation and requires it at answer", () => {
     expect(storage).toContain("const callSessionId = requestedSessionId || `call-${matchId}-${callStartedAt.getTime()}`");
     expect(storage).toContain("call_session_id: callSessionId");
