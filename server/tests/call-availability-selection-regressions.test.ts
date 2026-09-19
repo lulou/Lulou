@@ -70,7 +70,7 @@ describe("call availability selection regressions", () => {
     );
 
     expect(callReadySection).toContain("button-start-call-ready-");
-    expect(callReadySection).toContain("startCall.mutate({ isVideo: false })");
+    expect(callReadySection).toContain("startCall.mutate({ isVideo: false, diagId, clickedAt })");
   });
 
   it("keeps active-state detection but delegates call UI to the global overlay", () => {

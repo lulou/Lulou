@@ -352,12 +352,18 @@ function setCachedDiscoverMeta(
   _userDiscoverMeta.set(userId, { gender, preference, ageMin, ageMax, locationRadius, latitude, longitude, datingIntent, connectionStyle, expiresAt: Date.now() + DISCOVER_META_TTL_MS });
 }
 
-async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<void> {
+type BroadcastHttpResult = {
+  ok: boolean;
+  status: number | null;
+  errorCategory?: "config" | "http" | "network";
+};
+
+async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<BroadcastHttpResult> {
   const supabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) {
     console.error(`[BROADCAST] Missing Supabase URL or service key — cannot deliver ${event} on ${topic}`);
-    return;
+    return { ok: false, status: null, errorCategory: "config" };
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3_000);
@@ -378,12 +384,15 @@ async function broadcastViaHttpApi(topic: string, event: string, payload: Record
     });
     if (res.ok) {
       console.log(`[BROADCAST] HTTP delivered ${event} on ${topic}, status=${res.status}`);
+      return { ok: true, status: res.status };
     } else {
       const body = await res.text().catch(() => "");
       console.error(`[BROADCAST] HTTP error: status=${res.status} topic=${topic} event=${event} body=${body}`);
+      return { ok: false, status: res.status, errorCategory: "http" };
     }
   } catch (err: any) {
     console.error(`[BROADCAST] HTTP fetch threw: ${err?.message} — topic=${topic} event=${event}`);
+    return { ok: false, status: null, errorCategory: "network" };
   } finally {
     clearTimeout(timeout);
   }
@@ -392,7 +401,7 @@ async function broadcastViaHttpApi(topic: string, event: string, payload: Record
 async function broadcastCallEvent(matchId: string, event: Record<string, any>) {
   const channelName = `call-signal:${matchId}`;
   console.log(`[CALL_BROADCAST] Sending ${event.type} on ${channelName}`);
-  await broadcastViaHttpApi(channelName, "call-signal", event);
+  return broadcastViaHttpApi(channelName, "call-signal", event);
 }
 
 async function broadcastMessage(matchId: string, message: {
@@ -1392,6 +1401,11 @@ export async function registerRoutes(
       "availability_api_response",
       "availability_event_received",
       "availability_ui_updated",
+      "start_call_clicked",
+      "start_call_api_sent",
+      "start_call_api_response",
+      "incoming_event_received",
+      "caller_ringing_state",
     ]),
     diagId: z.string().regex(/^[a-zA-Z0-9-]{8,40}$/),
     role: z.enum(["sender", "receiver"]),
@@ -1400,6 +1414,10 @@ export async function registerRoutes(
     httpStatus: z.number().int().min(100).max(599).nullable().optional(),
     outcome: z.enum(["started", "success", "error", "applied", "stale"]).optional(),
     availabilityVersion: z.number().int().min(0).max(2_147_483_647).nullable().optional(),
+    callStage: z.number().int().min(0).max(10).nullable().optional(),
+    sessionPresent: z.boolean().optional(),
+    attempt: z.number().int().min(0).max(10).optional(),
+    errorCategory: z.enum(["auth", "eligibility", "conflict", "network", "unknown"]).optional(),
   }).strict();
 
   app.post(
@@ -4399,6 +4417,15 @@ export async function registerRoutes(
       const userId = req.user.id;
       const matchId = req.params.matchId;
       const { isPaidCredit, isVideo } = req.body || {};
+      const startCallDiagId = typeof req.body?.startCallDiagId === "string"
+        && /^[a-zA-Z0-9-]{8,40}$/.test(req.body.startCallDiagId)
+        ? req.body.startCallDiagId
+        : null;
+      recordCallAvailabilityDiagnostic({
+        event: "start_call_backend_received",
+        diagId: startCallDiagId,
+        elapsedMs: Date.now() - callCreateStartedAt,
+      });
       await reconcilePendingCallSettlements(matchId);
       const unresolved = await db.select({ sessionId: callTerminalSettlements.callSessionId })
         .from(callTerminalSettlements)
@@ -4537,6 +4564,11 @@ export async function registerRoutes(
           }
         }
       }
+      recordCallAvailabilityDiagnostic({
+        event: "start_call_eligibility_passed",
+        diagId: startCallDiagId,
+        elapsedMs: Date.now() - callCreateStartedAt,
+      });
 
       const requestedSessionId = `call-${matchId}-${Date.now()}-${randomUUID()}`;
       if (isPaidCredit) {
@@ -4603,6 +4635,13 @@ export async function registerRoutes(
       const callerProfile = await serverStorage.getProfileMeta(userId);
       const callerName = callerProfile?.firstName || "Someone";
       console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, SESSION_PARTICIPANTS_COUNT: 2 });
+      recordCallAvailabilityDiagnostic({
+        event: "call_session_created",
+        diagId: startCallDiagId,
+        elapsedMs: Date.now() - callCreateStartedAt,
+        sessionPresent: !!match.callSessionId,
+        callStage: match.callStage || 0,
+      });
       console.log("[CALL_START] CALLER_ASSIGNED", { matchId, callerId: userId, callerName });
       console.log("[CALL_START] RECEIVER_ASSIGNED", { matchId, receiverId: otherUserId });
       if ((match.callStage || 0) === 0) {
@@ -4621,8 +4660,21 @@ export async function registerRoutes(
         callSessionId: match.callSessionId,
         isVideo: !!isVideo,
         serverBroadcastAt: Date.now(),
+        startCallDiagId,
+        startCallAttempt: 0,
       };
-      await broadcastCallEvent(matchId, ringPayload);
+      const initialRingBroadcast = await broadcastCallEvent(matchId, ringPayload);
+      recordCallAvailabilityDiagnostic({
+        event: "incoming_event_emitted",
+        diagId: startCallDiagId,
+        elapsedMs: Date.now() - callCreateStartedAt,
+        sessionPresent: !!match.callSessionId,
+        callStage: match.callStage || 0,
+        attempt: 0,
+        outcome: initialRingBroadcast.ok ? "success" : "error",
+        httpStatus: initialRingBroadcast.status,
+        errorCategory: initialRingBroadcast.errorCategory,
+      });
       console.log("[CALL_TIMING]", {
         matchId: matchId.slice(0, 8),
         callSessionId: match.callSessionId?.slice(0, 12),
@@ -4641,7 +4693,7 @@ export async function registerRoutes(
       });
       sendPushToUser(otherUserId, pushPayload, "incoming_call").catch(() => {});
 
-      const scheduleRering = (delayMs: number) => {
+      const scheduleRering = (delayMs: number, attempt: number) => {
         setTimeout(async () => {
           try {
             const { data: recheck } = await supabaseAdmin.from("matches").select("call_answered,call_completed,call_initiator_id,call_started_at,call_session_id").eq("id", matchId).maybeSingle();
@@ -4653,15 +4705,30 @@ export async function registerRoutes(
               && !recheck.call_completed
             ) {
               console.log("[CALL_START] DELAYED_RERING", { matchId, delayMs, callSessionId: match.callSessionId });
-              broadcastCallEvent(matchId, { ...ringPayload, serverBroadcastAt: Date.now() });
+              const reringBroadcast = await broadcastCallEvent(matchId, {
+                ...ringPayload,
+                serverBroadcastAt: Date.now(),
+                startCallAttempt: attempt,
+              });
+              recordCallAvailabilityDiagnostic({
+                event: "incoming_event_emitted",
+                diagId: startCallDiagId,
+                elapsedMs: Date.now() - callCreateStartedAt,
+                sessionPresent: !!match.callSessionId,
+                callStage: match.callStage || 0,
+                attempt,
+                outcome: reringBroadcast.ok ? "success" : "error",
+                httpStatus: reringBroadcast.status,
+                errorCategory: reringBroadcast.errorCategory,
+              });
             }
           } catch (err: any) {
             console.warn("[CALL_START] DELAYED_RERING_ERROR", { matchId, delayMs, error: err?.message });
           }
         }, delayMs);
       };
-      scheduleRering(4000);
-      scheduleRering(9000);
+      scheduleRering(4000, 1);
+      scheduleRering(9000, 2);
 
       if (isSeedUser(otherUserId)) {
         setTimeout(async () => {

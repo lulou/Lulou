@@ -12,7 +12,7 @@ import { reportCallAvailabilityDiagnostic } from "@/lib/call-availability-diagno
 const DEBUG_CALLS = true;
 
 type CallSignalEvent =
-  | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string; isVideo?: boolean }
+  | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string; isVideo?: boolean; startCallDiagId?: string; startCallAttempt?: number }
   | { type: "call:availability"; matchId: string; userId: string; callAvail1At: string | null; callAvail2At: string | null; agreedCallAt: string | null; availabilityVersion: number; serverBroadcastAt?: number; availabilityDiagId?: string }
   | { type: "call:answered"; matchId: string; userId: string; callSessionId?: string }
   | { type: "call:connected"; matchId: string; userId: string; callSessionId: string; connectedAt: string }
@@ -220,6 +220,20 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         if (event.type === "call:ring") {
           const ring = event as any;
           const ringSessionId = ring.callSessionId ?? null;
+          if (ring.startCallDiagId) {
+            reportCallAvailabilityDiagnostic({
+              event: "incoming_event_received",
+              diagId: ring.startCallDiagId,
+              role: "receiver",
+              clientAt: Date.now(),
+              elapsedMs: typeof ring.serverBroadcastAt === "number"
+                ? Math.max(0, Date.now() - ring.serverBroadcastAt)
+                : null,
+              outcome: "started",
+              sessionPresent: !!ringSessionId,
+              attempt: typeof ring.startCallAttempt === "number" ? ring.startCallAttempt : 0,
+            });
+          }
 
           // ── Pre-load ring guard ─────────────────────────────────────────────
           // Block calls that started before this browser session regardless of

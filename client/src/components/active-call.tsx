@@ -22,6 +22,7 @@ import {
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { reportCallerRingingState } from "@/lib/call-availability-diagnostics";
 
 // Duration in seconds for each call stage (guided/free progression).
 // stage 0 = first voice call (10 min), stage 1 = second voice call (15 min),
@@ -320,6 +321,9 @@ export function ActiveCallOverlay({
   // Stops automatically when isRinging becomes false (answered) or on unmount.
   // Pass callSessionId so the armed-session guard verifies this is a live call.
   useCallRingtone("outgoing", isRinging && isCaller, callSessionId);
+  useEffect(() => {
+    if (isRinging && isCaller) reportCallerRingingState(callSessionId);
+  }, [isRinging, isCaller, callSessionId]);
 
   // ── Video call: FaceTime-like auto-hide controls ──────────────────────────
   // Controls start visible, then auto-hide after 3 s of inactivity.

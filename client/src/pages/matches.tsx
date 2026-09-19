@@ -26,6 +26,7 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
 import {
   createCallAvailabilityDiagId,
+  registerStartCallDiagnostic,
   reportCallAvailabilityDiagnostic,
 } from "@/lib/call-availability-diagnostics";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
@@ -2252,13 +2253,36 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   };
 
   const startCall = useMutation({
-    mutationFn: async ({ isVideo }: { isVideo: boolean }) => {
+    mutationFn: async ({ isVideo, diagId, clickedAt }: { isVideo: boolean; diagId: string; clickedAt: number }) => {
       const callCreateStartedAt = performance.now();
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callerId: user?.id, callStage, role: "caller" });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, { isVideo });
-      return { data: await res.json(), isVideo, callCreateStartedAt };
+      reportCallAvailabilityDiagnostic({
+        event: "start_call_api_sent",
+        diagId,
+        role: "sender",
+        clientAt: Date.now(),
+        elapsedMs: Date.now() - clickedAt,
+        outcome: "started",
+        callStage,
+      });
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {
+        isVideo,
+        startCallDiagId: diagId,
+      });
+      const data = await res.json();
+      reportCallAvailabilityDiagnostic({
+        event: "start_call_api_response",
+        diagId,
+        role: "sender",
+        clientAt: Date.now(),
+        elapsedMs: Date.now() - clickedAt,
+        httpStatus: res.status,
+        outcome: "success",
+        callStage,
+      });
+      return { data, isVideo, callCreateStartedAt, diagId, clickedAt };
     },
-    onSuccess: ({ data, isVideo, callCreateStartedAt }: { data: any; isVideo: boolean; callCreateStartedAt: number }) => {
+    onSuccess: ({ data, isVideo, callCreateStartedAt, diagId, clickedAt }: { data: any; isVideo: boolean; callCreateStartedAt: number; diagId: string; clickedAt: number }) => {
       const m = data?.match ?? data;
       console.log("[CALL_UI] CALL_REQUEST_STARTED", {
         matchId: match.id,
@@ -2277,14 +2301,32 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         armCallSession(callSessionId);
         if (isVideo) markSessionAsVideo(callSessionId);
         console.log("[LIVE_CALL] caller session armed via startCall", { callSessionId: callSessionId.slice(0, 8) });
+        registerStartCallDiagnostic(callSessionId, diagId, clickedAt, callStage);
       }
       // The server is the single authority for call:ring. Emitting the same ring
       // here produced duplicate receiver handling and could race the committed
       // call row. The start response now waits for the server broadcast attempt.
     },
-    onError: (error: Error) => {
+    onError: (error: Error & { status?: number }, variables) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
       const isSelfCall = error.message?.includes("own account");
+      const errorCategory =
+        isAuth ? "auth" :
+        error.status === 403 ? "eligibility" :
+        error.status === 409 ? "conflict" :
+        error instanceof TypeError ? "network" :
+        "unknown";
+      reportCallAvailabilityDiagnostic({
+        event: "start_call_api_response",
+        diagId: variables.diagId,
+        role: "sender",
+        clientAt: Date.now(),
+        elapsedMs: Date.now() - variables.clickedAt,
+        httpStatus: typeof error.status === "number" ? error.status : null,
+        outcome: "error",
+        callStage,
+        errorCategory,
+      });
       const safeReason =
         error.message.includes("availability_expired") ? t("availability_expired_desc") :
         error.message.includes("Availability changed") ? t("availability_changed_desc") :
@@ -3732,7 +3774,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         }
         return;
       }
-      startCall.mutate({ isVideo });
+      const clickedAt = Date.now();
+      const diagId = createCallAvailabilityDiagId();
+      reportCallAvailabilityDiagnostic({
+        event: "start_call_clicked",
+        diagId,
+        role: "sender",
+        clientAt: clickedAt,
+        elapsedMs: 0,
+        outcome: "started",
+        callStage,
+      });
+      startCall.mutate({ isVideo, diagId, clickedAt });
       return;
     }
     const credits = isVideo ? (videoCredits ?? 0) : (phoneCredits ?? 0);
@@ -4992,8 +5045,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <Button
                     className="w-full bg-green-600 hover:bg-green-700 text-white"
                     onClick={() => {
+                       const clickedAt = Date.now();
+                       const diagId = createCallAvailabilityDiagId();
+                       reportCallAvailabilityDiagnostic({
+                         event: "start_call_clicked",
+                         diagId,
+                         role: "sender",
+                         clientAt: clickedAt,
+                         elapsedMs: 0,
+                         outcome: "started",
+                         callStage: 0,
+                       });
                       console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
-                      startCall.mutate({ isVideo: false });
+                       startCall.mutate({ isVideo: false, diagId, clickedAt });
                     }}
                     disabled={startCall.isPending}
                     data-testid={`button-start-call-ready-${match.id}`}
