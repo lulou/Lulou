@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Phone, PhoneOff, Video, Bell } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -535,10 +536,11 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
 
   const photo = match.profile.photos?.[0];
 
-  return (
+  return createPortal(
     <div
       ref={overlayRef}
       className="fixed inset-0 z-[100] flex flex-col"
+      style={{ zIndex: 2147483000 }}
       data-testid="incoming-call-overlay"
     >
       {/* Blurred photo background or gradient fallback — isolated in their own
@@ -792,6 +794,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
           50% { transform: scaleY(1); opacity: 0.85; }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body,
   );
 }
