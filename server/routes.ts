@@ -2,7 +2,7 @@ import express from "express";
 import type { Express, RequestHandler } from "express";
 import multer from "multer";
 import { createServer, type Server } from "http";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { execSync as _execSync } from "child_process";
 import { statSync as _statSync } from "fs";
 
@@ -359,6 +359,8 @@ async function broadcastViaHttpApi(topic: string, event: string, payload: Record
     console.error(`[BROADCAST] Missing Supabase URL or service key — cannot deliver ${event} on ${topic}`);
     return;
   }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3_000);
   try {
     const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
       method: "POST",
@@ -372,6 +374,7 @@ async function broadcastViaHttpApi(topic: string, event: string, payload: Record
           { topic: `realtime:${topic}`, event, payload },
         ],
       }),
+      signal: controller.signal,
     });
     if (res.ok) {
       console.log(`[BROADCAST] HTTP delivered ${event} on ${topic}, status=${res.status}`);
@@ -381,6 +384,8 @@ async function broadcastViaHttpApi(topic: string, event: string, payload: Record
     }
   } catch (err: any) {
     console.error(`[BROADCAST] HTTP fetch threw: ${err?.message} — topic=${topic} event=${event}`);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -4887,12 +4892,17 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Match not found or not at call stage 0" });
       }
 
-      // Mark first-call prompt seen (user has entered the availability flow via "Continue")
+      // Prompt bookkeeping is not on the critical realtime path.
       if (availableAt !== null) {
-        await db.insert(firstCallPromptSeen).values({ matchId, userId }).onConflictDoNothing();
+        void db.insert(firstCallPromptSeen).values({ matchId, userId }).onConflictDoNothing()
+          .catch((error: unknown) => console.error("[CALL_AVAIL] prompt-seen write failed", {
+            matchId: matchId.slice(0, 8),
+            error: (error as Error)?.message,
+          }));
       }
 
       const serverBroadcastAt = Date.now();
+      const broadcastStartedAt = Date.now();
       await broadcastCallEvent(matchId, {
         type: "call:availability",
         matchId,
@@ -4908,6 +4918,7 @@ export async function registerRoutes(
         matchId: matchId.slice(0, 8),
         userId: userId.slice(0, 8),
         availability_write_ms: serverBroadcastAt - availabilityWriteStartedAt,
+        availability_broadcast_ms: Date.now() - broadcastStartedAt,
       });
       res.json({ ...updated, availabilityVersion: updated.availabilityRevision });
     } catch (err: any) {
@@ -4925,8 +4936,8 @@ export async function registerRoutes(
       // Capture callInitiatorId + call_started_at BEFORE cancelCall clears them so
       // we know who was the caller and can compute a dedup key for the event message.
       let preCancelInitiatorId: string | null = null;
-      let preCancelStartedAt: string | null = null;
       let preCancelSessionId: string | null = null;
+      let preCancelAnswered = false;
       let preCancelIsPaid = false;
       let preCancelLastSessionId: string | null = null;
       let preCancelLastIsPaid = false;
@@ -4939,8 +4950,8 @@ export async function registerRoutes(
           .eq("id", matchId)
           .maybeSingle();
         preCancelInitiatorId = pre?.call_initiator_id ?? null;
-        preCancelStartedAt   = pre?.call_started_at   ?? null;
         preCancelSessionId   = pre?.call_session_id   ?? null;
+        preCancelAnswered    = pre?.call_answered === true;
         preCancelIsPaid      = pre?.call_is_paid === true;
         preCancelLastSessionId = pre?.last_call_session_id ?? null;
         preCancelLastIsPaid = pre?.last_call_is_paid === true;
@@ -4991,7 +5002,7 @@ export async function registerRoutes(
       // Guard: only fire when a real call session was initiated (preCancelInitiatorId
       // is non-null). If the server rejected the call-start (e.g. availability guard),
       // no session was created and preCancelInitiatorId is null → skip event entirely.
-      if (!match.callAnswered && preCancelInitiatorId !== null) {
+      if (!preCancelAnswered && preCancelInitiatorId !== null) {
         (async () => {
           try {
             const callerId           = preCancelInitiatorId ?? userId;
@@ -5000,25 +5011,6 @@ export async function registerRoutes(
               ? (match.user1Id === userId ? match.user2Id : match.user1Id)
               : userId;
             const otherUserId        = match.user1Id === userId ? match.user2Id : match.user1Id;
-
-            // ── Dedup guard ───────────────────────────────────────────────────
-            // Two concurrent cancel requests (race: caller timer + callee Decline)
-            // can both reach this block. Skip inserting a second event if one was
-            // already written for this call session in the last 90 seconds.
-            if (preCancelStartedAt) {
-              const { data: existingEvent } = await supabaseAdmin
-                .from("messages")
-                .select("id")
-                .eq("match_id", matchId)
-                .like("content", "__CALL_EVENT__%")
-                .gte("created_at", new Date(new Date(preCancelStartedAt).getTime() - 1000).toISOString())
-                .limit(1)
-                .maybeSingle();
-              if (existingEvent) {
-                console.log("[CALL_CANCEL] DEDUP: call event already written, skipping", { matchId });
-                return;
-              }
-            }
 
             // Fetch both profiles in parallel for correct name capitalisation
             const [callerProfile, calleeProfile] = await Promise.all([
@@ -5033,9 +5025,35 @@ export async function registerRoutes(
             // perspective-aware text without another profile fetch.
             const eventType    = isCallerCancelling ? "cancelled" : "declined";
             const eventContent = `__CALL_EVENT__:${JSON.stringify({
-              type: eventType, callerId, callerName, calleeId, calleeName,
+              type: eventType,
+              callSessionId: requestedSessionId,
+              callerId,
+              callerName,
+              calleeId,
+              calleeName,
             })}`;
-            await serverStorage.createMessage({ matchId, senderId: callerId, content: eventContent });
+            const hash = createHash("sha256")
+              .update(`call-history:${requestedSessionId}`)
+              .digest("hex");
+            const eventId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+            const { data: insertedEvent, error: eventError } = await supabaseAdmin
+              .from("messages")
+              .upsert({
+                id: eventId,
+                match_id: matchId,
+                sender_id: callerId,
+                content: eventContent,
+              }, { onConflict: "id", ignoreDuplicates: true })
+              .select("id")
+              .maybeSingle();
+            if (eventError) throw eventError;
+            if (!insertedEvent) {
+              console.log("[CALL_CANCEL] DEDUP: deterministic call event already exists", {
+                matchId,
+                callSessionId: requestedSessionId,
+              });
+              return;
+            }
 
             if (isCallerCancelling) {
               // Caller gave up / timed out → callee missed the call

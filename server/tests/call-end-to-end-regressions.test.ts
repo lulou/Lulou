@@ -6,6 +6,10 @@ const incoming = readFileSync("client/src/components/incoming-call.tsx", "utf8")
 const active = readFileSync("client/src/components/active-call.tsx", "utf8");
 const webrtc = readFileSync("client/src/hooks/use-webrtc.ts", "utf8");
 const signaling = readFileSync("client/src/hooks/use-call-signaling.ts", "utf8");
+const ringtone = readFileSync("client/src/hooks/use-call-ringtone.ts", "utf8");
+const callAudio = readFileSync("client/src/lib/call-audio.ts", "utf8");
+const appLayout = readFileSync("client/src/components/app-layout.tsx", "utf8");
+const intent = readFileSync("client/src/pages/intent.tsx", "utf8");
 const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
 const routes = readFileSync("server/routes.ts", "utf8");
 const storage = readFileSync("server/storage.ts", "utf8");
@@ -47,6 +51,26 @@ describe("end-to-end call regressions", () => {
     expect(app).not.toContain("const forcedIncomingMatch =");
     expect(app).not.toContain("forced-incoming:");
     expect(app).toContain("if (activeCall.callAnswered === true) return null");
+  });
+
+  it("keeps the authoritative ringtone alive across overlay and tab transitions", () => {
+    expect(ringtone).toContain('window.setInterval(() => startIncomingRingtone(sessionId), 500)');
+    expect(ringtone).not.toContain('stopIncomingRingtone("effect_cleanup")');
+    expect(callAudio).toContain("_ringtoneSessionId === sessionId");
+    expect(appLayout).not.toContain("nav_tab_click");
+    expect(intent).not.toContain("intent_page_mount");
+    expect(app).toContain('stopAllNonVoiceCallAudio("no_authoritative_call")');
+  });
+
+  it("measures availability end to end and bounds stalled writes", () => {
+    expect(matches).toContain("availability_click_at");
+    expect(matches).toContain("availability_click_to_saved_ms");
+    expect(matches).toContain("availability_click_to_ui_ms");
+    expect(matches).toContain('controller.abort("availability_write_timeout")');
+    expect(signaling).toContain("availability_realtime_received_at");
+    expect(signaling).toContain("availability_ui_update_ms");
+    expect(routes).toContain("availability_broadcast_ms");
+    expect(routes).toContain("Prompt bookkeeping is not on the critical realtime path");
   });
 
   it("uses RTCPeerConnection.connectionState rather than ICE as connected authority", () => {
@@ -149,6 +173,14 @@ describe("end-to-end call regressions", () => {
   it("does not re-ring a replaced call session", () => {
     expect(routes).toContain("call_session_id === match.callSessionId");
     expect(routes).toContain("select(\"call_answered,call_completed,call_initiator_id,call_started_at,call_session_id\")");
+  });
+
+  it("writes at most one call-history event per call session", () => {
+    expect(routes).toContain("callSessionId: requestedSessionId");
+    expect(routes).toContain('.update(`call-history:${requestedSessionId}`)');
+    expect(routes).toContain('{ onConflict: "id", ignoreDuplicates: true }');
+    expect(routes).toContain("deterministic call event already exists");
+    expect(routes).not.toContain('.gte("created_at", new Date(new Date(preCancelStartedAt)');
   });
 
   it("derives TURN availability from effective filtered relay URLs", () => {

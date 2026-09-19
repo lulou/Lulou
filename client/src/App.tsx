@@ -416,35 +416,6 @@ function CallDetectors({ userId }: { userId: string }) {
     return () => setOnArmChange(null);
   }, []);
 
-  // ── Tab-entry audio stop ───────────────────────────────────────────────────
-  // Every tab navigation must stop any stale ringtone/ringback immediately.
-  //
-  // WHY THIS WAS PREVIOUSLY TOO NARROW:
-  //   The guard only fired for /matches and /messages.  That left a critical gap:
-  //   PersistentTabs keeps ALL tab pages mounted (display:none when inactive),
-  //   so the Matches component's Realtime subscription stays live on every tab.
-  //   When a call:ring event arrived (or the 10 s poll returned stale call data)
-  //   while the user was on any tab, startIncomingRingtone() set _ringtoneActive=true.
-  //   iOS autoplay policy silently blocked rt.play() — no ring yet.
-  //   The user's next click (e.g. tapping Discover) triggered _doUnlock() in the
-  //   capture phase, which called _warmElements() → rt.play() unmuted → ring
-  //   played audibly even though no call was active.  The old guard only ran when
-  //   navigating TO /matches, so Discover navigation was entirely unprotected.
-  //
-  // FIX:
-  //   Fire stopAllNonVoiceCallAudio on EVERY location change.
-  //   stopAllNonVoiceCallAudio only stops ringtone/ringback — it does NOT touch
-  //   the remote-voice <audio> element used during a live WebRTC call.  It is
-  //   therefore safe to call unconditionally: if a real voice call is connected,
-  //   its audio is unaffected; if a ring was stale, it is silenced.
-  //   A full-screen call overlay blocks all navigation during a real incoming ring,
-  //   so navigating away always means the ring is stale.
-  //
-  //   A second, synchronous layer is applied in app-layout.tsx: the nav button
-  //   onClick calls stopAllNonVoiceCallAudio before _doUnlock() can warm+play
-  //   the ring element (capture-phase _doUnlock fires after synthetic onClick
-  //   completes in the same event dispatch).  Both layers together ensure the
-  //   ring is cleared before any new audio can start from the warm-up path.
   // hasActiveCallRef: tracks whether any call overlay is currently showing.
   // Updated on every render (before effects run) so the location effect always
   // reads the current value without needing it in the deps array.
@@ -452,25 +423,16 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const [location] = useLocation();
   useEffect(() => {
-    stopAllNonVoiceCallAudio("tab_navigation_guard");
-    // If no call is currently active, disarm all armed sessions.
-    // A full-screen call overlay (position:fixed) blocks navigation while a
-    // real call is in progress, so navigating away always means the call has
-    // ended or was never live.  Clearing here prevents stale armed sessions
-    // from triggering audio when the user opens a cached Matches/Messages tab.
-    //
-    // Guard also checks hasRingRef.current:
-    //   armCallSession() and callRingHandler(true) are called synchronously in
-    //   the Realtime signal handler before React re-renders.  If the user taps a
-    //   nav button in the ~50 ms gap between "ring signal arrived" and "React
-    //   re-rendered with the new incomingCall", hasActiveCallRef.current is still
-    //   false (from the last render) but hasRingRef.current is already true.
-    //   Without this extra guard, the location effect would fire and disarm the
-    //   live session — silently dropping a genuine incoming call.
+    // A genuine incoming call is global and must keep ringing across tabs.
+    // Only clear audio and armed sessions when no authoritative call is active.
     if (!hasActiveCallRef.current && !hasRingRef.current) {
+      stopAllNonVoiceCallAudio("navigation_without_live_call");
       clearAllArmedSessions();
     }
-    console.log("[CALL_AUDIO_GUARD] stopped ringtone/ringback on navigation", { location });
+    console.log("[CALL_AUDIO_GUARD] navigation evaluated", {
+      location,
+      preservedLiveCall: hasActiveCallRef.current || hasRingRef.current,
+    });
   }, [location]);
 
   // hasRingRef: true while an incoming ring is active. Used by refetchInterval
@@ -1187,6 +1149,7 @@ function CallDetectors({ userId }: { userId: string }) {
     const hasAnyCall = !!(incomingCall || callerRingingCall || activeCall);
     if (!hasAnyCall && hasRingRef.current) {
       hasRingRef.current = false;
+      stopAllNonVoiceCallAudio("no_authoritative_call");
       console.log("[CALL_FIX] ring polling gate reset — no active calls (stale or ended)");
     }
   }, [incomingCall, callerRingingCall, activeCall]);

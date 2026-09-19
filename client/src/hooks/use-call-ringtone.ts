@@ -29,7 +29,11 @@ export type RingtoneType = "incoming" | "outgoing";
  */
 export function useCallRingtone(type: RingtoneType, enabled: boolean, sessionId?: string | null) {
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      if (type === "incoming") stopIncomingRingtone("ring_state_inactive");
+      else stopOutgoingRingback("ring_state_inactive");
+      return;
+    }
 
     console.log("[RING_DEBUG] source", { type, enabled, sessionId: sessionId?.slice(0, 8) ?? "none" });
 
@@ -40,17 +44,16 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean, sessionId?
       console.log("[CALL_FIX] verified incoming ringtone only", { type: "incoming" });
       console.log("[CALL_RINGTONE] verified incoming call, ringtone started");
       startIncomingRingtone(sessionId);
-      return () => {
-        console.log("[CALL_RINGTONE] stopped: effect_cleanup (incoming)");
-        stopIncomingRingtone("effect_cleanup");
-      };
+      // Retry while the authoritative session remains ringing. This covers a
+      // genuine ring that arrives before startup verification finishes; the
+      // module-level session latch prevents an already-playing loop restarting.
+      const retry = window.setInterval(() => startIncomingRingtone(sessionId), 500);
+      return () => window.clearInterval(retry);
     } else {
       console.log("[CALL_RINGTONE] verified outgoing call, ringback started");
       startOutgoingRingback(sessionId);
-      return () => {
-        console.log("[CALL_RINGTONE] stopped: effect_cleanup (outgoing)");
-        stopOutgoingRingback("effect_cleanup");
-      };
+      const retry = window.setInterval(() => startOutgoingRingback(sessionId), 500);
+      return () => window.clearInterval(retry);
     }
   }, [enabled, type, sessionId]);
 }

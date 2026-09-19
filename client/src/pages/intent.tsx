@@ -23,8 +23,6 @@ import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
-import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
-import { clearAllArmedSessions } from "@/lib/live-call-sessions";
 import { liveCandidateQueryOptions } from "@/lib/live-candidate-query-options";
 import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
 import { setServiceWorkerReloadBlocked } from "@/lib/service-worker";
@@ -2881,18 +2879,6 @@ export default function IntentPage() {
 
     pollStatus();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Stale-ring guard ──────────────────────────────────────────────────────
-  // Belt-and-suspenders: stop any audio and clear all armed call sessions the
-  // moment this page mounts. App.tsx location-change effect already does this
-  // but may run *before* some async query resolves and potentially re-arms a
-  // session from cached DB data. This guard runs AFTER mount, providing a
-  // second line of defence against ringtone starting on the Intention Wheel.
-  useEffect(() => {
-    stopAllNonVoiceCallAudio("intent_page_mount");
-    clearAllArmedSessions();
-    console.log("[INTENT] RING_GUARD: stopped audio + cleared armed sessions on mount — stale ring blocked");
   }, []);
 
   // ── Spin result restoration ─────────────────────────────────────────────────

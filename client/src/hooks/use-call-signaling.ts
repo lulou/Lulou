@@ -115,9 +115,19 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           );
           console.log("[CALL_AVAIL_REALTIME] availability applied", {
             matchId: matchId.slice(0, 8),
+            availability_realtime_received_at: Date.now(),
             availability_realtime_ms: typeof availability.serverBroadcastAt === "number"
               ? Math.max(0, Date.now() - availability.serverBroadcastAt)
               : null,
+          });
+          requestAnimationFrame(() => {
+            console.log("[CALL_AVAIL_TIMING] availability_ui_updated", {
+              matchId: matchId.slice(0, 8),
+              availability_ui_updated_at: Date.now(),
+              availability_ui_update_ms: typeof availability.serverBroadcastAt === "number"
+                ? Math.max(0, Date.now() - availability.serverBroadcastAt)
+                : null,
+            });
           });
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
           queryClient.invalidateQueries({ queryKey: ["/api/matches"] });

@@ -291,6 +291,7 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
+  options?: { signal?: AbortSignal },
 ): Promise<Response> {
   requireApiBase(url);
   const authHeaders = await getAuthHeaders();
@@ -311,6 +312,7 @@ export async function apiRequest(
       },
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
+      signal: options?.signal,
     });
   } catch (fetchErr) {
     logPrefetchError(API_BASE + url, fetchErr, method);

@@ -39,7 +39,6 @@ import { PostCallMilestone } from "@/components/post-call-milestone";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { armCallSession, isArmedSession, markSessionAsPaid, markSessionAsVideo } from "@/lib/live-call-sessions";
-import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
@@ -2323,20 +2322,34 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       key: string;
       previousKey: string | null;
       requestId: number;
+      clickedAt: number;
     }) => {
       const request = availabilityPersistChainRef.current.then(async () => {
-        const r = await apiRequest(
-          "POST",
-          `/api/matches/${match.id}/call/set-availability`,
-          { availableAt: selection.availableAt },
-        );
-        return r.json();
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort("availability_write_timeout"), 8_000);
+        try {
+          const r = await apiRequest(
+            "POST",
+            `/api/matches/${match.id}/call/set-availability`,
+            { availableAt: selection.availableAt },
+            { signal: controller.signal },
+          );
+          return r.json();
+        } finally {
+          window.clearTimeout(timeout);
+        }
       });
       availabilityPersistChainRef.current = request.then(() => undefined, () => undefined);
       return request;
     },
     onSuccess: (data: any, selection) => {
       if (selection.requestId !== availabilityRequestIdRef.current) return;
+      const savedAt = Date.now();
+      console.log("[CALL_AVAIL_TIMING] availability_saved", {
+        matchId: match.id.slice(0, 8),
+        availability_saved_at: savedAt,
+        availability_click_to_saved_ms: savedAt - selection.clickedAt,
+      });
       const shouldApplyResponse = acceptAvailabilityVersion(match.id, data.availabilityVersion);
       // Patch the match cache so availability fields update immediately without a full refetch
       const patch = {
@@ -2366,6 +2379,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       setShowAvailPicker(false);
       setShowSpecificTimePicker(false);
       setSpecificTimePending("");
+      requestAnimationFrame(() => {
+        console.log("[CALL_AVAIL_TIMING] availability_ui_updated", {
+          matchId: match.id.slice(0, 8),
+          availability_ui_updated_at: Date.now(),
+          availability_click_to_ui_ms: Date.now() - selection.clickedAt,
+        });
+      });
     },
     onError: (err: any, selection) => {
       if (selection.requestId === availabilityRequestIdRef.current) {
@@ -4695,6 +4715,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                             : "border-border bg-background text-foreground hover:bg-muted/60 active:bg-muted"
                         }`}
                         onClick={() => {
+                          const clickedAt = Date.now();
+                          console.log("[CALL_AVAIL_TIMING] availability_click", {
+                            matchId: match.id.slice(0, 8),
+                            availability_click_at: clickedAt,
+                            option: opt.key,
+                          });
                           const previousKey = selectedAvailability;
                           setShowAvailPicker(true);
                           setSelectedAvailability(opt.key);
@@ -4713,6 +4739,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                               key: opt.key,
                               previousKey,
                               requestId,
+                              clickedAt,
                             });
                           }
                         }}
@@ -4764,6 +4791,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                                 key: "specific_time",
                                 previousKey: availabilityBeforeSpecificRef.current,
                                 requestId: ++availabilityRequestIdRef.current,
+                                clickedAt: Date.now(),
                               });
                               setShowSpecificTimePicker(false);
                               setSpecificTimePending("");
@@ -5644,12 +5672,7 @@ export default function Matches() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedMatchId, user?.id]);
   const [activeTab, setActiveTab] = useState<"new" | "active">("new");
-  // Belt-and-suspenders: kill any stale ringtone/ringback the moment the user
-  // taps either internal tab. The primary guard is in CallDetectors (the rering
-  // effect no longer re-arms sessions), but an explicit stop here ensures zero
-  // audio leaks even if some future change touches the arming logic.
   const handleTabChange = useCallback((tab: "new" | "active") => {
-    stopAllNonVoiceCallAudio("connections_tab_switch");
     setActiveTab(tab);
   }, []);
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({

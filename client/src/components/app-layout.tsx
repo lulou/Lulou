@@ -6,7 +6,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { LULOU_SELECTED_ACCENT } from "@/lib/lulou-action-style";
 import { decodedPhotos } from "@/lib/image-utils";
-import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { getAppLayoutScrollPolicy } from "@/lib/app-layout-scroll-policy";
 import { useLanguageContext } from "@/contexts/language-context";
 import { supabase } from "@/lib/supabase";
@@ -296,7 +295,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 style={isActive ? { color: LULOU_SELECTED_ACCENT } : undefined}
                 aria-current={isActive ? "page" : undefined}
                 data-testid={`nav-${item.label.toLowerCase()}`}
-                onClick={() => stopAllNonVoiceCallAudio("nav_tab_click")}
               >
                 {/* Icon wrapper: fixed size so badges never shift the baseline */}
                 <div className="relative flex items-center justify-center w-[22px] h-[22px]">

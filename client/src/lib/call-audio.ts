@@ -151,6 +151,8 @@ let _ringtoneEl: HTMLAudioElement | null = null;
 let _ringbackEl: HTMLAudioElement | null = null;
 let _ringtoneActive  = false;  // ring is supposed to be playing right now
 let _ringbackActive  = false;
+let _ringtoneSessionId: string | null = null;
+let _ringbackSessionId: string | null = null;
 let _ringtoneWarm    = false;  // element has been user-activated on iOS
 let _ringbackWarm    = false;
 
@@ -426,13 +428,15 @@ export function startIncomingRingtone(sessionId?: string | null): void {
     const el = _ensureRingtoneEl();
     if (!el) { console.warn("[CALL_RINGTONE] ringtone element unavailable"); return; }
 
-    // If already playing for some reason, stop before restarting.
+    if (_ringtoneActive && _ringtoneSessionId === sessionId) return;
+    // A replacement session takes ownership of the singleton.
     if (_ringtoneActive) {
       el.pause();
       el.currentTime = 0;
     }
 
     _ringtoneActive = true;
+    _ringtoneSessionId = sessionId;
     el.currentTime  = 0;
 
     console.log("[CALL_RINGTONE] incoming ringtone started");
@@ -453,6 +457,7 @@ export function startIncomingRingtone(sessionId?: string | null): void {
     });
   } catch (e) {
     _ringtoneActive = false;
+    _ringtoneSessionId = null;
     console.warn("[CALL_RINGTONE] startIncomingRingtone error:", e);
   }
 }
@@ -463,6 +468,7 @@ export function startIncomingRingtone(sessionId?: string | null): void {
  */
 export function stopIncomingRingtone(reason: string): void {
   _ringtoneActive = false;
+  _ringtoneSessionId = null;
   const el = _ringtoneEl;
   if (!el) return;
   el.pause();
@@ -521,9 +527,11 @@ export function startOutgoingRingback(sessionId?: string | null): void {
     const el = _ensureRingbackEl();
     if (!el) return;
 
+    if (_ringbackActive && _ringbackSessionId === sessionId) return;
     if (_ringbackActive) { el.pause(); el.currentTime = 0; }
 
     _ringbackActive = true;
+    _ringbackSessionId = sessionId;
     el.currentTime  = 0;
 
     el.play().catch(() => {
@@ -531,6 +539,7 @@ export function startOutgoingRingback(sessionId?: string | null): void {
     });
   } catch (e) {
     _ringbackActive = false;
+    _ringbackSessionId = null;
     console.warn("[CALL_RINGTONE] startOutgoingRingback error:", e);
   }
 }
@@ -540,6 +549,7 @@ export function startOutgoingRingback(sessionId?: string | null): void {
  */
 export function stopOutgoingRingback(reason: string): void {
   _ringbackActive = false;
+  _ringbackSessionId = null;
   const el = _ringbackEl;
   if (!el) return;
   el.pause();
