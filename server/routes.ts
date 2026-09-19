@@ -1368,6 +1368,23 @@ export async function registerRoutes(
   // Temporary privacy-safe production telemetry for the first-call availability
   // path. It accepts no account, match, availability, token, or message data.
   const _callAvailabilityDiagHits = new Map<string, { windowStart: number; count: number }>();
+  const _recentCallAvailabilityDiagnostics: Array<Record<string, unknown> & { serverAt: number }> = [];
+  function recordCallAvailabilityDiagnostic(payload: Record<string, unknown>): void {
+    const entry = {
+      serverAt: Date.now(),
+      receiverCommit: SERVER_COMMIT_HASH,
+      ...payload,
+    };
+    _recentCallAvailabilityDiagnostics.push(entry);
+    const cutoff = Date.now() - 10 * 60_000;
+    while (
+      _recentCallAvailabilityDiagnostics.length > 100
+      || (_recentCallAvailabilityDiagnostics[0]?.serverAt ?? Infinity) < cutoff
+    ) {
+      _recentCallAvailabilityDiagnostics.shift();
+    }
+    console.log("[CALL_AVAIL_DIAG]", JSON.stringify(entry));
+  }
   const callAvailabilityDiagSchema = z.object({
     event: z.enum([
       "availability_clicked",
@@ -1410,14 +1427,17 @@ export async function registerRoutes(
       }
       current.count += 1;
       _callAvailabilityDiagHits.set(ip, current);
-      console.log("[CALL_AVAIL_DIAG]", JSON.stringify({
-        serverAt: now,
-        receiverCommit: SERVER_COMMIT_HASH,
-        ...payload.data,
-      }));
+      recordCallAvailabilityDiagnostic(payload.data);
       return res.status(202).json({ accepted: true });
     },
   );
+
+  app.get("/api/diagnostics/call-availability/recent", (_req, res) => {
+    const cutoff = Date.now() - 10 * 60_000;
+    return res.json({
+      events: _recentCallAvailabilityDiagnostics.filter((event) => event.serverAt >= cutoff),
+    });
+  });
 
 
   // ── Email verification OTP endpoints ────────────────────────────────────
@@ -4949,13 +4969,12 @@ export async function registerRoutes(
       if (!updated) {
         return res.status(404).json({ message: "Match not found or not at call stage 0" });
       }
-      console.log("[CALL_AVAIL_DIAG]", JSON.stringify({
+      recordCallAvailabilityDiagnostic({
         event: "availability_db_saved",
         diagId: availabilityDiagId,
-        serverAt: Date.now(),
         elapsedMs: Date.now() - availabilityWriteStartedAt,
         availabilityVersion: updated.availabilityRevision,
-      }));
+      });
 
       // Prompt bookkeeping is not on the critical realtime path.
       if (availableAt !== null) {
@@ -4979,13 +4998,12 @@ export async function registerRoutes(
         serverBroadcastAt,
         availabilityDiagId,
       });
-      console.log("[CALL_AVAIL_DIAG]", JSON.stringify({
+      recordCallAvailabilityDiagnostic({
         event: "availability_event_emitted",
         diagId: availabilityDiagId,
-        serverAt: Date.now(),
         elapsedMs: Date.now() - availabilityWriteStartedAt,
         availabilityVersion: updated.availabilityRevision,
-      }));
+      });
 
       console.log("[CALL_AVAIL] SET", {
         matchId: matchId.slice(0, 8),
