@@ -12,6 +12,7 @@ import { isArmedSession } from "@/lib/live-call-sessions";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { cleanupCallAudio, isAudioUnlocked, onAudioUnlocked, unlockAudioNow } from "@/lib/call-audio";
 import { calleePresubscribe, calleePresubSendReady } from "@/hooks/use-webrtc";
+import { reportIncomingCallMounted } from "@/lib/call-availability-diagnostics";
 
 type MatchWithProfile = Match & { profile: Profile };
 
@@ -36,6 +37,10 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
   const isCaller = match.callInitiatorId === user?.id;
   const isReceiver = !isCaller;
   const actedRef = useRef(false);
+
+  useEffect(() => {
+    if (match.callSessionId) reportIncomingCallMounted(match.callSessionId);
+  }, [match.callSessionId]);
 
   // Slide-to-answer gesture refs — all imperative, zero React re-renders per pixel
   const sliderRef            = useRef<HTMLDivElement>(null); // outer track container

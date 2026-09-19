@@ -6,7 +6,10 @@ import { armCallSession, markSessionAsVideo, isPushArmedSession, getLoginTime } 
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
-import { reportCallAvailabilityDiagnostic } from "@/lib/call-availability-diagnostics";
+import {
+  registerIncomingCallDiagnostic,
+  reportCallAvailabilityDiagnostic,
+} from "@/lib/call-availability-diagnostics";
 import { getCallSessionTimestamp } from "@/lib/call-session-id";
 
 // Set false once Bug 2 (caller-cancel race) is confirmed fixed in production.
@@ -221,6 +224,40 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         if (event.type === "call:ring") {
           const ring = event as any;
           const ringSessionId = ring.callSessionId ?? null;
+          const ringDiagId = typeof ring.startCallDiagId === "string" ? ring.startCallDiagId : null;
+          const ringAttempt = typeof ring.startCallAttempt === "number" ? ring.startCallAttempt : 0;
+          const ringReceivedAt = Date.now();
+          const reportRingProgress = (
+            diagnosticEvent: "incoming_guard_decision" | "incoming_cache_updated",
+            outcome: "applied" | "stale",
+            guardReason:
+              | "stale_null_cache"
+              | "stale_cached_start"
+              | "startup_cancelled"
+              | "presweep_deferred"
+              | "presweep_stale"
+              | "prelogin_stale"
+              | "session_cancelled"
+              | "armed"
+              | "list_patched"
+              | "list_cache_missing"
+              | "list_session_mismatch",
+            cacheApplied?: boolean,
+          ) => {
+            if (!ringDiagId) return;
+            reportCallAvailabilityDiagnostic({
+              event: diagnosticEvent,
+              diagId: ringDiagId,
+              role: "receiver",
+              clientAt: Date.now(),
+              elapsedMs: Date.now() - ringReceivedAt,
+              outcome,
+              attempt: ringAttempt,
+              sessionPresent: !!ringSessionId,
+              guardReason,
+              cacheApplied,
+            });
+          };
           if (ring.startCallDiagId) {
             reportCallAvailabilityDiagnostic({
               event: "incoming_event_received",
@@ -232,7 +269,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 : null,
               outcome: "started",
               sessionPresent: !!ringSessionId,
-              attempt: typeof ring.startCallAttempt === "number" ? ring.startCallAttempt : 0,
+              attempt: ringAttempt,
             });
           }
 
@@ -284,6 +321,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME,
               });
               markCallSessionCancelled(matchId, ringSessionId);
+              reportRingProgress("incoming_guard_decision", "stale", "stale_null_cache");
               return;
             }
           }
@@ -300,6 +338,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                   matchId, callStartMs, APP_LOAD_TIME, delta: APP_LOAD_TIME - callStartMs,
                 });
                 markCallSessionCancelled(matchId, ringSessionId);
+                reportRingProgress("incoming_guard_decision", "stale", "stale_cached_start");
                 return;
               }
             }
@@ -318,6 +357,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           if (isStartupCancelledOnly(matchId, ringSessionId)) {
             console.log("[CALL_SIGNAL] STARTUP_RERING_BLOCKED permanently cancelled pre-load rering", { matchId });
             markCallSessionCancelled(matchId, ringSessionId);
+            reportRingProgress("incoming_guard_decision", "stale", "startup_cancelled");
             return;
           }
           // ── Pre-sweep block ─────────────────────────────────────────────────
@@ -346,6 +386,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             // that started in the ~0-3 s window between page load and sweep.
             if (ringTimestampMs === null || ringTimestampMs >= APP_LOAD_TIME) {
               console.log("[CALL_SIGNAL] PRE_SWEEP_RING_DEFERRED — call is post-load or has no proven stale timestamp", { matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME });
+              reportRingProgress("incoming_guard_decision", "stale", "presweep_deferred");
               return;
             }
             // Pre-load calls: mark startup-cancelled NOW (not just on the next rering).
@@ -357,6 +398,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             // is re-checked on the next rering.
             markStartupCancelledSession(matchId, ringSessionId);
             console.log("[CALL_SIGNAL] PRE_SWEEP_RING_BLOCKED — startup sweep not yet complete, session marked startup-cancelled", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
+            reportRingProgress("incoming_guard_decision", "stale", "presweep_stale");
             return;
           }
 
@@ -395,12 +437,14 @@ export function useCallSignaling(matchIds: string[], userId: string) {
               cachedCallStartAt,
             });
             markCallSessionCancelled(matchId, ringSessionId);
+            reportRingProgress("incoming_guard_decision", "stale", "prelogin_stale");
             return;
           }
 
           // Skip stale ring signals for sessions that were cancelled by user action
           if (isCallSessionCancelled(matchId, ringSessionId)) {
             console.log("[CALL_SIGNAL] STALE_RING_BLOCKED", { matchId, callSessionId: ringSessionId, reason: "session_already_cancelled" });
+            reportRingProgress("incoming_guard_decision", "stale", "session_cancelled");
           } else {
             // Arm the session: this is a live Realtime call:ring event, so the
             // session is confirmed active. Only armed sessions may trigger overlays
@@ -414,6 +458,10 @@ export function useCallSignaling(matchIds: string[], userId: string) {
               decision: "armed",
             });
             armCallSession(ringSessionId);
+            if (ringDiagId && ringSessionId) {
+              registerIncomingCallDiagnostic(ringSessionId, ringDiagId, ringReceivedAt, ringAttempt);
+            }
+            reportRingProgress("incoming_guard_decision", "applied", "armed");
             if ((ring as any).isVideo && ringSessionId) markSessionAsVideo(ringSessionId);
             console.log("[RING_DEBUG] verified live call trigger — armed by Realtime call:ring", {
               matchId,
@@ -473,6 +521,22 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 callCompleted: old.callCompleted ?? false,
               };
             });
+            const patchedMatches = queryClient.getQueryData<any[]>(["/api/matches"]);
+            const patchedMatch = patchedMatches?.find((m: any) => m.id === matchId);
+            const cacheApplied = !!patchedMatch
+              && patchedMatch.callSessionId === ringSessionId
+              && patchedMatch.callInitiatorId === ring.callerId
+              && !!patchedMatch.callStartedAt;
+            reportRingProgress(
+              "incoming_cache_updated",
+              cacheApplied ? "applied" : "stale",
+              cacheApplied
+                ? "list_patched"
+                : patchedMatch
+                  ? "list_session_mismatch"
+                  : "list_cache_missing",
+              cacheApplied,
+            );
             // Signal that a ring is now active so CallDetectors can pause
             // the 5-second refetchInterval — prevents the next poll from
             // overwriting this optimistic patch with stale REST data before

@@ -10,6 +10,9 @@ export type CallAvailabilityDiagnosticEvent =
   | "start_call_api_sent"
   | "start_call_api_response"
   | "incoming_event_received"
+  | "incoming_guard_decision"
+  | "incoming_cache_updated"
+  | "incoming_ui_mounted"
   | "caller_ringing_state";
 
 type CallAvailabilityDiagnostic = {
@@ -24,6 +27,20 @@ type CallAvailabilityDiagnostic = {
   callStage?: number | null;
   sessionPresent?: boolean;
   attempt?: number;
+  guardReason?:
+    | "stale_null_cache"
+    | "stale_cached_start"
+    | "startup_cancelled"
+    | "presweep_deferred"
+    | "presweep_stale"
+    | "prelogin_stale"
+    | "session_cancelled"
+    | "armed"
+    | "list_patched"
+    | "list_cache_missing"
+    | "list_session_mismatch"
+    | "overlay_mounted";
+  cacheApplied?: boolean;
   errorCategory?: "auth" | "eligibility" | "conflict" | "network" | "unknown";
 };
 
@@ -32,6 +49,13 @@ const startCallCorrelations = new Map<string, {
   clickedAt: number;
   callStage: number;
   ringingReported: boolean;
+}>();
+
+const incomingCallCorrelations = new Map<string, {
+  diagId: string;
+  receivedAt: number;
+  attempt: number;
+  mountedReported: boolean;
 }>();
 
 export function createCallAvailabilityDiagId(): string {
@@ -81,5 +105,36 @@ export function reportCallerRingingState(callSessionId: string): void {
     outcome: "applied",
     callStage: correlation.callStage,
     sessionPresent: true,
+  });
+}
+
+export function registerIncomingCallDiagnostic(
+  callSessionId: string,
+  diagId: string,
+  receivedAt: number,
+  attempt: number,
+): void {
+  incomingCallCorrelations.set(callSessionId, {
+    diagId,
+    receivedAt,
+    attempt,
+    mountedReported: false,
+  });
+}
+
+export function reportIncomingCallMounted(callSessionId: string): void {
+  const correlation = incomingCallCorrelations.get(callSessionId);
+  if (!correlation || correlation.mountedReported) return;
+  correlation.mountedReported = true;
+  reportCallAvailabilityDiagnostic({
+    event: "incoming_ui_mounted",
+    diagId: correlation.diagId,
+    role: "receiver",
+    clientAt: Date.now(),
+    elapsedMs: Date.now() - correlation.receivedAt,
+    outcome: "applied",
+    attempt: correlation.attempt,
+    sessionPresent: true,
+    guardReason: "overlay_mounted",
   });
 }
