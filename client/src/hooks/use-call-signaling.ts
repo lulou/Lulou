@@ -7,6 +7,7 @@ import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
 import { reportCallAvailabilityDiagnostic } from "@/lib/call-availability-diagnostics";
+import { getCallSessionTimestamp } from "@/lib/call-session-id";
 
 // Set false once Bug 2 (caller-cancel race) is confirmed fixed in production.
 const DEBUG_CALLS = true;
@@ -271,12 +272,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           // Safe rule: if the ring's encoded timestamp predates APP_LOAD_TIME AND
           // the cache confirms no active call, the ring is for a call that ended
           // before this page session — block it.
-          const ringTimestampMs = (() => {
-            if (!ringSessionId) return null;
-            const lastPart = ringSessionId.split('-').pop();
-            const ts = lastPart ? parseInt(lastPart, 10) : NaN;
-            return isNaN(ts) ? null : ts;
-          })();
+          const ringTimestampMs = getCallSessionTimestamp(ringSessionId);
           if (cachedMatchEntry !== undefined && !cachedCallStartAt && ringTimestampMs !== null && ringTimestampMs < APP_LOAD_TIME) {
             // Push-notification exception: if the app was opened by tapping an
             // incoming-call notification, the session is already armed via the
@@ -348,8 +344,8 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             // sweep has completed and will be evaluated normally.  Do NOT mark it
             // startup-cancelled: that would permanently block a genuine new call
             // that started in the ~0-3 s window between page load and sweep.
-            if (ringTimestampMs !== null && ringTimestampMs >= APP_LOAD_TIME) {
-              console.log("[CALL_SIGNAL] PRE_SWEEP_RING_DEFERRED — post-load call, deferring until sweep completes", { matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME });
+            if (ringTimestampMs === null || ringTimestampMs >= APP_LOAD_TIME) {
+              console.log("[CALL_SIGNAL] PRE_SWEEP_RING_DEFERRED — call is post-load or has no proven stale timestamp", { matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME });
               return;
             }
             // Pre-load calls: mark startup-cancelled NOW (not just on the next rering).
