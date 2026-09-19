@@ -1,0 +1,451 @@
+STOP making more speculative call-system changes.
+
+The latest production deployment has FAILED the real-world test completely.
+
+I tested the actual live app with two real accounts and:
+
+- availability did NOT sync properly
+- Start First Call did NOT work properly
+- recipient did NOT receive the correct incoming call experience
+- continuous ringing did NOT work
+- slide-to-answer did NOT work
+- WebRTC call did NOT connect
+- two-way audio did NOT work
+- 10:00 countdown did NOT appear
+- mute/speaker controls did NOT work
+- red End Call flow did NOT work
+
+So despite the previous report, NONE of the requested call experience is actually working in production.
+
+Do NOT tell me the code “looks correct”.
+Do NOT report local tests as proof.
+Do NOT make another broad refactor.
+
+I want you to debug the ACTUAL LIVE PRODUCTION CALL FLOW using the two real accounts/devices and identify the FIRST failing point in each stage.
+
+==================================================
+PHASE 1 — PROVE AVAILABILITY
+==================================================
+
+Use two authenticated real users already at the first-call stage.
+
+User A:
+selects Available now.
+
+Immediately observe:
+
+1. Was the click handler fired?
+2. Was the API request sent?
+3. What HTTP status returned?
+4. Was availability persisted in the database?
+5. Was realtime broadcast emitted?
+6. Did User B receive the realtime event?
+7. Did User B's query/cache update?
+8. Did User B's UI re-render?
+
+Timestamp every step.
+
+Expected:
+
+A click
+→ save
+→ B receives update
+→ B UI changes
+
+in well under 1 second.
+
+If it fails:
+STOP THERE and fix that exact broken step before moving on.
+
+Do not continue until availability works live.
+
+==================================================
+PHASE 2 — PROVE START FIRST CALL
+==================================================
+
+Once both users are genuinely ready:
+
+User A taps:
+
+Start First Call
+
+Trace live:
+
+1. click event fired
+2. handler entered
+3. eligibility result
+4. API request sent
+5. backend received request
+6. call row/session created
+7. server response returned
+8. caller receives call ID
+9. caller enters ringing state
+10. incoming event emitted for User B
+11. User B receives incoming event
+
+If ANY step fails:
+
+STOP and fix it before moving further.
+
+I want the exact failing step, status code, error category, and component involved.
+
+==================================================
+PHASE 3 — INCOMING CALL
+==================================================
+
+User B must receive an incoming call automatically.
+
+Test while User B is:
+
+- inside the chat
+- on Connections
+- on Discover
+
+Expected in ALL cases:
+
+incoming call overlay appears
+→ ringtone loops
+→ caller name/photo visible
+→ horizontal slide-to-answer visible
+
+If event exists in backend but overlay does not appear:
+debug global call detector/subscription.
+
+If overlay appears but ringtone does not:
+debug audio lifecycle separately.
+
+==================================================
+PHASE 4 — SLIDE TO ANSWER
+==================================================
+
+Do not accept a fake implementation.
+
+Physically test the slider on iPhone.
+
+Expected:
+
+drag halfway
+→ release
+→ returns to start
+
+drag past threshold
+→ answer fires exactly once
+
+Trace:
+
+pointer/touch start
+pointer/touch move
+threshold reached
+answer handler
+API/signaling event sent
+
+If the slider is not mounted in the actual live incoming-call renderer, fix that component.
+
+==================================================
+PHASE 5 — WEBRTC CONNECTION
+==================================================
+
+After answer:
+
+Trace BOTH devices:
+
+Caller:
+- offer exists
+- ICE candidates created
+- answer received
+- remote description set
+- connectionState progression
+
+Callee:
+- offer received
+- remote description set
+- answer created
+- local description set
+- ICE candidates created
+- connectionState progression
+
+Record:
+
+new
+connecting
+connected
+disconnected
+failed
+closed
+
+Do not claim the call is connected unless BOTH real devices reach:
+
+connectionState === "connected"
+
+If connection fails, inspect:
+
+- signaling delivery
+- ICE candidate exchange
+- TURN/STUN config
+- microphone permission
+- remote audio attachment
+- autoplay restrictions
+
+==================================================
+PHASE 6 — PROVE AUDIO
+==================================================
+
+Once connected:
+
+confirm physically:
+
+User A speaks
+→ User B hears A
+
+User B speaks
+→ User A hears B
+
+No assumptions.
+
+Check:
+
+- getUserMedia succeeded
+- audio track enabled
+- track added to peer connection
+- remote track event fired
+- remote audio element received MediaStream
+- playback started
+
+==================================================
+PHASE 7 — ACTIVE CALL UI
+==================================================
+
+Only AFTER real WebRTC connection succeeds:
+
+both users must enter the proper call screen.
+
+Required:
+
+- caller/callee avatar
+- name
+- Audio call
+- large central 10:00 countdown
+- mute control
+- speaker/earpiece control where supported
+- RED End Call button
+
+Do not show this UI before connection.
+
+==================================================
+PHASE 8 — TIMER
+==================================================
+
+When WebRTC reaches connected:
+
+persist one authoritative connectedAt.
+
+Both devices derive:
+
+10:00 - elapsed time
+
+Test that both timers agree.
+
+Do not use independent local timers.
+
+==================================================
+PHASE 9 — END CALL
+==================================================
+
+Tap the RED End Call button on one device.
+
+Verify immediately:
+
+- server call state becomes ended
+- other device receives end event
+- timer stops
+- ringtone/ringback stops
+- local media tracks stop
+- peer connection closes
+- both overlays disappear
+- microphone indicator turns off
+
+==================================================
+PHASE 10 — NO MORE “CODE VERIFIED” WITHOUT REAL DEVICE PROOF
+==================================================
+
+The previous deployment reported 40/40 tests passing while the actual product still failed completely.
+
+From now on:
+
+LOCAL TESTS ARE NOT ACCEPTANCE.
+
+The acceptance test is the real live two-device flow.
+
+Do not finish this task until you have performed the complete real production flow.
+
+==================================================
+ADD TEMPORARY SAFE LIVE DIAGNOSTICS
+==================================================
+
+For the two test accounts, add safe structured logs for:
+
+availability_clicked
+availability_api_sent
+availability_db_saved
+availability_event_emitted
+availability_event_received
+availability_ui_updated
+
+start_call_clicked
+call_api_sent
+call_session_created
+incoming_event_emitted
+incoming_event_received
+
+slide_answer_started
+slide_answer_committed
+
+webrtc_offer_created
+webrtc_offer_received
+webrtc_answer_created
+webrtc_answer_received
+
+ice_candidate_sent
+ice_candidate_received
+
+connection_state_change
+
+remote_track_received
+remote_audio_play_started
+
+call_connected
+timer_started
+call_ended
+
+Never log:
+- auth tokens
+- TURN credentials
+- message contents
+- secrets
+
+==================================================
+IMPORTANT
+==================================================
+
+Do NOT make another giant speculative rewrite.
+
+Use this debugging method:
+
+TEST ONE STAGE
+→ FIND FIRST FAILURE
+→ FIX THAT FAILURE
+→ RETEST
+→ ONLY THEN MOVE TO NEXT STAGE
+
+Availability first.
+
+Then call creation.
+
+Then incoming event.
+
+Then slide answer.
+
+Then WebRTC.
+
+Then audio.
+
+Then timer/UI.
+
+Then hangup.
+
+==================================================
+PRODUCTION COMPONENT AUDIT
+==================================================
+
+For every stage identify the exact live component/function:
+
+- availability selector
+- Start First Call button
+- call-create API route
+- global incoming-call subscriber
+- incoming-call overlay
+- slide-to-answer
+- WebRTC signaling hook
+- active-call overlay
+- countdown
+- End Call
+
+Do not edit dead/legacy components.
+
+==================================================
+FINAL ACCEPTANCE TEST
+==================================================
+
+I will accept this only if the REAL live test shows:
+
+1. availability sync < 1 second
+2. Start First Call creates call
+3. recipient rings immediately
+4. incoming call screen appears globally
+5. ringtone continues while ringing
+6. horizontal slide-to-answer works
+7. actual WebRTC connects
+8. two-way audio works
+9. 10:00 countdown appears in centre
+10. timer stays synchronized
+11. mute works
+12. speaker/earpiece works as platform supports
+13. red End Call works
+14. both users leave call immediately
+15. no stale ringing screen
+16. no duplicate missed/call history events
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. first failure found in availability flow
+2. exact fix
+3. measured live availability latency
+
+4. first failure found in Start Call flow
+5. exact fix
+
+6. incoming-call failure found
+7. exact fix
+
+8. slide-to-answer failure found
+9. exact fix
+
+10. WebRTC failure found
+11. exact fix
+
+12. audio failure found
+13. exact fix
+
+14. timer/UI failure found
+15. exact fix
+
+16. End Call failure found
+17. exact fix
+
+18. exact production components changed
+19. production commit
+20. live Vercel/Railway revision
+
+21. REAL LIVE TWO-DEVICE RESULT:
+- availability sync: PASS/FAIL + milliseconds
+- Start Call: PASS/FAIL
+- incoming ring: PASS/FAIL
+- incoming screen: PASS/FAIL
+- slide-to-answer: PASS/FAIL
+- WebRTC connected: PASS/FAIL
+- A → B audio: PASS/FAIL
+- B → A audio: PASS/FAIL
+- 10:00 timer: PASS/FAIL
+- synchronized timer: PASS/FAIL
+- mute: PASS/FAIL
+- speaker/earpiece: PASS/FAIL
+- End Call: PASS/FAIL
+- remote hangup: PASS/FAIL
+- stale overlay cleanup: PASS/FAIL
+- duplicate history eliminated: PASS/FAIL
+
+DO NOT mark this complete unless those real production tests have actually been performed.
