@@ -22,7 +22,7 @@ import {
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { reportCallerRingingState } from "@/lib/call-availability-diagnostics";
+import { reportCallUiPaint, reportCallerRingingState } from "@/lib/call-availability-diagnostics";
 
 // Duration in seconds for each call stage (guided/free progression).
 // stage 0 = first voice call (10 min), stage 1 = second voice call (15 min),
@@ -139,6 +139,7 @@ export function ActiveCallOverlay({
 }: ActiveCallProps) {
   const { t } = useLanguageContext();
   const { toast } = useToast();
+  const overlayRef = useRef<HTMLDivElement>(null);
   // Live refs so async .then() callbacks can fire toasts after the overlay unmounts
   const toastRef = useRef(toast);
   toastRef.current = toast;
@@ -323,6 +324,34 @@ export function ActiveCallOverlay({
   useCallRingtone("outgoing", isRinging && isCaller, callSessionId);
   useEffect(() => {
     if (isRinging && isCaller) reportCallerRingingState(callSessionId);
+  }, [isRinging, isCaller, callSessionId]);
+
+  useEffect(() => {
+    if (!isRinging || !isCaller || !callSessionId) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const overlay = overlayRef.current;
+        const rect = overlay?.getBoundingClientRect();
+        const style = overlay ? getComputedStyle(overlay) : null;
+        const centerElement = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+        reportCallUiPaint(callSessionId, "sender", {
+          attached: !!overlay?.isConnected,
+          viewportSized: !!rect
+            && rect.width >= window.innerWidth * 0.9
+            && rect.height >= window.innerHeight * 0.9,
+          centerOwned: !!overlay && !!centerElement && overlay.contains(centerElement),
+          visible: !!style
+            && style.display !== "none"
+            && style.visibility !== "hidden"
+            && Number(style.opacity) > 0,
+        });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
   }, [isRinging, isCaller, callSessionId]);
 
   // ── Video call: FaceTime-like auto-hide controls ──────────────────────────
@@ -1386,6 +1415,7 @@ export function ActiveCallOverlay({
 
   return (
     <div
+      ref={overlayRef}
       className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
       data-testid="overlay-voice-call"
       onClick={showAndResetTimer}

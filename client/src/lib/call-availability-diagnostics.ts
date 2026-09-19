@@ -13,7 +13,8 @@ export type CallAvailabilityDiagnosticEvent =
   | "incoming_guard_decision"
   | "incoming_cache_updated"
   | "incoming_ui_mounted"
-  | "caller_ringing_state";
+  | "caller_ringing_state"
+  | "call_ui_painted";
 
 type CallAvailabilityDiagnostic = {
   event: CallAvailabilityDiagnosticEvent;
@@ -41,6 +42,10 @@ type CallAvailabilityDiagnostic = {
     | "list_session_mismatch"
     | "overlay_mounted";
   cacheApplied?: boolean;
+  overlayAttached?: boolean;
+  overlayViewportSized?: boolean;
+  overlayCenterOwned?: boolean;
+  overlayVisible?: boolean;
   errorCategory?: "auth" | "eligibility" | "conflict" | "network" | "unknown";
 };
 
@@ -49,6 +54,7 @@ const startCallCorrelations = new Map<string, {
   clickedAt: number;
   callStage: number;
   ringingReported: boolean;
+  paintReported: boolean;
 }>();
 
 const incomingCallCorrelations = new Map<string, {
@@ -56,6 +62,7 @@ const incomingCallCorrelations = new Map<string, {
   receivedAt: number;
   attempt: number;
   mountedReported: boolean;
+  paintReported: boolean;
 }>();
 
 export function createCallAvailabilityDiagId(): string {
@@ -89,6 +96,7 @@ export function registerStartCallDiagnostic(
     clickedAt,
     callStage,
     ringingReported: false,
+    paintReported: false,
   });
 }
 
@@ -119,6 +127,7 @@ export function registerIncomingCallDiagnostic(
     receivedAt,
     attempt,
     mountedReported: false,
+    paintReported: false,
   });
 }
 
@@ -136,5 +145,42 @@ export function reportIncomingCallMounted(callSessionId: string): void {
     attempt: correlation.attempt,
     sessionPresent: true,
     guardReason: "overlay_mounted",
+  });
+}
+
+type CallUiPaintFacts = {
+  attached: boolean;
+  viewportSized: boolean;
+  centerOwned: boolean;
+  visible: boolean;
+};
+
+export function reportCallUiPaint(
+  callSessionId: string,
+  role: "sender" | "receiver",
+  facts: CallUiPaintFacts,
+): void {
+  const correlation = role === "sender"
+    ? startCallCorrelations.get(callSessionId)
+    : incomingCallCorrelations.get(callSessionId);
+  if (!correlation || correlation.paintReported) return;
+  correlation.paintReported = true;
+  const startedAt = role === "sender"
+    ? (correlation as { clickedAt: number }).clickedAt
+    : (correlation as { receivedAt: number }).receivedAt;
+  reportCallAvailabilityDiagnostic({
+    event: "call_ui_painted",
+    diagId: correlation.diagId,
+    role,
+    clientAt: Date.now(),
+    elapsedMs: Date.now() - startedAt,
+    outcome: facts.attached && facts.viewportSized && facts.centerOwned && facts.visible
+      ? "applied"
+      : "error",
+    sessionPresent: true,
+    overlayAttached: facts.attached,
+    overlayViewportSized: facts.viewportSized,
+    overlayCenterOwned: facts.centerOwned,
+    overlayVisible: facts.visible,
   });
 }

@@ -1409,6 +1409,7 @@ export async function registerRoutes(
       "incoming_cache_updated",
       "incoming_ui_mounted",
       "caller_ringing_state",
+      "call_ui_painted",
     ]),
     diagId: z.string().regex(/^[a-zA-Z0-9-]{8,40}$/),
     role: z.enum(["sender", "receiver"]),
@@ -1435,6 +1436,10 @@ export async function registerRoutes(
       "overlay_mounted",
     ]).optional(),
     cacheApplied: z.boolean().optional(),
+    overlayAttached: z.boolean().optional(),
+    overlayViewportSized: z.boolean().optional(),
+    overlayCenterOwned: z.boolean().optional(),
+    overlayVisible: z.boolean().optional(),
     errorCategory: z.enum(["auth", "eligibility", "conflict", "network", "unknown"]).optional(),
   }).strict();
 

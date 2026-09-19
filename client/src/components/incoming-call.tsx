@@ -12,7 +12,7 @@ import { isArmedSession } from "@/lib/live-call-sessions";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { cleanupCallAudio, isAudioUnlocked, onAudioUnlocked, unlockAudioNow } from "@/lib/call-audio";
 import { calleePresubscribe, calleePresubSendReady } from "@/hooks/use-webrtc";
-import { reportIncomingCallMounted } from "@/lib/call-availability-diagnostics";
+import { reportCallUiPaint, reportIncomingCallMounted } from "@/lib/call-availability-diagnostics";
 
 type MatchWithProfile = Match & { profile: Profile };
 
@@ -28,6 +28,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   // ── Role detection (debug) ─────────────────────────────────────────────────
   // IncomingCallOverlay should ONLY mount when the current user is the receiver.
@@ -40,6 +41,34 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
 
   useEffect(() => {
     if (match.callSessionId) reportIncomingCallMounted(match.callSessionId);
+  }, [match.callSessionId]);
+
+  useEffect(() => {
+    if (!match.callSessionId) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const overlay = overlayRef.current;
+        const rect = overlay?.getBoundingClientRect();
+        const style = overlay ? getComputedStyle(overlay) : null;
+        const centerElement = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+        reportCallUiPaint(match.callSessionId!, "receiver", {
+          attached: !!overlay?.isConnected,
+          viewportSized: !!rect
+            && rect.width >= window.innerWidth * 0.9
+            && rect.height >= window.innerHeight * 0.9,
+          centerOwned: !!overlay && !!centerElement && overlay.contains(centerElement),
+          visible: !!style
+            && style.display !== "none"
+            && style.visibility !== "hidden"
+            && Number(style.opacity) > 0,
+        });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
   }, [match.callSessionId]);
 
   // Slide-to-answer gesture refs — all imperative, zero React re-renders per pixel
@@ -508,6 +537,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
 
   return (
     <div
+      ref={overlayRef}
       className="fixed inset-0 z-[100] flex flex-col"
       data-testid="incoming-call-overlay"
     >
