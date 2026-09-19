@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useLanguageContext } from "@/contexts/language-context";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -1423,10 +1424,11 @@ export function ActiveCallOverlay({
   // Derived visibility flags for video auto-hide
   const videoControlsVisible = !isVideo || !isConnected || showControls;
 
-  return (
+  return createPortal(
     <div
       ref={overlayRef}
       className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
+      style={{ zIndex: 2147483000 }}
       data-testid="overlay-voice-call"
       onClick={showAndResetTimer}
     >
@@ -1771,6 +1773,7 @@ export function ActiveCallOverlay({
         </div>
       </div>
 
-    </div>
+    </div>,
+    document.body,
   );
 }
