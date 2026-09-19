@@ -13,7 +13,12 @@ import { isArmedSession } from "@/lib/live-call-sessions";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { cleanupCallAudio, isAudioUnlocked, onAudioUnlocked, unlockAudioNow } from "@/lib/call-audio";
 import { calleePresubscribe, calleePresubSendReady } from "@/hooks/use-webrtc";
-import { reportCallUiPaint, reportIncomingCallMounted } from "@/lib/call-availability-diagnostics";
+import {
+  getIncomingCallDiagnosticId,
+  reportAnswerDiagnostic,
+  reportCallUiPaint,
+  reportIncomingCallMounted,
+} from "@/lib/call-availability-diagnostics";
 
 type MatchWithProfile = Match & { profile: Profile };
 
@@ -216,8 +221,14 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       });
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, role: "receiver" });
       console.log("[CALL_ANSWER] calling_answer_api", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
+      reportAnswerDiagnostic(match.callSessionId, "answer_api_sent", { outcome: "started" });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {
         callSessionId: match.callSessionId,
+        diagnosticId: getIncomingCallDiagnosticId(match.callSessionId),
+      });
+      reportAnswerDiagnostic(match.callSessionId, "answer_api_response", {
+        httpStatus: res.status,
+        outcome: res.ok ? "success" : "error",
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
@@ -284,6 +295,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       // Notify App.tsx that the receiver has answered on this device so
       // matchForIncoming transitions to null and ActiveCallOverlay can mount.
       onAnswer?.(answeredMatch);
+      reportAnswerDiagnostic(match.callSessionId, "answer_state_applied", { outcome: "applied" });
       console.log("[CALL_ANSWER] cache_updated_callAnswered_true — calling onDismiss", {
         matchId: match.id,
         ts: new Date().toISOString(),
@@ -438,6 +450,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       fill.style.transition  = "width 0.15s ease-out";
       thumb.style.transform  = `translate3d(${maxDx}px, 0, 0)`;
       fill.style.width       = "100%";
+      reportAnswerDiagnostic(match.callSessionId, "answer_slide_completed", { outcome: "applied" });
       answerLiveRef.current();
     };
 

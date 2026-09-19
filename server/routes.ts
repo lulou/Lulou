@@ -1410,6 +1410,11 @@ export async function registerRoutes(
       "incoming_ui_mounted",
       "caller_ringing_state",
       "call_ui_painted",
+      "answer_slide_completed",
+      "answer_api_sent",
+      "answer_api_response",
+      "answer_state_applied",
+      "active_call_mounted",
     ]),
     diagId: z.string().regex(/^[a-zA-Z0-9-]{8,40}$/),
     role: z.enum(["sender", "receiver"]),
@@ -4954,14 +4959,47 @@ export async function registerRoutes(
       const callSessionId = typeof req.body?.callSessionId === "string"
         ? req.body.callSessionId
         : null;
+      const diagnosticId = typeof req.body?.diagnosticId === "string"
+        && /^[a-zA-Z0-9-]{8,40}$/.test(req.body.diagnosticId)
+        ? req.body.diagnosticId
+        : null;
       if (!callSessionId) {
         return res.status(400).json({ message: "callSessionId is required" });
+      }
+      if (diagnosticId) {
+        recordCallAvailabilityDiagnostic({
+          event: "answer_backend_received",
+          diagId: diagnosticId,
+          role: "receiver",
+          sessionPresent: true,
+          outcome: "started",
+        });
       }
       console.log("[CALL_ANSWER] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/answer", matchId, userId, timestamp: new Date().toISOString() });
       const match = await serverStorage.answerCall(matchId, userId, callSessionId);
       if (!match) {
+        if (diagnosticId) {
+          recordCallAvailabilityDiagnostic({
+            event: "answer_backend_applied",
+            diagId: diagnosticId,
+            role: "receiver",
+            sessionPresent: true,
+            outcome: "error",
+            httpStatus: 404,
+          });
+        }
         console.log("[CALL_ANSWER] CALL_API_RESPONSE_404", { matchId, userId, reason: "answerCall returned null — match not found, user not in match, no active call, or trying to answer own call" });
         return res.status(404).json({ message: "No active call to answer — it may have been cancelled" });
+      }
+      if (diagnosticId) {
+        recordCallAvailabilityDiagnostic({
+          event: "answer_backend_applied",
+          diagId: diagnosticId,
+          role: "receiver",
+          sessionPresent: true,
+          outcome: "applied",
+          httpStatus: 200,
+        });
       }
       console.log("[CALL_ANSWER] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: match.callSessionId, userId });
       await broadcastCallEvent(matchId, {

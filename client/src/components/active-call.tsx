@@ -22,7 +22,11 @@ import {
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { reportCallUiPaint, reportCallerRingingState } from "@/lib/call-availability-diagnostics";
+import {
+  reportAnswerDiagnostic,
+  reportCallUiPaint,
+  reportCallerRingingState,
+} from "@/lib/call-availability-diagnostics";
 
 // Duration in seconds for each call stage (guided/free progression).
 // stage 0 = first voice call (10 min), stage 1 = second voice call (15 min),
@@ -325,6 +329,12 @@ export function ActiveCallOverlay({
   useEffect(() => {
     if (isRinging && isCaller) reportCallerRingingState(callSessionId);
   }, [isRinging, isCaller, callSessionId]);
+
+  useEffect(() => {
+    if (!isCaller && !isRinging && callSessionId) {
+      reportAnswerDiagnostic(callSessionId, "active_call_mounted", { outcome: "applied" });
+    }
+  }, [isCaller, isRinging, callSessionId]);
 
   useEffect(() => {
     if (!isRinging || !isCaller || !callSessionId) return;

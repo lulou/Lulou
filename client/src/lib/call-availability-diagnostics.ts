@@ -14,7 +14,12 @@ export type CallAvailabilityDiagnosticEvent =
   | "incoming_cache_updated"
   | "incoming_ui_mounted"
   | "caller_ringing_state"
-  | "call_ui_painted";
+  | "call_ui_painted"
+  | "answer_slide_completed"
+  | "answer_api_sent"
+  | "answer_api_response"
+  | "answer_state_applied"
+  | "active_call_mounted";
 
 type CallAvailabilityDiagnostic = {
   event: CallAvailabilityDiagnosticEvent;
@@ -182,5 +187,35 @@ export function reportCallUiPaint(
     overlayViewportSized: facts.viewportSized,
     overlayCenterOwned: facts.centerOwned,
     overlayVisible: facts.visible,
+  });
+}
+
+export function getIncomingCallDiagnosticId(callSessionId: string | null | undefined): string | null {
+  if (!callSessionId) return null;
+  return incomingCallCorrelations.get(callSessionId)?.diagId ?? null;
+}
+
+export function reportAnswerDiagnostic(
+  callSessionId: string | null | undefined,
+  event:
+    | "answer_slide_completed"
+    | "answer_api_sent"
+    | "answer_api_response"
+    | "answer_state_applied"
+    | "active_call_mounted",
+  details: Pick<CallAvailabilityDiagnostic, "httpStatus" | "outcome"> = {},
+): void {
+  if (!callSessionId) return;
+  const correlation = incomingCallCorrelations.get(callSessionId);
+  if (!correlation) return;
+  reportCallAvailabilityDiagnostic({
+    event,
+    diagId: correlation.diagId,
+    role: "receiver",
+    clientAt: Date.now(),
+    elapsedMs: Date.now() - correlation.receivedAt,
+    sessionPresent: true,
+    attempt: correlation.attempt,
+    ...details,
   });
 }
