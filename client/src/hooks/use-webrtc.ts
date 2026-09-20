@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { cleanupCallAudio } from "@/lib/call-audio";
+import { cleanupCallAudio, getCallAudioAuditSnapshot } from "@/lib/call-audio";
 import { configureVoiceChat } from "@/lib/audio-session";
 import { callDebug } from "@/lib/call-debug";
 import { API_BASE, getAuthHeaders, requireApiBase } from "@/lib/queryClient";
@@ -20,16 +20,41 @@ if (typeof window !== "undefined" && !(window as any).__webrtcPatched) {
       .join(" ");
     const ts = new Date().toISOString().slice(11, 23);
     window.webrtcLogs.push(`${ts} ${msg}`);
-    if (window.webrtcLogs.length > 300) window.webrtcLogs.splice(0, window.webrtcLogs.length - 300);
+    if (window.webrtcLogs.length > 800) window.webrtcLogs.splice(0, window.webrtcLogs.length - 800);
   };
+  const CALL_LOG_TAG = /^\[(?:WebRTC|CALL_|STREAM_AUDIT|SCREECH_FIX|FEEDBACK_FIX|FINAL_AUDIO_FIX|SELF_AUDIO_FIX|FINAL_CALL_FIX|PHONE_AUDIO|NATIVE_AUDIO|WEB_AUDIO_)/;
   const _intercept = (orig: (...a: any[]) => void) =>
     (...args: any[]) => {
       orig(...args);
-      if (typeof args[0] === "string" && args[0].includes("[WebRTC]")) _pushLog(...args);
+      if (typeof args[0] === "string" && CALL_LOG_TAG.test(args[0])) _pushLog(...args);
     };
   console.log = _intercept(console.log.bind(console));
   console.error = _intercept(console.error.bind(console));
   console.warn = _intercept(console.warn.bind(console));
+}
+
+interface SessionAudioAudit {
+  totalPcCreated: number;
+  activePcIds: Set<number>;
+  remoteTrackEvents: number;
+  remoteAudioTrackIds: Set<string>;
+}
+
+let _nextPcAuditId = 1;
+const _sessionAudioAudits = new Map<string, SessionAudioAudit>();
+
+function getSessionAudioAudit(callSessionId: string): SessionAudioAudit {
+  let audit = _sessionAudioAudits.get(callSessionId);
+  if (!audit) {
+    audit = {
+      totalPcCreated: 0,
+      activePcIds: new Set<number>(),
+      remoteTrackEvents: 0,
+      remoteAudioTrackIds: new Set<string>(),
+    };
+    _sessionAudioAudits.set(callSessionId, audit);
+  }
+  return audit;
 }
 
 // ICE servers fetched from the backend (TURN credentials stay server-side).
@@ -238,6 +263,7 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
   const candidateCountsRef = useRef({ host: 0, srflx: 0, relay: 0 });
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const pcAuditIdRef = useRef<number | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -289,6 +315,17 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       pcRef.current.close();
       pcRef.current = null;
     }
+    if (pcAuditIdRef.current !== null) {
+      const audit = getSessionAudioAudit(callSessionId);
+      audit.activePcIds.delete(pcAuditIdRef.current);
+      console.log("[CALL_PATH_AUDIT] peer connection released", {
+        callSessionId: callSessionId.slice(0, 12),
+        peerInstanceId: pcAuditIdRef.current,
+        totalPcCreated: audit.totalPcCreated,
+        activePcCount: audit.activePcIds.size,
+      });
+      pcAuditIdRef.current = null;
+    }
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
       channelRef.current = null;
@@ -296,7 +333,7 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
     setLocalStream(null);
     setRemoteStream(null);
     setConnectionState("closed");
-  }, []);
+  }, [callSessionId]);
 
   useEffect(() => {
     if (!enabled || !matchId || !userId) return;
@@ -315,12 +352,32 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
 
     callDebug.reset({
       callId: matchId,
+      sessionId: callSessionId,
       myUserId: userId,
       isCaller,
       isVideo,
       startedAt: new Date().toISOString().slice(11, 23),
     });
     callDebug.event("effect: webrtc enabled, init starting");
+    const nav = navigator as Navigator & { standalone?: boolean; audioSession?: { type?: string } };
+    const isStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches === true
+      || nav.standalone === true;
+    const capacitor = (window as any).Capacitor;
+    const nativeCapacitor = Boolean(
+      capacitor?.isNativePlatform?.()
+      || capacitor?.Plugins?.AudioSession,
+    );
+    console.log("[CALL_PATH_AUDIT] runtime capability", {
+      platform: navigator.platform || "not-reported",
+      standalonePwa: isStandalone,
+      capacitorPresent: Boolean(capacitor),
+      nativeCapacitor,
+      audioSessionAvailable: Boolean(nav.audioSession),
+      audioSessionType: nav.audioSession?.type ?? "not-reported",
+      setSinkIdAvailable: typeof (HTMLMediaElement.prototype as any).setSinkId === "function",
+      enumerateDevicesAvailable: typeof navigator.mediaDevices?.enumerateDevices === "function",
+      callSessionId: callSessionId.slice(0, 12),
+    });
 
     const broadcastOnChannel = async (msg: SignalPayload): Promise<void> => {
       const channel = channelRef.current;
@@ -630,6 +687,10 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       // complete its audio session category switch before capture begins, and
       // allows any in-progress tone oscillators to fully drain their buffers.
       cleanupCallAudio("webrtc_init_before_getUserMedia");
+      console.log("[CALL_PATH_AUDIT] tones and registered playback after pre-media cleanup", {
+        callSessionId: callSessionId.slice(0, 12),
+        ...getCallAudioAuditSnapshot(),
+      });
       console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, isCaller, phase: "before_getUserMedia" });
       console.log("[FINAL_AUDIO_FIX] all non-voice timers stopped before connect", { matchId, isCaller, phase: "before_getUserMedia" });
       console.log("[PHONE_AUDIO] non-call sound removed: before getUserMedia");
@@ -799,8 +860,21 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
               audioTrackIds: stream.getAudioTracks().map(t => t.id.slice(0, 12)),
               echoCancellation: (audioSettings as any).echoCancellation ?? "not-reported",
               noiseSuppression: (audioSettings as any).noiseSuppression ?? "not-reported",
+              autoGainControl: (audioSettings as any).autoGainControl ?? "not-reported",
+              channelCount: (audioSettings as any).channelCount ?? "not-reported",
+              sampleRate: (audioSettings as any).sampleRate ?? "not-reported",
+              sampleSize: (audioSettings as any).sampleSize ?? "not-reported",
               tier: i + 1,
               matchId,
+            });
+            console.log("[CALL_PATH_AUDIT] applied microphone settings", {
+              callSessionId: callSessionId.slice(0, 12),
+              echoCancellation: (audioSettings as any).echoCancellation ?? "not-reported",
+              noiseSuppression: (audioSettings as any).noiseSuppression ?? "not-reported",
+              autoGainControl: (audioSettings as any).autoGainControl ?? "not-reported",
+              channelCount: (audioSettings as any).channelCount ?? "not-reported",
+              sampleRate: (audioSettings as any).sampleRate ?? "not-reported",
+              sampleSize: (audioSettings as any).sampleSize ?? "not-reported",
             });
             return stream;
           } catch (err: any) {
@@ -951,6 +1025,17 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
         });
         try { stale.close(); } catch {}
         pcRef.current = null;
+        if (pcAuditIdRef.current !== null) {
+          const audit = getSessionAudioAudit(callSessionId);
+          audit.activePcIds.delete(pcAuditIdRef.current);
+          console.log("[CALL_PATH_AUDIT] duplicate peer connection released before replacement", {
+            callSessionId: callSessionId.slice(0, 12),
+            peerInstanceId: pcAuditIdRef.current,
+            totalPcCreated: audit.totalPcCreated,
+            activePcCount: audit.activePcIds.size,
+          });
+          pcAuditIdRef.current = null;
+        }
       }
 
       // Use the ICE servers from the parallel fetch; fall back to STUN-only if it failed.
@@ -965,6 +1050,17 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       console.log("[WebRTC] PC_CREATE_START: creating RTCPeerConnection with", iceServers.length, "ICE server(s)");
       const pc = new RTCPeerConnection({ iceServers });
       pcRef.current = pc;
+      const sessionAudit = getSessionAudioAudit(callSessionId);
+      const peerInstanceId = _nextPcAuditId++;
+      pcAuditIdRef.current = peerInstanceId;
+      sessionAudit.totalPcCreated += 1;
+      sessionAudit.activePcIds.add(peerInstanceId);
+      console.log("[CALL_PATH_AUDIT] peer connection created", {
+        callSessionId: callSessionId.slice(0, 12),
+        peerInstanceId,
+        totalPcCreated: sessionAudit.totalPcCreated,
+        activePcCount: sessionAudit.activePcIds.size,
+      });
       callDebug.event(`init: PC created (${iceServers.length} ICE server(s))`);
 
       console.log("[WebRTC] PC_CREATE_DONE — initial states:", {
@@ -990,6 +1086,20 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       callDebug.event(`init: local tracks (${stream.getTracks().map(t => t.kind).join(",")})`);
 
       pc.ontrack = (event) => {
+        const trackAudit = getSessionAudioAudit(callSessionId);
+        trackAudit.remoteTrackEvents += 1;
+        if (event.track.kind === "audio") {
+          trackAudit.remoteAudioTrackIds.add(event.track.id);
+        }
+        console.log("[CALL_PATH_AUDIT] remote track event", {
+          callSessionId: callSessionId.slice(0, 12),
+          peerInstanceId: pcAuditIdRef.current,
+          remoteTrackEvents: trackAudit.remoteTrackEvents,
+          uniqueRemoteAudioTracks: trackAudit.remoteAudioTrackIds.size,
+          trackKind: event.track.kind,
+          trackId: event.track.id.slice(0, 12),
+          streamCount: event.streams.length,
+        });
         // Snapshot local track IDs at event time so we can detect self-monitoring.
         const localTrackIds = new Set(localStreamRef.current?.getTracks().map(t => t.id) ?? []);
 
@@ -1537,6 +1647,17 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       pcRef.current.close();
       pcRef.current = null;
     }
+    if (pcAuditIdRef.current !== null) {
+      const audit = getSessionAudioAudit(callSessionId);
+      audit.activePcIds.delete(pcAuditIdRef.current);
+      console.log("[CALL_PATH_AUDIT] peer connection released", {
+        callSessionId: callSessionId.slice(0, 12),
+        peerInstanceId: pcAuditIdRef.current,
+        totalPcCreated: audit.totalPcCreated,
+        activePcCount: audit.activePcIds.size,
+      });
+      pcAuditIdRef.current = null;
+    }
     if (disconnectTimerRef.current) {
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
@@ -1557,7 +1678,7 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       }
       console.log("[WebRTC] CALL_SESSION_CLOSED - all resources released");
     }, 500);
-  }, [userId]);
+  }, [userId, callSessionId, matchId]);
 
   return {
     localStream,

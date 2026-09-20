@@ -8,6 +8,7 @@ import { useWebRTC } from "@/hooks/use-webrtc";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import {
   cleanupCallAudio,
+  getCallAudioAuditSnapshot,
   stopAllNonVoiceCallAudio,
   registerCallAudioElement,
   unregisterCallAudioElement,
@@ -608,6 +609,10 @@ export function ActiveCallOverlay({
       // pause the registered remote-voice element, which is important on
       // reconnection when the element may already be attached and playing.
       stopAllNonVoiceCallAudio("connected");
+      console.log("[CALL_PATH_AUDIT] connected tone and playback state", {
+        callSessionId: callSessionId.slice(0, 12),
+        ...getCallAudioAuditSnapshot(),
+      });
       console.log("[CALL_AUDIO_ONLY] non-voice sounds stopped on connect", { matchId, isCaller, phase: "connectionState_connected" });
       console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, isCaller, phase: "connectionState_connected" });
       console.log("[FINAL_CALL_FIX] connect beep stopped", { matchId, isCaller });
@@ -911,6 +916,22 @@ export function ActiveCallOverlay({
           streamId: remoteStream.id.slice(0, 16),
           volume: el.volume,
           muted: el.muted,
+        });
+        console.log("[CALL_PATH_AUDIT] remote playback element attached", {
+          callSessionId: callSessionId.slice(0, 12),
+          elementId: `remote-audio:${matchId}`,
+          domAudioElements: document.querySelectorAll("audio").length,
+          remoteAudioTracks: remoteStream.getAudioTracks().map(track => track.id.slice(0, 12)),
+          localAudioTracks: localStream?.getAudioTracks().map(track => track.id.slice(0, 12)) ?? [],
+          localTrackOverlap: remoteStream.getAudioTracks().some(
+            track => localStream?.getAudioTracks().some(localTrack => localTrack.id === track.id),
+          ),
+          muted: el.muted,
+          paused: el.paused,
+          volume: el.volume,
+          sinkCategory: typeof (el as any).sinkId === "string"
+            ? ((el as any).sinkId ? "non-default" : "default-or-empty")
+            : "not-exposed",
         });
         // Register with call-audio so cleanupCallAudio() can detach this element.
         registerCallAudioElement(el, `remote-audio:${matchId}`);

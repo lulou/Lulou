@@ -100,6 +100,7 @@ function buildReport(): string {
     "WebRTC", "CALL_CONNECT", "CALL_ANSWER", "CALL_TIMING",
     "CALL_SIGNAL", "SIGNAL_AUDIT", "CALLEE_FIX",
     "CALL_DEBUG", "CALL_CONTROLS", "CALL_UI",
+    "CALL_PATH_AUDIT", "WEB_AUDIO_SESSION", "WEB_AUDIO_ROUTE",
   ];
   const filteredLogs = rawLogs.filter(line =>
     FILTERS.some(tag => line.includes(`[${tag}]`))

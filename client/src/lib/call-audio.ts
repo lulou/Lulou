@@ -578,6 +578,32 @@ export function stopAllNonVoiceCallAudio(reason: string): void {
 interface VoiceElEntry { el: HTMLAudioElement | HTMLVideoElement; label: string; }
 const _voiceElements: VoiceElEntry[] = [];
 
+export interface CallAudioAuditSnapshot {
+  ringtoneActive: boolean;
+  ringtonePaused: boolean | null;
+  ringbackActive: boolean;
+  ringbackPaused: boolean | null;
+  registeredVoiceElements: number;
+  activeVoiceElements: number;
+  voiceElementLabels: string[];
+}
+
+/**
+ * Read-only state for production call diagnostics. This does not start, stop,
+ * route, or otherwise mutate audio.
+ */
+export function getCallAudioAuditSnapshot(): CallAudioAuditSnapshot {
+  return {
+    ringtoneActive: _ringtoneActive,
+    ringtonePaused: _ringtoneEl?.paused ?? null,
+    ringbackActive: _ringbackActive,
+    ringbackPaused: _ringbackEl?.paused ?? null,
+    registeredVoiceElements: _voiceElements.length,
+    activeVoiceElements: _voiceElements.filter(({ el }) => !el.paused && !el.muted).length,
+    voiceElementLabels: _voiceElements.map(({ label }) => label),
+  };
+}
+
 export function registerVoiceAudioElement(el: HTMLAudioElement | HTMLVideoElement, label: string): void {
   const dup = _voiceElements.findIndex(e => e.label === label);
   if (dup !== -1) {
