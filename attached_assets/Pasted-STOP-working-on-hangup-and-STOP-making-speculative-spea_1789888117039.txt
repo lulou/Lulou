@@ -1,0 +1,419 @@
+STOP working on hangup and STOP making speculative speaker-routing patches.
+
+The REAL iPhone production test has failed again.
+
+Current live behavior:
+
+- The iPhone remains stuck on loudspeaker.
+- Tapping Speaker does NOT move audio between receiver and loudspeaker.
+- During the connected call there is still loud beeping / screeching / echo-like feedback.
+- This still happens even when I physically separate the iPhone and laptop to avoid ordinary acoustic feedback.
+
+So this is NOT simply “the devices were too close together.”
+
+We need to diagnose the ACTUAL audio path.
+
+==================================================
+1. DO NOT CLAIM setSinkId() FIXES IPHONE ROUTING
+==================================================
+
+First establish the real platform capability.
+
+This is an installed iPhone PWA / Safari-based app, NOT a native iOS application.
+
+Do not assume:
+
+HTMLMediaElement.setSinkId()
+
+can force:
+
+- iPhone receiver
+- iPhone loudspeaker
+
+the same way a native AVAudioSession can.
+
+Feature-detect the actual running environment.
+
+Log safely:
+
+platform
+standalone/PWA yes/no
+Capacitor native yes/no
+setSinkId available yes/no
+enumerateDevices available yes/no
+selected sink device ID category if exposed
+route-switch result success/failure
+
+Do NOT fake a successful route change.
+
+If iOS PWA does not expose receiver/loudspeaker selection, say so clearly and keep the UI truthful.
+
+==================================================
+2. FIND THE SOURCE OF THE SCREECHING / BEEPING FIRST
+==================================================
+
+The biggest problem now is the horrible audio feedback/beeping.
+
+The two devices were physically separated and it still happened.
+
+Audit ALL audio sources during one call.
+
+There must be exactly:
+
+CALLER:
+- one local microphone stream
+- one outgoing audio track
+- one remote incoming audio stream
+- one remote playback element
+
+CALLEE:
+- same structure
+
+There must NOT be:
+
+- duplicate remote <audio> elements
+- the same MediaStream attached to multiple players
+- duplicate ontrack handlers attaching the same track twice
+- multiple RTCPeerConnections for one call
+- ringtone continuing after answer
+- outgoing ringback continuing after connection
+- notification sound continuing after connection
+- local microphone stream being played back locally
+- remote stream accidentally fed back into outgoing connection
+
+==================================================
+3. AUDIT EVERY AUDIO ELEMENT
+==================================================
+
+Search the entire application for:
+
+new Audio(...)
+<audio>
+AudioContext
+createMediaStreamSource
+srcObject
+play()
+ringtone
+ringback
+incoming call sound
+remote audio
+call audio
+
+During ONE call, instrument every audio instance with a safe ID.
+
+Example:
+
+ringtone-1
+ringback-1
+remote-audio-call-{callId}
+
+At connected state there should be:
+
+ringtone = stopped
+ringback = stopped
+only one remote-call audio player active per device
+
+If there are two remote players, fix that before doing anything else.
+
+==================================================
+4. RINGTONE/RINGBACK MUST STOP AT ANSWER
+==================================================
+
+When recipient answers:
+
+recipient ringtone must stop IMMEDIATELY.
+
+When caller receives accepted/connecting state:
+
+caller ringback must stop IMMEDIATELY.
+
+By the time WebRTC reaches connected:
+
+NO ringtone
+NO ringback
+NO notification sound
+
+may still be playing.
+
+Add assertions around this.
+
+==================================================
+5. MAKE CALL AUDIO SESSION SINGLETON PER callId
+==================================================
+
+One authoritative call session must own one audio session.
+
+Use callId as identity.
+
+For each callId allow:
+
+- one RTCPeerConnection
+- one local MediaStream
+- one remote MediaStream
+- one remote playback element
+- one ringtone/ringback lifecycle
+
+If React remounts:
+
+DO NOT create a second peer/audio player for the same call.
+
+Reuse or safely transfer ownership.
+
+==================================================
+6. CHECK FOR DUPLICATE SIGNALING / PEER CONNECTIONS
+==================================================
+
+The application has previously produced duplicate call-history events and stale call overlays.
+
+Therefore explicitly check whether one Start Call is creating:
+
+- multiple call sessions
+- multiple signaling subscriptions
+- multiple RTCPeerConnection objects
+- multiple offers/answers
+- multiple ICE listeners
+
+Add safe logs:
+
+callId
+peerInstanceId
+signalingSubscriptionId
+remoteTrackId
+remoteStreamId
+remoteAudioElementId
+
+For ONE call there should be one coherent set.
+
+==================================================
+7. LOCAL MIC MUST NEVER PLAY LOCALLY
+==================================================
+
+Check that the local getUserMedia stream is NOT attached to an audible local <audio> element.
+
+The user should not hear their own microphone directly through Lulou.
+
+Local audio is for transmission only.
+
+If local monitoring exists anywhere, remove it.
+
+==================================================
+8. REMOTE TRACK DEDUPLICATION
+==================================================
+
+When `peerConnection.ontrack` fires:
+
+dedupe by:
+
+callId + track.id
+
+Do not append the same remote track repeatedly.
+
+One remote audio track should not cause multiple playback elements.
+
+Ensure old remote tracks from previous calls are removed.
+
+==================================================
+9. WEBRTC ECHO CANCELLATION SETTINGS
+==================================================
+
+For microphone capture, request appropriate constraints such as:
+
+echoCancellation: true
+noiseSuppression: true
+autoGainControl: true
+
+only where supported.
+
+Verify what iPhone actually returns via track.getSettings().
+
+Do not assume requested constraints were applied.
+
+Do not over-process audio if browser handles it natively.
+
+==================================================
+10. DO NOT CREATE AUDIO FEEDBACK THROUGH Web Audio
+==================================================
+
+If AudioContext is being used:
+
+audit the graph.
+
+Remote input must NOT accidentally connect into:
+
+microphone output
+peer outgoing stream
+multiple destinations
+
+Keep Web Audio out of the path unless actually necessary.
+
+==================================================
+11. IPHONE AUDIO ROUTING — BE TRUTHFUL
+==================================================
+
+We have two possible environments:
+
+A. Native Capacitor app with a real native audio-session plugin
+B. Installed Safari/Home Screen PWA
+
+Detect which one is actually running.
+
+For native Capacitor:
+use the existing supported native audio-session route implementation.
+
+For plain iPhone PWA:
+do NOT claim receiver/loudspeaker switching is available unless the browser genuinely exposes and successfully applies it.
+
+If PWA cannot programmatically switch:
+
+- do not show a fake working Speaker toggle
+- use the browser/iOS-supported route
+- explain the limitation in the final report
+
+Do NOT redesign the whole call UI yet.
+
+==================================================
+12. IMPORTANT PRODUCT DECISION
+==================================================
+
+If reliable:
+
+receiver ↔ loudspeaker
+
+routing is impossible in the installed PWA but is required for Lulou's product experience, report that clearly.
+
+That may mean this specific feature ultimately requires the Capacitor/native iOS build rather than browser-only APIs.
+
+Do not hack around an OS restriction.
+
+==================================================
+13. TEST WITHOUT THE SPEAKER TOGGLE FIRST
+==================================================
+
+Before testing routing again:
+
+establish ONE clean call.
+
+Test:
+
+- one caller
+- one callee
+- ringtone stops
+- ringback stops
+- WebRTC connects
+- remote audio plays exactly once
+- no beeping
+- no screeching
+- no duplicate audio
+- no self-monitoring
+
+Do NOT proceed to receiver/speaker switching until the basic audio call is clean.
+
+==================================================
+14. THEN TEST ROUTING CAPABILITY
+==================================================
+
+Only after clean audio:
+
+On the actual iPhone:
+
+1. identify actual runtime:
+  PWA or native Capacitor
+
+2. inspect available audio-routing API
+
+3. attempt receiver route if genuinely supported
+
+4. verify actual audible route physically
+
+5. attempt loudspeaker route
+
+6. verify physically
+
+Do not mark PASS based on a method resolving a Promise.
+
+PASS means the sound ACTUALLY moved.
+
+==================================================
+15. DO NOT TOUCH THESE YET
+==================================================
+
+Do not change:
+
+- call timer
+- hangup logic
+- availability
+- message quotas
+- call stage progression
+- voice-note unlocking
+- payments
+- profile
+- Discover
+
+We are isolating CALL AUDIO only.
+
+==================================================
+16. REQUIRED REAL TEST
+==================================================
+
+Use:
+
+- actual iPhone installed Lulou
+- second device physically separated
+
+Test one call.
+
+Report:
+
+RINGTONE:
+- starts yes/no
+- stops on answer yes/no
+
+RINGBACK:
+- starts yes/no
+- stops on answer yes/no
+
+WEBRTC:
+- one peer connection per device yes/no
+- one remote audio track yes/no
+- one remote audio element yes/no
+
+AUDIO:
+- A hears B cleanly yes/no
+- B hears A cleanly yes/no
+- self voice feedback yes/no
+- beeping yes/no
+- screeching yes/no
+- echo yes/no
+
+ROUTING:
+- actual runtime PWA/native
+- receiver switching API genuinely supported yes/no
+- loudspeaker switching genuinely supported yes/no
+- actual physical receiver route verified yes/no
+- actual physical loudspeaker route verified yes/no
+
+==================================================
+17. FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact source of the beeping/screeching
+2. number of RTCPeerConnections created for one call before/after
+3. number of remote audio tracks before/after
+4. number of remote audio playback elements before/after
+5. whether ringtone remained active after answer
+6. whether ringback remained active after answer
+7. whether local microphone was being locally monitored
+8. echoCancellation/noiseSuppression/autogain actual iPhone settings
+9. actual runtime: PWA or native Capacitor
+10. actual iPhone output-routing APIs available
+11. whether setSinkId genuinely changes physical iPhone output
+12. clean two-way audio real-device result
+13. receiver-route physical result
+14. loudspeaker-route physical result
+15. files changed
+16. production commit
+17. live Vercel/Railway revision
+
+DO NOT continue to hangup/timer work until a clean two-way audio call works without beeping, screeching or duplicate playback.
