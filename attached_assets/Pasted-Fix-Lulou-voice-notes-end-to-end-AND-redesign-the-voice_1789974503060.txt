@@ -1,0 +1,576 @@
+Fix Lulou voice notes end-to-end AND redesign the voice-note experience so it feels like a premium iOS messaging app, without breaking any unrelated chat, call, progression, or entitlement logic.
+
+CURRENT LIVE PROBLEMS:
+
+1. Voice notes still do NOT send through reliably.
+2. The receiving user often cannot listen to them.
+3. Playback shows “Retry” instead of actually playing.
+4. The current voice-note UI looks too Android-like.
+5. I want the voice-note experience to feel much closer to polished iOS messaging apps.
+6. Do NOT copy another app pixel-for-pixel, but use familiar iOS messaging conventions:
+  - compact rounded audio bubble
+  - waveform/progress treatment
+  - play/pause control
+  - duration
+  - smooth sending state
+  - polished retry state
+  - subtle premium motion
+  - native-feeling spacing/touch targets
+
+==================================================
+PART A — FIX THE ACTUAL VOICE-NOTE DELIVERY FAILURE
+==================================================
+
+Do NOT start by restyling.
+
+First find why the recipient gets a voice note that cannot play and shows “Retry”.
+
+Trace the exact live production pipeline:
+
+mic press
+→ microphone permission
+→ MediaRecorder start
+→ chunks collected
+→ stop
+→ Blob created
+→ MIME determined
+→ upload
+→ server processing/transcode if applicable
+→ final storage object
+→ final playable URL
+→ message row
+→ realtime delivery
+→ recipient audio element
+→ playback
+
+Find the FIRST failing point.
+
+==================================================
+1. AUDIT THE “RETRY” FAILURE
+==================================================
+
+When recipient taps a voice note and gets Retry, determine exactly which condition produced that UI.
+
+Check:
+
+- URL missing
+- storage object missing
+- signed URL expired
+- HTTP 401/403
+- HTTP 404
+- unsupported audio codec
+- zero-byte file
+- corrupted file
+- transcode still processing
+- wrong MIME
+- wrong extension
+- CORS issue
+- audio element error
+- Safari decode failure
+- stale temporary/local URL sent instead of permanent URL
+
+Do not leave “Retry” as a generic catch-all.
+
+Log the actual playback failure category safely.
+
+==================================================
+2. IPHONE RECORDING FORMAT
+==================================================
+
+Do not assume WebM works correctly on iPhone.
+
+Use real capability detection.
+
+Prefer an iPhone/Safari-compatible source format where available:
+
+audio/mp4
+audio/x-m4a
+audio/aac
+
+Use:
+MediaRecorder.isTypeSupported()
+
+Only use webm/opus where actually supported.
+
+After recording, ensure these all agree:
+
+- MediaRecorder.mimeType
+- Blob.type
+- uploaded Content-Type
+- file extension
+- server processing expectations
+- final playback format
+
+==================================================
+3. TRANSCODING
+==================================================
+
+The existing system previously had an M4A/transcoding path.
+
+Audit whether it is actually working in production.
+
+Trace:
+
+source upload
+→ transcode starts
+→ transcode succeeds/fails
+→ final M4A/object written
+→ final URL persisted
+→ message published
+
+Do NOT publish the final voice-note message before the playable asset actually exists.
+
+If processing is asynchronous, use a proper state such as:
+
+processing
+→ ready
+
+Recipient must not receive a supposedly playable message pointing to an unfinished asset.
+
+==================================================
+4. STORAGE URL
+==================================================
+
+Ensure the message stores a durable playback reference.
+
+Do not persist:
+
+- blob: URLs
+- device-local URLs
+- expired short-lived URLs as permanent message data
+
+If using private Supabase storage:
+
+store stable object path/key
+and resolve a fresh signed URL when needed.
+
+If using public storage:
+verify correct public URL.
+
+==================================================
+5. PLAYBACK ERROR HANDLING
+==================================================
+
+When playback fails, capture:
+
+audio.error.code
+networkState
+readyState
+HTTP/storage failure if known
+MIME
+source type
+
+Then map to a meaningful retry path.
+
+Retry should:
+
+- resolve/refetch the media URL
+- reload audio
+- retry playback
+
+It must NOT resend the whole voice note or create another chat message.
+
+==================================================
+6. IDEMPOTENT SEND
+==================================================
+
+Each recording gets one stable clientVoiceNoteId / request ID.
+
+Retries must not create:
+
+- duplicate uploads
+- duplicate message rows
+- duplicate realtime events
+
+==================================================
+7. MESSAGE MUST ONLY BECOME “SENT” WHEN PLAYABLE
+==================================================
+
+Sender bubble states:
+
+recording
+→ processing
+→ sending
+→ sent
+
+Do not mark “sent” merely because the initial upload request returned.
+
+“Sent” means:
+
+- final playable asset exists
+- message row references it
+- recipient can resolve it
+
+==================================================
+PART B — MAKE THE VOICE-NOTE UI FEEL LIKE IOS
+==================================================
+
+Once delivery is fixed, redesign ONLY the voice-note experience.
+
+Do not redesign the rest of chat.
+
+The current implementation feels too Android-like.
+
+Use premium iOS messaging conventions.
+
+==================================================
+8. OUTGOING VOICE-NOTE BUBBLE
+==================================================
+
+Create a compact rounded Lulou voice-note bubble containing:
+
+[ Play/Pause ] [ waveform/progress ] [ duration ]
+
+Do not use chunky cards or oversized Material-style controls.
+
+Use:
+
+- soft continuous corner radius
+- compact vertical height
+- balanced horizontal padding
+- subtle Lulou wine/blush styling
+- familiar iOS proportions
+- minimum 44px tappable play control without visually looking huge
+
+==================================================
+9. INCOMING VS OUTGOING
+==================================================
+
+Incoming:
+- light/neutral Lulou surface
+- dark readable waveform/text
+
+Outgoing:
+- existing approved Lulou message accent treatment
+
+Keep it consistent with the existing message composer and bubble language.
+
+Do NOT introduce bright Android greens/blues.
+
+==================================================
+10. WAVEFORM
+==================================================
+
+Use a restrained waveform/progress visualization.
+
+It should:
+
+- represent the recording visually
+- show played vs unplayed progress
+- animate/update smoothly while playing
+- remain lightweight
+
+If real waveform amplitudes are available, use them.
+
+If not, generate one deterministic visual representation from duration/data once.
+
+Do NOT randomize the waveform on every render.
+
+==================================================
+11. PLAY / PAUSE
+==================================================
+
+Single circular play/pause control.
+
+Tap:
+→ starts playback
+
+Tap while playing:
+→ pauses
+
+Resume:
+→ continues from current position
+
+Starting another voice note should pause the currently playing one.
+
+Do not allow multiple voice notes to play on top of each other.
+
+==================================================
+12. SCRUBBING
+==================================================
+
+If implemented, waveform/progress area can support seeking.
+
+Use Pointer Events with iPhone touch support.
+
+If seeking would risk stability, prioritize reliable play/pause first.
+
+==================================================
+13. DURATION
+==================================================
+
+Show:
+
+0:05
+0:21
+1:14
+
+etc.
+
+Before playback:
+show total duration.
+
+During playback:
+either show elapsed or remaining time using one consistent iOS-like behavior.
+
+No NaN.
+No 0:00 permanently because metadata failed.
+
+==================================================
+14. SENDING STATE
+==================================================
+
+Immediately after recording:
+
+show the voice-note bubble optimistically in place.
+
+Use subtle state:
+
+Processing…
+Sending…
+
+No giant spinner.
+
+When ready:
+normal duration appears.
+
+If failed:
+show a small retry icon/label inside the same bubble.
+
+Do not replace the whole message with an ugly error card.
+
+==================================================
+15. RETRY UI
+==================================================
+
+The current “Retry” experience is not acceptable as the normal playback result.
+
+Differentiate:
+
+SEND FAILURE:
+→ retry upload/send
+
+PLAYBACK FAILURE:
+→ retry loading/resolving the audio asset
+
+The user should not have to understand the technical difference, but the code must.
+
+Use a subtle iOS-like retry icon/label.
+
+==================================================
+16. RECORDING EXPERIENCE
+==================================================
+
+Make recording feel native and polished.
+
+When mic is activated:
+
+- immediate haptic-style visual response
+- elapsed recording time
+- subtle waveform/level response
+- clear cancel affordance
+- clear send/finish behavior
+
+Do NOT use a bulky Android Material recorder panel.
+
+Keep it integrated into the existing compact ChatGPT-like composer.
+
+==================================================
+17. DO NOT BREAK THE COMPOSER
+==================================================
+
+Preserve the existing requirements:
+
+- icons remain inside composer
+- return sends text
+- textarea grows naturally
+- keyboard remains stable
+- latest message remains visible
+- conversation starters unaffected
+
+Voice-note changes must not cause keyboard/layout regressions.
+
+==================================================
+18. IOS TOUCH BEHAVIOR
+==================================================
+
+Test on the installed iPhone PWA.
+
+Support:
+
+pointerdown
+pointerup
+pointercancel
+
+plus safe touch fallback where needed.
+
+A released gesture must never leave the mic stuck in recording/processing state.
+
+==================================================
+19. AUDIO SESSION CLEANUP
+==================================================
+
+After recording completes/cancels/fails:
+
+- stop microphone tracks
+- release MediaRecorder
+- clear temporary object URLs
+- clear timers
+- clear stale chunks
+
+After playback:
+do not leave unnecessary Audio objects or streams alive.
+
+==================================================
+20. REALTIME DELIVERY
+==================================================
+
+When the voice note reaches ready/sent state:
+
+recipient should receive it immediately.
+
+No refresh.
+No reopening chat.
+No long polling delay.
+
+==================================================
+21. REAL DEVICE ACCEPTANCE TEST
+==================================================
+
+Test with:
+
+A = actual iPhone installed Lulou PWA
+B = laptop/browser
+
+TEST 1:
+A records 5-second note.
+B receives it.
+B taps play.
+B hears it correctly.
+
+TEST 2:
+B records 5-second note.
+A receives it.
+A taps play.
+A hears it correctly.
+
+TEST 3:
+A records 1-second note.
+
+TEST 4:
+A records 30-second note.
+
+TEST 5:
+Pause/resume playback.
+
+TEST 6:
+Play one voice note, then start another.
+First must stop/pause.
+
+TEST 7:
+Temporary network failure.
+Retry must recover without duplicate message.
+
+TEST 8:
+Navigate away and back.
+Existing voice note still plays.
+
+TEST 9:
+Reload app.
+Existing voice note still resolves and plays.
+
+==================================================
+22. DO NOT CHANGE
+==================================================
+
+Do NOT change:
+
+- voice-note entitlement rule
+- first-call completion logic
+- message quotas
+- audio/video call system
+- payments
+- Discover
+- Intent Wheel
+- Likes
+- Connections
+- profile
+- general chat message styling beyond voice-note bubbles
+
+Voice notes still unlock ONLY after the first valid included audio call completes.
+
+==================================================
+23. SAFE DIAGNOSTICS
+==================================================
+
+Add safe temporary logs:
+
+voice_note_record_start
+voice_note_record_stop
+voice_note_source_mime
+voice_note_blob_bytes
+voice_note_upload_start
+voice_note_upload_complete
+voice_note_transcode_start
+voice_note_transcode_complete
+voice_note_storage_key
+voice_note_message_ready
+voice_note_realtime_received
+voice_note_play_attempt
+voice_note_play_success
+voice_note_play_failure_category
+
+Do NOT log:
+- actual audio
+- auth tokens
+- signed URL secrets
+- private content
+
+==================================================
+24. PRODUCTION VERIFICATION
+==================================================
+
+Do not claim complete because local tests pass.
+
+After fix:
+
+- build
+- regression tests
+- GitHub main
+- Vercel verification
+- Railway verification
+- actual iPhone ↔ laptop test
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact reason recipient was seeing Retry
+2. exact playback failure category
+3. actual iPhone source recording format
+4. whether transcoding was involved and whether it was broken
+5. storage reference strategy
+6. exact send pipeline fix
+7. exact playback fix
+8. retry behavior
+9. duplicate/idempotency protection
+10. iOS voice-note UI changes
+11. files changed
+12. tests
+13. production commit
+14. live Vercel/Railway revision
+15. REAL DEVICE RESULT:
+  - iPhone → laptop send PASS/FAIL
+  - laptop → iPhone send PASS/FAIL
+  - iPhone playback PASS/FAIL
+  - laptop playback PASS/FAIL
+  - 1-second note PASS/FAIL
+  - 30-second note PASS/FAIL
+  - pause/resume PASS/FAIL
+  - second-note playback arbitration PASS/FAIL
+  - retry without duplicate PASS/FAIL
+  - reload playback PASS/FAIL
+
+Do not finish until voice notes are actually playable on the receiving device and the finished UI feels like a polished iOS messaging experience rather than an Android-style recorder.

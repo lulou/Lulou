@@ -55,6 +55,7 @@ import {
   getCommunicationStateStyle,
   type CommunicationControlState,
 } from "@/components/communication-control";
+import { VoiceNote } from "@/components/voice-note";
 
 const MAX_MESSAGES_PER_USER = 15;
 // Stage 1 (post-first-call) quota per spec: 12 messages each way.
@@ -594,6 +595,7 @@ type PendingVoiceNote = {
   blob: Blob;
   mimeType: string;
   tStart: number;
+  recordedDuration: number;
   status: "sending" | "failed";
 };
 
@@ -816,261 +818,6 @@ function VoiceDebugPanel({
       <pre style={{ margin: 0, padding: "4px 8px 8px", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
         {allText}
       </pre>
-    </div>
-  );
-}
-
-// Module-level coordinator: only one VoiceNoteBubble plays at a time.
-// When a bubble starts playing it stores its pause callback here.
-// The next bubble to start will call it first, pausing the previous.
-let _vnGlobalPause: (() => void) | null = null;
-
-function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
-  url: string;
-  isMe: boolean;
-  status?: "sending" | "failed";
-  onRetry?: () => void;
-  onLoadStateChange?: (state: string, url: string) => void;
-}) {
-  const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  // "loading" = waiting for metadata; "ready" = playable; "retrying" = CDN not ready yet; "error" = gave up
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "retrying" | "error">("loading");
-  // Incrementing this key remounts the <audio> element, forcing a fresh network request on retry
-  const [audioKey, setAudioKey] = useState(0);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const tLoadStartRef = useRef(Date.now());
-  // Direct ref to the audio element — avoids fragile document.getElementById lookups
-  // which silently return null if the element isn't in the DOM at the exact moment of query.
-  const audioRef = useRef<HTMLAudioElement>(null);
-  // Stable ref to this bubble's pause callback — registered in the global coordinator on play.
-  const myPauseRef = useRef<() => void>(() => { audioRef.current?.pause(); });
-
-  // Reset load state whenever the URL or status changes (e.g. optimistic → real message)
-  useEffect(() => {
-    setLoadState("loading");
-    setDuration(0);
-    setCurrentTime(0);
-    setPlaying(false);
-    retryCountRef.current = 0;
-    tLoadStartRef.current = Date.now();
-    setAudioKey(k => k + 1);
-    return () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
-  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Report load state changes to parent debug panel (noop when not in debug mode)
-  useEffect(() => {
-    console.log(`[VOICE_NOTE_PIPELINE] playback loadState="${loadState}" url="${url.slice(0, 60)}"`);
-    onLoadStateChange?.(loadState, url);
-  }, [loadState]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleAudioError = (e: React.SyntheticEvent<HTMLAudioElement>) => {
-    // While the bubble is in "sending" state, the blob URL is always valid — suppress.
-    if (status === "sending") return;
-    const a = e.target as HTMLAudioElement;
-    const mediaErr = a.error;
-    const errCode = mediaErr?.code ?? -1;
-    const errMsg = mediaErr?.message ?? "unknown";
-    console.error(`[VOICE_NOTE_PLAYBACK] error code=${errCode} message="${errMsg}" src="${url.slice(0, 80)}" readyState=${a.readyState} networkState=${a.networkState}`);
-    // For real CDN URLs, Supabase storage edge propagation can take a moment.
-    // Exponential backoff: fast first retry (500ms), backing off to 4s max.
-    const RETRY_DELAYS_MS = [500, 800, 1500, 2500, 4000];
-    const MAX_RETRIES = RETRY_DELAYS_MS.length;
-    if (retryCountRef.current < MAX_RETRIES) {
-      const delayMs = RETRY_DELAYS_MS[retryCountRef.current];
-      retryCountRef.current += 1;
-      console.log(`[VOICE_NOTE_PIPELINE] playback failed (code=${errCode} msg="${errMsg}") — retry ${retryCountRef.current}/${MAX_RETRIES} in ${delayMs}ms url="${url.slice(0, 60)}"`);
-      setLoadState("retrying");
-      retryTimerRef.current = setTimeout(() => {
-        setAudioKey(k => k + 1); // remounts <audio>, triggers a fresh fetch of the CDN URL
-      }, delayMs);
-    } else {
-      console.error(`[VOICE_NOTE_PIPELINE] playback failed permanently (code=${errCode} msg="${errMsg}") after ${MAX_RETRIES} retries url="${url.slice(0, 60)}"`);
-      setLoadState("error");
-    }
-  };
-
-  // Toggle play/pause.
-  // Uses audioRef (direct React ref) — NOT document.getElementById, which was the previous
-  // silent-failure point: getElementById returned null whenever the element hadn't yet been
-  // committed to the DOM (key change cycle) or when multiple bubbles shared the same ID.
-  const toggle = () => {
-    const a = audioRef.current;
-    console.log(`[VOICE_NOTE_PLAYBACK] play tapped — ref=${a ? "ok" : "NULL"} playing=${playing} loadState=${loadState} src="${url.slice(0, 80)}"`);
-    if (!a) {
-      console.error("[VOICE_NOTE_PLAYBACK] audio ref is null — element not mounted yet");
-      return;
-    }
-    console.log(`[VOICE_NOTE_PLAYBACK] audio src="${a.src.slice(0, 80)}" readyState=${a.readyState} networkState=${a.networkState} paused=${a.paused}`);
-    if (playing) {
-      a.pause();
-    } else {
-      // Pause any other currently playing voice note first (one-at-a-time policy).
-      if (_vnGlobalPause && _vnGlobalPause !== myPauseRef.current) {
-        _vnGlobalPause();
-      }
-      _vnGlobalPause = myPauseRef.current;
-      // On iOS, play() triggers the audio load (since preload is effectively "none").
-      // onLoadedMetadata fires when ready → loadState becomes "ready" → duration appears.
-      console.log("[VOICE_NOTE_PLAYBACK] play() called");
-      a.play().then(() => {
-        console.log("[VOICE_NOTE_PLAYBACK] play() resolved — playback started");
-      }).catch((playErr: Error) => {
-        console.error(`[VOICE_NOTE_PLAYBACK] play() rejected: ${playErr.name}: ${playErr.message}`);
-        // Any rejection is visible — show error state so user can tap to retry
-        setLoadState("error");
-      });
-    }
-  };
-
-  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-  const progress = duration > 0 ? currentTime / duration : 0;
-  // Remaining time (for display while playing, iMessage-style)
-  const remaining = duration > 0 ? Math.max(0, duration - currentTime) : 0;
-  // Show play button even while uploading (blob URL is immediately playable by the sender).
-  // Only hide for hard failures. iOS requires a user gesture to trigger audio loading.
-  const showPlayBtn = status !== "failed" && loadState !== "error";
-
-  return (
-    <div
-      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl min-w-[180px] max-w-[240px] ${
-        isMe ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
-      }`}
-      data-testid="voice-note-bubble"
-    >
-      {/* Audio element — always rendered (even during "sending") so the sender can tap play
-          on the local blob URL before the CDN upload completes.
-          ref={audioRef} gives toggle() a direct React handle — no getElementById needed.
-          preload="auto" is set but iOS Safari ignores it; actual load starts on play(). */}
-      <audio
-        ref={audioRef}
-        key={audioKey}
-        src={url}
-        preload="auto"
-        onPlay={() => { console.log("[VOICE_NOTE_PLAYBACK] canplay fired — audio is playing"); setPlaying(true); }}
-        onPause={() => { setPlaying(false); if (_vnGlobalPause === myPauseRef.current) _vnGlobalPause = null; }}
-        onEnded={() => { setPlaying(false); setCurrentTime(0); if (_vnGlobalPause === myPauseRef.current) _vnGlobalPause = null; }}
-        onLoadedMetadata={e => {
-          const d = (e.target as HTMLAudioElement).duration || 0;
-          const loadMs = Date.now() - tLoadStartRef.current;
-          console.log(`[VOICE_NOTE_PLAYBACK] canplay fired — loadedMetadata duration=${d.toFixed(2)}s loadMs=${loadMs}ms`);
-          console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
-          setDuration(d);
-          setLoadState("ready");
-        }}
-        onCanPlay={e => {
-          // Backup for iOS: canplay fires when enough data is available to start playback.
-          // This can fire instead of / before loadedmetadata on some iOS Safari versions.
-          if (loadState !== "ready") {
-            const d = (e.target as HTMLAudioElement).duration || 0;
-            const loadMs = Date.now() - tLoadStartRef.current;
-            console.log(`[VOICE_NOTE_PLAYBACK] canplay fired — canPlay duration=${d.toFixed(2)}s loadMs=${loadMs}ms`);
-            console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
-            setDuration(d);
-            setLoadState("ready");
-          }
-        }}
-        onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-        onError={handleAudioError}
-        style={{ display: "none" }}
-      />
-
-      {status === "failed" ? (
-        /* ── Upload failed — user can retry ── */
-        <>
-          <button
-            onClick={e => { e.stopPropagation(); onRetry?.(); }}
-            className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
-            data-testid="button-voice-note-retry"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] opacity-70">Failed — tap to retry</p>
-          </div>
-          <Mic className="w-3 h-3 shrink-0 opacity-40" />
-        </>
-      ) : loadState === "error" ? (
-        /* ── Hard error after retries exhausted ── */
-        <>
-          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}>
-            <button
-              onClick={e => { e.stopPropagation(); retryCountRef.current = 0; setAudioKey(k => k + 1); setLoadState("loading"); }}
-              data-testid="button-voice-note-reload"
-              title="Reload"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] opacity-60 italic">Tap to reload</p>
-          </div>
-          <Mic className="w-3 h-3 shrink-0 opacity-40" />
-        </>
-      ) : showPlayBtn ? (
-        /* ── Play / loading / ready / sending state ──
-           The play button is shown even while uploading so the sender can listen immediately.
-           While loading (CDN not ready yet), a subtle spinner overlays the icon.
-           A pulsing badge in the corner indicates the upload is still in progress. */
-        <>
-          <div className="relative shrink-0">
-            <button
-              onClick={e => { e.stopPropagation(); toggle(); }}
-              className="w-7 h-7 rounded-full flex items-center justify-center"
-              style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)", transition: "opacity 120ms ease" }}
-              data-testid="button-voice-note-play"
-            >
-              {playing ? (
-                <Pause className="w-3.5 h-3.5" />
-              ) : loadState === "loading" || loadState === "retrying" ? (
-                <Play className="w-3.5 h-3.5 opacity-60" />
-              ) : (
-                <Play className="w-3.5 h-3.5" />
-              )}
-            </button>
-            {/* Spinner overlay while loading from CDN */}
-            {(loadState === "loading" || loadState === "retrying") && !playing && (
-              <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <Loader2 className="w-6 h-6 animate-spin opacity-25" />
-              </span>
-            )}
-            {/* Pulsing upload-in-progress badge */}
-            {status === "sending" && (
-              <span
-                className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full animate-pulse pointer-events-none"
-                style={{ background: isMe ? "rgba(255,255,255,0.75)" : "hsl(var(--primary))" }}
-              />
-            )}
-          </div>
-          <div className="flex-1 min-w-0 space-y-1">
-            <div
-              className="h-1 rounded-full overflow-hidden"
-              style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
-            >
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${progress * 100}%`,
-                  background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
-                  transition: "width 0.2s linear",
-                }}
-              />
-            </div>
-            <p className="text-[10px] opacity-55 font-mono tabular-nums">
-              {status === "sending" && !playing
-                ? "Sending…"
-                : playing
-                ? fmt(remaining)
-                : fmt(duration || 0)}
-            </p>
-          </div>
-          <Mic className="w-3 h-3 shrink-0 opacity-40" />
-        </>
-      ) : null}
     </div>
   );
 }
@@ -2023,7 +1770,25 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     placeholderData: (prev) => prev,
   });
 
-  const { broadcastNewMessage, broadcastDateChoice } = useRealtimeMessages(match.id, expanded, onVoiceNoteUnlock);
+  const handleRealtimeMessage = useCallback((incoming: Message) => {
+    if (!incoming.content?.startsWith(VOICE_PREFIX)) return;
+    const matched = pendingVoiceNotesRef.current.some(note =>
+      incoming.content.includes(`voice_${note.tempId}.m4a`),
+    );
+    if (matched) {
+      setPendingVoiceNotes(prev => prev.filter(note =>
+        !incoming.content.includes(`voice_${note.tempId}.m4a`),
+      ));
+    }
+  }, []);
+
+  const { broadcastNewMessage, broadcastDateChoice } = useRealtimeMessages(
+    match.id,
+    expanded,
+    onVoiceNoteUnlock,
+    undefined,
+    handleRealtimeMessage,
+  );
 
   // ── AI Conversation Starters ──────────────────────────────────────────────
   const aiStartersEnabled = localStorage.getItem("settings_conversation_starter_ai") !== "false";
@@ -3030,6 +2795,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const waveformRafRef = useRef<number | null>(null);
   const waveformBarEls = useRef<HTMLDivElement[]>([]);
   const [pendingVoiceNotes, setPendingVoiceNotes] = useState<PendingVoiceNote[]>([]);
+  const pendingVoiceNotesRef = useRef<PendingVoiceNote[]>([]);
+  useEffect(() => { pendingVoiceNotesRef.current = pendingVoiceNotes; }, [pendingVoiceNotes]);
   const pendingVoiceRetryIdsRef = useRef(new Set<string>());
   useLayoutEffect(() => {
     if (expanded && isAtBottomRef.current) scheduleBottomAnchor("pending-voice-note");
@@ -3167,10 +2934,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           // Show bubble IMMEDIATELY — upload happens in background
           console.log(`[VOICE_NOTE_SEND] optimistic bubble shown tempId=${tempId}`);
           addDbg(`optimistic bubble shown, calling mutate`);
-          setPendingVoiceNotes(prev => [...prev, { tempId, blobUrl, blob, mimeType: capturedMimeType, tStart, status: "sending" }]);
+          setPendingVoiceNotes(prev => [...prev, { tempId, blobUrl, blob, mimeType: capturedMimeType, tStart, recordedDuration: durationMs, status: "sending" }]);
           forceScrollRef.current = isAtBottomRef.current;
           setVoicePhase("sending");
-          sendVoiceNote.mutate({ tempId, blobUrl, blob, mimeType: capturedMimeType, tStart });
+          sendVoiceNote.mutate({ tempId, blobUrl, blob, mimeType: capturedMimeType, tStart, recordedDuration: durationMs });
         }
       };
       recorder.onerror = () => {
@@ -3325,9 +3092,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // Pending notes are per-chat so we can safely revoke on unmount.
   useEffect(() => {
     return () => {
-      setPendingVoiceNotes(prev => {
-        prev.forEach(pv => { try { URL.revokeObjectURL(pv.blobUrl); } catch {} });
-        return [];
+      pendingVoiceNotesRef.current.forEach(pv => {
+        try { URL.revokeObjectURL(pv.blobUrl); } catch {}
       });
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3355,7 +3121,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   }, [voicePhase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendVoiceNote = useMutation({
-    mutationFn: async ({ blob, mimeType, tempId, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
+    mutationFn: async ({ blob, mimeType, tempId, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number; recordedDuration: number }) => {
       // ── Step 1: Validate blob ──
       const durationMs = debugLiveRef.current.blobDurationMs || 0;
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
@@ -3488,7 +3254,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       }
 
       // ── Preload CDN URL immediately so it's cached before bubble mounts ──
-      // The VoiceNoteBubble will mount with the CDN URL right after this returns.
+      // The shared VoiceNote player will mount with the CDN URL right after this returns.
       // Starting the fetch now gives the browser a head-start, reducing or eliminating
       // the CDN propagation wait that causes the initial "loading" state.
       if (publicUrl !== "(no url)") {
@@ -3519,7 +3285,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           if (exists) return old;
           return { ...old, messages: [...old.messages, realMsg] };
         });
-        broadcastNewMessage(realMsg);
         console.log(`[VOICE_NOTE_SEND] cache updated messageId=${realMsg.id} — voice note visible`);
         addDbg(`onSuccess: cache updated id=${realMsg.id}`);
       } else {
@@ -4301,7 +4066,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         data-testid={`message-${msg.id}`}
                       >
                         {isVoiceNote ? (
-                          <VoiceNoteBubble url={msg.content.slice(VOICE_PREFIX.length)} isMe={isMe} />
+                          <VoiceNote url={msg.content.slice(VOICE_PREFIX.length)} isMe={isMe} transcript={(msg as any).voiceTranscript ?? null} />
                         ) : (
                           <>
                             <p className="leading-relaxed">{renderMessageContent(msg.content, t)}</p>
@@ -4335,10 +4100,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div key={pv.tempId} className="flex justify-end">
                 <div className="relative">
                   <div className="max-w-[75vw] rounded-md text-sm select-none">
-                    <VoiceNoteBubble
+                    <VoiceNote
                       url={pv.blobUrl}
                       isMe={true}
                       status={pv.status}
+                      recordedDuration={pv.recordedDuration / 1000}
                       onRetry={() => {
                         // Retry the same in-memory Blob once. A second tap while the request is
                         // active must not create a duplicate upload or message.
@@ -4346,7 +4112,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         pendingVoiceRetryIdsRef.current.add(pv.tempId);
                         setPendingVoiceNotes(prev => prev.map(v => v.tempId === pv.tempId ? { ...v, status: "sending" } : v));
                         setVoicePhase("sending");
-                        sendVoiceNote.mutate({ tempId: pv.tempId, blobUrl: pv.blobUrl, blob: pv.blob, mimeType: pv.mimeType, tStart: performance.now() });
+                        sendVoiceNote.mutate({ tempId: pv.tempId, blobUrl: pv.blobUrl, blob: pv.blob, mimeType: pv.mimeType, tStart: performance.now(), recordedDuration: pv.recordedDuration });
                       }}
                       onLoadStateChange={(state, url) => {
                         debugLiveRef.current.playbackUrlStatus = `${state} (${url.slice(0, 40)})`;
@@ -5352,13 +5118,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       }
                       startRecording();
                     }}
-                    onTouchStart={e => {
-                      // iOS Safari: touchstart with preventDefault is the MOST RELIABLE way
-                      // to prevent the browser from transferring focus away from the textarea.
-                      // pointerdown+preventDefault alone is insufficient on some iOS versions.
-                      e.preventDefault();
-                      addDbg(`touchStart (iOS focus-lock)`);
-                    }}
                     onPointerMove={e => {
                       // Slide-to-cancel: if user drags > 55px left while recording, arm cancel
                       if (!isRecordingRef.current) return;
@@ -5371,6 +5130,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     }}
                     onPointerUp={e => {
                       e.preventDefault();
+                      e.currentTarget.releasePointerCapture?.(e.pointerId);
                       debugLiveRef.current.lastPointerEvent = `UP @ ${new Date().toISOString().slice(11,23)}`;
                       addDbg(`ptrUP — isRecording=${isRecordingRef.current} cancelPending=${cancelPendingRef.current}`);
                       stopRequestedRef.current = true;
@@ -5383,18 +5143,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         }
                       }
                     }}
-                    onTouchEnd={e => {
-                      // Safari can occasionally deliver touchend after swallowing pointerup
-                      // during a keyboard transition. The ref makes this harmless if both fire.
-                      e.preventDefault();
-                      stopRequestedRef.current = true;
-                      if (isRecordingRef.current) {
-                        if (cancelPendingRef.current) cancelRecording();
-                        else stopRecording();
-                      }
-                    }}
                     onPointerCancel={e => {
                       e.preventDefault();
+                      e.currentTarget.releasePointerCapture?.(e.pointerId);
                       debugLiveRef.current.lastPointerEvent = `CANCEL @ ${new Date().toISOString().slice(11,23)}`;
                       addDbg(`ptrCANCEL — isRecording=${isRecordingRef.current}`);
                       stopRequestedRef.current = true;

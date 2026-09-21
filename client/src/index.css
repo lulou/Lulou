@@ -270,6 +270,36 @@ body.chat-open {
 }
 
 @layer utilities {
+  .voice-note {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    min-width: 184px;
+    max-width: 250px;
+    padding: .55rem .7rem;
+    border-radius: 1.15rem;
+    transition: transform 160ms ease, opacity 160ms ease;
+  }
+  .voice-note-wrap { display: flex; flex-direction: column; align-items: flex-start; }
+  .voice-note-wrap:has(.voice-note-outgoing) { align-items: flex-end; }
+  .voice-note:active { transform: scale(.985); }
+  .voice-note-outgoing { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }
+  .voice-note-incoming { color: hsl(var(--foreground)); background: hsl(var(--muted)); }
+  .voice-note audio { display: none; }
+  .voice-note-control {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2.75rem; height: 2.75rem; flex: 0 0 2.75rem; border-radius: 999px;
+    color: inherit; background: color-mix(in srgb, currentColor 14%, transparent);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .voice-note-track { min-width: 0; flex: 1; }
+  .voice-note-wave { display: flex; align-items: center; gap: 2px; height: 18px; }
+  .voice-note-wave span { width: 2px; border-radius: 2px; background: currentColor; transition: opacity 160ms ease; }
+  .voice-note-meta { display: flex; align-items: center; gap: .25rem; margin-top: 3px; font: 10px/1 var(--font-mono); opacity: .62; }
+  .voice-note-mark { flex: 0 0 auto; opacity: .42; }
+  .voice-note-transcript-toggle { display: inline-flex; align-items: center; gap: 2px; margin-top: 3px; font-size: 10px; opacity: .62; }
+  .voice-note-transcript { max-width: 250px; margin-top: 3px; padding: .45rem .7rem; border-radius: .75rem; background: hsl(var(--primary) / .10); color: hsl(var(--primary)); font-size: 11px; font-style: italic; }
   .ios-modal-content,
   .ios-sheet-content {
     max-height: calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));

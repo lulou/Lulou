@@ -14,7 +14,7 @@ import { armCallSession, markSessionAsPaid } from "@/lib/live-call-sessions";
 import { getEndedSessionForMatch, clearEndedSessionForMatch } from "@/lib/cancelled-calls";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
-import { ArrowLeft, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play, BadgeCheck, Sparkles, ChevronDown, RefreshCw } from "lucide-react";
+import { ArrowLeft, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, BadgeCheck, Sparkles, RefreshCw } from "lucide-react";
 import { requestMicStream, prewarmMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { scanContent } from "@/lib/content-filter";
 import { formatLastActive } from "@/lib/last-active";
@@ -33,6 +33,7 @@ import {
   getCommunicationStateStyle,
   type CommunicationControlState,
 } from "@/components/communication-control";
+import { VoiceNote } from "@/components/voice-note";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -348,99 +349,6 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
   );
 }
 
-function VoiceNotePlayer({ url, isMe, transcript }: { url: string; isMe: boolean; transcript?: string | null }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [showTranscript, setShowTranscript] = useState(false);
-  const [audioError, setAudioError] = useState(false);
-
-  const toggle = () => {
-    const a = audioRef.current;
-    if (!a) return;
-    if (playing) a.pause(); else a.play().catch(() => setAudioError(true));
-  };
-
-  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-  const progress = duration > 0 ? currentTime / duration : 0;
-  const audioTranscriptsEnabled = localStorage.getItem("audio_transcripts") === "true";
-
-  return (
-    <div className="flex flex-col gap-1 max-w-[240px]">
-      <div
-        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl min-w-[180px] ${
-          isMe ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
-        }`}
-      >
-        <audio
-          ref={audioRef}
-          src={url}
-          preload="metadata"
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onEnded={() => { setPlaying(false); setCurrentTime(0); }}
-          onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
-          onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-          onError={() => setAudioError(true)}
-        />
-        {audioError ? (
-          <p className="text-[10px] opacity-60 italic flex-1">Unable to play on this device</p>
-        ) : (
-          <>
-            <button
-              onClick={e => { e.stopPropagation(); toggle(); }}
-              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-              style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
-              data-testid="button-voice-play"
-            >
-              {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-            </button>
-            <div className="flex-1 min-w-0 space-y-1">
-              <div
-                className="h-1 rounded-full overflow-hidden"
-                style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
-              >
-                <div
-                  className="h-full rounded-full transition-all duration-200"
-                  style={{
-                    width: `${progress * 100}%`,
-                    background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
-                  }}
-                />
-              </div>
-              <p className="text-[10px] opacity-55 font-mono tabular-nums">
-                {fmt(playing ? currentTime : (duration || 0))}
-              </p>
-            </div>
-            <Mic className="w-3 h-3 shrink-0 opacity-40" />
-          </>
-        )}
-      </div>
-      {audioTranscriptsEnabled && transcript && (
-        <button
-          className={`text-[10px] flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity ${isMe ? "self-end" : "self-start"}`}
-          onClick={e => { e.stopPropagation(); setShowTranscript(v => !v); }}
-          data-testid="button-voice-transcript-toggle"
-        >
-          <ChevronDown className={`w-3 h-3 transition-transform ${showTranscript ? "rotate-180" : ""}`} />
-          {showTranscript ? "Hide transcript" : "Show transcript"}
-        </button>
-      )}
-      {audioTranscriptsEnabled && transcript && showTranscript && (
-        <div
-          className={`text-xs px-3 py-2 rounded-lg max-w-[240px] italic ${
-            isMe ? "bg-primary/10 text-primary" : "bg-muted/60 text-muted-foreground"
-          }`}
-          data-testid="text-voice-transcript"
-        >
-          "{transcript}"
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function Messaging() {
   const [, params] = useRoute("/messages/:matchId");
   const [, navigate] = useLocation();
@@ -672,6 +580,15 @@ export default function Messaging() {
     | "stopping"
     | "processing"
     | "uploading";
+  type PendingVoiceNote = {
+    tempId: string;
+    clientRequestId: string;
+    blobUrl: string;
+    blob: Blob;
+    mimeType: string;
+    durationMs: number;
+    status: "sending" | "failed";
+  };
   const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const isRecording = voicePhase === "recording";
   const [recordingTime, setRecordingTime] = useState(0);
@@ -759,6 +676,12 @@ export default function Messaging() {
   const micStreamRef = useRef<MediaStream | null>(null);
   // Permission state — drives the hint pill and denied card.
   const [micPermState, setMicPermState] = useState<MicPermState>(() => getMicPermState());
+  const [pendingVoiceNotes, setPendingVoiceNotes] = useState<PendingVoiceNote[]>([]);
+  const pendingVoiceNotesRef = useRef<PendingVoiceNote[]>([]);
+  useEffect(() => { pendingVoiceNotesRef.current = pendingVoiceNotes; }, [pendingVoiceNotes]);
+  useEffect(() => () => {
+    pendingVoiceNotesRef.current.forEach(note => URL.revokeObjectURL(note.blobUrl));
+  }, []);
 
   const stopRecordingTimer = () => {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
@@ -819,8 +742,8 @@ export default function Messaging() {
 
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       const preferredTypes = isIOS
-        ? ["audio/mp4", "audio/x-m4a", "audio/aac", "audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"]
-        : ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"];
+        ? ["audio/mp4", "audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"]
+        : ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = preferredTypes.find(t => {
         try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
       }) ?? "";
@@ -853,8 +776,27 @@ export default function Messaging() {
         isRecordingRef.current = false;
         stopRequestedRef.current = false;
         audioChunksRef.current = [];
-        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: capturedMimeType });
-        else setVoicePhase("idle");
+        // iOS can emit a non-empty fragment when a timesliced recorder is stopped.
+        // A single stop-time blob is the only reliable ISO-BMFF initialization path.
+        const hasPayload = blob.size > 0 && capturedMimeType.length > 0;
+        if (hasPayload) {
+          const tempId = `temp-voice-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const pending: PendingVoiceNote = {
+            tempId,
+            clientRequestId: `voice-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            blobUrl: URL.createObjectURL(blob),
+            blob,
+            mimeType: capturedMimeType,
+            durationMs: Math.max(0, Date.now() - recordingStartMsRef.current),
+            status: "sending",
+          };
+          setPendingVoiceNotes(prev => [...prev, pending]);
+          sendVoiceNote.mutate(pending);
+        }
+        else {
+          console.warn("[VOICE_NOTE_PIPELINE] voice_note_invalid_blob", { size: blob.size, mimeType: capturedMimeType || "unknown" });
+          setVoicePhase("idle");
+        }
       };
       recorder.onerror = event => {
         if (mediaRecorderRef.current !== recorder) return;
@@ -866,7 +808,9 @@ export default function Messaging() {
         toast({ title: "Recording failed. Please try again.", variant: "destructive" });
       };
       mediaRecorderRef.current = recorder;
-      recorder.start(100);
+      // Do not timeslice on iPhone: fragmented callbacks can produce a `moof`-only
+      // file without the ftyp/init segment. Collect chunks and finalize once on stop.
+      recorder.start();
       if (recorder.state !== "recording") {
         throw new Error("MediaRecorder did not enter the recording state");
       }
@@ -1015,7 +959,7 @@ export default function Messaging() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendVoiceNote = useMutation({
-    mutationFn: async ({ blob, mimeType }: { blob: Blob; mimeType: string }) => {
+    mutationFn: async ({ blob, mimeType, durationMs, clientRequestId }: PendingVoiceNote) => {
       setVoicePhase("uploading");
       console.log("[VOICE_NOTE_PIPELINE] voice_note_upload_started", {
         size: blob.size,
@@ -1025,11 +969,10 @@ export default function Messaging() {
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
       const normalizedMime = mimeType.toLowerCase();
       const filename = /mp4|m4a|aac/.test(normalizedMime) ? "voice.m4a" : normalizedMime.includes("ogg") ? "voice.ogg" : "voice.webm";
-      const clientRequestId = `voice-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const formData = new FormData();
       formData.append("audio", blob, filename);
       formData.append("mimeType", mimeType);
-      formData.append("durationMs", String(Math.max(0, Date.now() - recordingStartMsRef.current)));
+      formData.append("durationMs", String(durationMs));
       formData.append("clientRequestId", clientRequestId);
       const { getAuthHeaders, getAppSessionId, API_BASE } = await import("@/lib/queryClient");
       const authHeaders = await getAuthHeaders();
@@ -1050,12 +993,15 @@ export default function Messaging() {
       });
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_data: any, vars) => {
+      setPendingVoiceNotes(prev => prev.filter(note => note.tempId !== vars.tempId));
+      setTimeout(() => URL.revokeObjectURL(vars.blobUrl), 15_000);
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
       forceScrollRef.current = true;
       setVoicePhase("idle");
     },
-    onError: (err: any) => {
+    onError: (err: any, vars) => {
+      setPendingVoiceNotes(prev => prev.map(note => note.tempId === vars.tempId ? { ...note, status: "failed" } : note));
       toast({
         title: "Voice note couldn't be sent",
         description: err?.message || "Please try again.",
@@ -1083,6 +1029,16 @@ export default function Messaging() {
   });
 
   const handleVisibleRealtimeMessage = useCallback((incoming: Message) => {
+    if (incoming.content?.startsWith("__VOICE__:")) {
+      const matched = pendingVoiceNotesRef.current.some(note =>
+        incoming.content.includes(`voice_${note.clientRequestId}.m4a`),
+      );
+      if (matched) {
+        setPendingVoiceNotes(prev => prev.filter(note =>
+          !incoming.content.includes(`voice_${note.clientRequestId}.m4a`),
+        ));
+      }
+    }
     if (!matchId || incoming.senderId === user?.id) return;
     apiRequest("POST", `/api/messages/${matchId}/mark-read`)
       .then(res => res.json())
@@ -1918,6 +1874,21 @@ export default function Messaging() {
           <div style={{ display: "flex", flexDirection: "column-reverse", gap: "12px", padding: "16px" }}>
           {/* Anchor — DOM-first = visual bottom in column-reverse */}
           <div ref={messagesEndRef} style={{ height: 1, flexShrink: 0 }} />
+          {pendingVoiceNotes.map(note => (
+            <div key={note.tempId} className="flex justify-end">
+              <VoiceNote
+                url={note.blobUrl}
+                isMe
+                status={note.status}
+                recordedDuration={note.durationMs / 1000}
+                onRetry={() => {
+                  if (note.status !== "failed" || sendVoiceNote.isPending) return;
+                  setPendingVoiceNotes(prev => prev.map(item => item.tempId === note.tempId ? { ...item, status: "sending" } : item));
+                  sendVoiceNote.mutate(note);
+                }}
+              />
+            </div>
+          ))}
           {/* Single pass — call-event banners AND chat bubbles, newest first in DOM */}
           {[...allMessages].reverse().map(msg => {
             if (!msg.content) return null;
@@ -1977,7 +1948,7 @@ export default function Messaging() {
                     data-testid={`message-${msg.id}`}
                   >
                     {isVoiceNote ? (
-                      <VoiceNotePlayer
+                      <VoiceNote
                         url={msg.content.slice("__VOICE__:".length)}
                         isMe={isMe}
                         transcript={(msg as any).voiceTranscript ?? null}
@@ -2220,11 +2191,9 @@ export default function Messaging() {
                       }
                       if (!isRecordingRef.current && voicePhase === "idle") startRecording();
                     }}
-                    onTouchStart={e => {
-                      e.preventDefault();
-                    }}
                     onPointerUp={e => {
                       e.preventDefault();
+                      e.currentTarget.releasePointerCapture?.(e.pointerId);
                       if (stopRequestedRef.current) return;
                       if (mediaRecorderRef.current?.state === "recording") {
                         stopRecording();
@@ -2232,22 +2201,10 @@ export default function Messaging() {
                         stopRequestedRef.current = true;
                         resetVoiceCapture("released-before-recorder-start");
                       }
-                    }}
-                    onTouchEnd={e => {
-                      e.preventDefault();
-                      if (stopRequestedRef.current) return;
-                      if (mediaRecorderRef.current?.state === "recording") {
-                        stopRecording();
-                      } else if (isRecordingRef.current) {
-                        stopRequestedRef.current = true;
-                        resetVoiceCapture("released-before-recorder-start");
-                      }
-                    }}
-                    onPointerLeave={() => {
-                      if (isRecordingRef.current) cancelRecording();
                     }}
                     onPointerCancel={e => {
                       e.preventDefault();
+                      e.currentTarget.releasePointerCapture?.(e.pointerId);
                       if (isRecordingRef.current) cancelRecording();
                     }}
                     onContextMenu={e => e.preventDefault()}

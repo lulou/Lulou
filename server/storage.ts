@@ -2160,20 +2160,24 @@ export class SupabaseStorage implements IStorage {
     return { messages, hasMore };
   }
 
-  async createMessage(data: InsertMessage): Promise<Message> {
-    if (IS_DEV) console.log("CREATE_MSG", { matchId: data.matchId, senderId: data.senderId, contentLen: data.content?.length });
+  async createMessage(data: InsertMessage & { id?: string }): Promise<Message> {
+    if (IS_DEV) console.log("CREATE_MSG", { contentLen: data.content?.length });
+    const row = {
+      ...(data.id ? { id: data.id } : {}),
+      match_id: data.matchId,
+      sender_id: data.senderId,
+      content: data.content,
+    };
     const { data: result, error } = await this.sb
       .from("messages")
-      .insert({
-        match_id: data.matchId,
-        sender_id: data.senderId,
-        content: data.content,
-      })
+      .insert(row)
       .select()
       .single();
     if (error) {
       console.error("CREATE_MSG_ERROR", error.message, error.code, error.details);
-      throw new Error(`Failed to create message: ${error.message}`);
+      const wrapped = new Error(`Failed to create message: ${error.message}`) as Error & { code?: string };
+      wrapped.code = error.code;
+      throw wrapped;
     }
     return mapMessage(result);
   }

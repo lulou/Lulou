@@ -23,73 +23,28 @@ function detectFormat(buf: Buffer): AudioFormat {
   return "unknown";
 }
 
-// ── FFprobe-style probe using FFmpeg -i (ffprobe not bundled) ─────────────────
-async function probeWithFfmpeg(filePath: string): Promise<string> {
-  return new Promise((resolve) => {
-    // ffmpeg -i file (no output) always exits non-zero but prints stream info to stderr
-    const proc = spawn(FFMPEG_BIN, ["-hide_banner", "-i", filePath], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let out = "";
-    proc.stdout?.on("data", (c: Buffer) => { out += c.toString(); });
-    proc.stderr?.on("data", (c: Buffer) => { out += c.toString(); });
-    const timer = setTimeout(() => { proc.kill("SIGKILL"); resolve("(probe timeout)"); }, 5_000);
-    proc.on("close", () => { clearTimeout(timer); resolve(out); });
-    proc.on("error", (e) => { clearTimeout(timer); resolve(`(probe error: ${e.message})`); });
-  });
-}
-
 /**
  * Transcodes any browser-recorded audio to AAC inside an MP4 container.
  *
  * Format detection uses magic bytes — not just the declared MIME type.
  *
- * iOS Safari fast path (audio already MP4/AAC):
- *   Returns the original buffer WITHOUT running FFmpeg.
- *   Safari records fragmented MP4. FFmpeg -c:a copy can fail on fragmented
- *   MP4 because there is no standalone moov atom before the media data.
- *   The raw fragmented MP4 plays natively in Safari/iOS and modern browsers.
- *
- * Chrome/Android (WebM) and Firefox (OGG):
- *   Re-encode to AAC at 32 kbps / 16 kHz mono via FFmpeg.
- *   Logs exact command, stdout, stderr, and exit code.
+ * Every accepted format is decoded and re-encoded. This is intentional: in
+ * particular, fragmented MP4 from iOS must not be published as-is.
  */
 export async function transcodeToM4a(
   inputBuffer: Buffer,
   inputMime: string
 ): Promise<Buffer> {
-  const magicHex = inputBuffer.slice(0, 16).toString("hex").toUpperCase().replace(/.{2}/g, "$& ").trim();
   const actualFormat = detectFormat(inputBuffer);
-
-  console.log(`[VOICE_NOTE_PIPELINE] original filename=voice.${actualFormat === "mp4" ? "m4a" : actualFormat === "ogg" ? "ogg" : "webm"}`);
-  console.log(`[VOICE_NOTE_PIPELINE] MIME type (declared)=${inputMime}`);
-  console.log(`[VOICE_NOTE_PIPELINE] detected format (magic bytes)=${actualFormat}`);
-  console.log(`[VOICE_NOTE_PIPELINE] magic bytes (first 16)=${magicHex}`);
-  console.log(`[VOICE_NOTE_PIPELINE] input size=${inputBuffer.length}B`);
-  console.log(`[VOICE_NOTE_PIPELINE] FFmpeg binary=${FFMPEG_BIN}`);
-
-  // ── iOS / MP4 fast path: no FFmpeg needed ────────────────────────────────
-  // iOS Safari records native AAC in a fragmented MP4 container. Running
-  // `ffmpeg -c:a copy` on fragmented MP4 fails when the moov atom is not
-  // present before the mdat atoms (common in live-recording mode).
-  // The original buffer plays natively — skip transcoding entirely.
-  const isMp4 =
-    actualFormat === "mp4" ||
-    (actualFormat === "unknown" &&
-      (inputMime.includes("mp4") || inputMime.includes("m4a") || inputMime.includes("aac")));
-
-  if (isMp4) {
-    console.log(`[VOICE_NOTE_PIPELINE] transcode skipped — already MP4/AAC (no FFmpeg needed)`);
-    console.log(`[VOICE_NOTE_SPEED] transcode=skipped format=MP4 size=${inputBuffer.length}B`);
-    return inputBuffer;
+  if (actualFormat === "unknown") {
+    throw new Error("Unsupported or invalid audio container");
   }
+  console.log(`[VOICE_NOTE] transcode start format=${actualFormat} bytes=${inputBuffer.length}`);
 
-  // ── WebM / OGG: transcode via FFmpeg ─────────────────────────────────────
   const inputExt =
     actualFormat === "ogg" ? ".ogg"
     : actualFormat === "webm" ? ".webm"
-    : inputMime.includes("ogg") ? ".ogg"
-    : ".webm";
+    : ".mp4";
 
   const id = randomBytes(8).toString("hex");
   const inputPath = join(tmpdir(), `vn_${id}_in${inputExt}`);
@@ -97,12 +52,9 @@ export async function transcodeToM4a(
 
   await writeFile(inputPath, inputBuffer);
 
-  // Probe before transcoding
-  const probeOut = await probeWithFfmpeg(inputPath);
-  console.log(`[VOICE_NOTE_PIPELINE] ffprobe output:\n${probeOut}`);
-
   const args = [
     "-hide_banner",
+    ...(actualFormat === "mp4" ? ["-fflags", "+genpts+igndts"] : []),
     "-i", inputPath,
     "-c:a", "aac",
     "-b:a", "32k",
@@ -114,16 +66,11 @@ export async function transcodeToM4a(
     outputPath,
   ];
 
-  console.log(`[VOICE_NOTE_PIPELINE] FFmpeg command=${FFMPEG_BIN} ${args.join(" ")}`);
-
   try {
-    const { stdout, stderr, code } = await runFfmpeg(args, 30_000);
-    console.log(`[VOICE_NOTE_PIPELINE] FFmpeg exit code=${code}`);
-    if (stdout) console.log(`[VOICE_NOTE_PIPELINE] FFmpeg stdout=${stdout}`);
-    console.log(`[VOICE_NOTE_PIPELINE] FFmpeg stderr=${stderr}`);
-
+    await runFfmpeg(args, 30_000);
     const output = await readFile(outputPath);
-    console.log(`[VOICE_NOTE_PIPELINE] transcode complete outputSize=${output.length}B`);
+    if (output.length === 0) throw new Error("FFmpeg produced empty audio");
+    console.log(`[VOICE_NOTE] transcode complete bytes=${output.length}`);
     return output;
   } catch (err: any) {
     console.error(`[VOICE_NOTE_PIPELINE] FFmpeg failed: ${err.message}`);

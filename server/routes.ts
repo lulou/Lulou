@@ -6071,11 +6071,11 @@ export async function registerRoutes(
       }
 
       console.log(`[VOICE_NOTE_SPEED] recording stopped — server received size=${audioBuffer.length}B mimeType=${mimeType} receiveMs=${Date.now() - tReceive}ms`);
-      const clientRequestId = typeof req.body?.clientRequestId === "string" &&
-        /^[A-Za-z0-9_-]{8,120}$/.test(req.body.clientRequestId)
-        ? req.body.clientRequestId
+      const requestIdValue = req.body?.clientRequestId ?? req.headers["x-client-request-id"];
+      const clientRequestId = typeof requestIdValue === "string" &&
+        /^[A-Za-z0-9_-]{8,120}$/.test(requestIdValue)
+        ? requestIdValue
         : null;
-      console.log(`[VOICE_NOTE_PIPELINE] requestIdPresent=${!!clientRequestId}`);
 
       if (audioBuffer.length > 10_000_000) {
         return res.status(400).json({ message: "Audio file too large (max 10 MB)" });
@@ -6090,10 +6090,10 @@ export async function registerRoutes(
       const safeMime = mimeType.length < 100 ? mimeType : "audio/webm";
 
       // ── Entitlement check + transcode in parallel ─────────────────────────────
-      // iOS fast path: transcodeToM4a returns inputBuffer immediately (0 ms, no FFmpeg).
-      // Running entitlement DB query concurrently with the transcode saves ~50 ms.
+      // Running the persisted entitlement query concurrently with FFmpeg keeps
+      // the request latency low without weakening the post_call gate.
       const tProcess = Date.now();
-      console.log(`[VOICE_NOTE_PIPELINE] transcode started safeMime=${safeMime} inputSize=${audioBuffer.length}`);
+      console.log(`[VOICE_NOTE] transcode start bytes=${audioBuffer.length}`);
       let outputBuffer: Buffer;
       let isVoiceNoteUnlocked: boolean;
       try {
@@ -6107,12 +6107,14 @@ export async function registerRoutes(
           })(),
         ]);
       } catch (transcodeErr: any) {
-        console.error(`[VOICE_NOTE_PIPELINE] transcode error safeMime="${safeMime}" error="${transcodeErr.message}"`);
-        console.error(`[VOICE] TRANSCODE_FAIL safeMime=${safeMime} error="${transcodeErr.message}"`);
-        return res.status(500).json({ message: "Failed to process audio. Please try again." });
+        console.error(`[VOICE_NOTE] transcode failed error=${transcodeErr.message}`);
+        const invalidInput = transcodeErr.message === "Unsupported or invalid audio container";
+        return res.status(invalidInput ? 400 : 500).json({
+          message: invalidInput ? "Unsupported or invalid audio container." : "Failed to process audio. Please try again.",
+        });
       }
       const processMs = Date.now() - tProcess;
-      console.log(`[VOICE_NOTE_PIPELINE] transcode complete outputSize=${outputBuffer.length}B processMs=${processMs}`);
+      console.log(`[VOICE_NOTE] transcode complete bytes=${outputBuffer.length} processMs=${processMs}`);
       console.log(`[VOICE_NOTE_SPEED] upload complete — transcodeMs=${processMs}ms size=${audioBuffer.length}B→${outputBuffer.length}B`);
 
       if (!isVoiceNoteUnlocked) {
@@ -6122,22 +6124,12 @@ export async function registerRoutes(
       // A retry keeps the original client request ID, making the object path and
       // message identity stable even if the first successful response was lost.
       const filePath = clientRequestId
-        ? `${matchId}/${userId}_${clientRequestId}.m4a`
-        : `${matchId}/${Date.now()}_${userId}.m4a`;
+        ? `${matchId}/voice_${clientRequestId}.m4a`
+        : `${matchId}/voice_${randomUUID()}.m4a`;
       const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
       const publicUrl = urlData.publicUrl;
-      if (clientRequestId) {
-        const existingMatch = await adminStorage.getMatch(matchId, userId);
-        const existingMessage = existingMatch?.messages.find(message =>
-          message.senderId === userId && message.content === `__VOICE__:${publicUrl}`,
-        );
-        if (existingMessage) {
-          console.log(`[VOICE_NOTE_PIPELINE] idempotent retry clientRequestId=${clientRequestId} messageId=${existingMessage.id}`);
-          return res.json({ success: true, idempotent: true, message: existingMessage });
-        }
-      }
       const tStorage = Date.now();
-      console.log(`[VOICE_NOTE_PIPELINE] storage upload started outputSize=${outputBuffer.length}`);
+      console.log(`[VOICE_NOTE] storage upload start key=${filePath.replace(`${matchId}/`, "")}`);
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from("voice-notes")
@@ -6162,26 +6154,69 @@ export async function registerRoutes(
         }
       }
       const storageMs = Date.now() - tStorage;
-      console.log(`[VOICE_NOTE_PIPELINE] storage upload complete outputSize=${outputBuffer.length}B storageMs=${storageMs}`);
+      console.log(`[VOICE_NOTE] storage upload complete key=${filePath.replace(`${matchId}/`, "")} storageMs=${storageMs}`);
       console.log(`[VOICE_NOTE_SPEED] server processed — storageMs=${storageMs}ms`);
 
-      console.log(`[VOICE_NOTE_PIPELINE] playback url generated=true`);
-      console.log(`[VOICE_NOTE_SPEED] playback url ready`);
-
       const tInsert = Date.now();
-      console.log(`[VOICE_NOTE_PIPELINE] db insert started`);
+      console.log(`[VOICE_NOTE] message persistence start`);
       let message: any;
+      let shouldBroadcast = true;
+      const messageId = clientRequestId
+        ? `voice_${createHash("sha256").update(`${matchId}:${userId}:${clientRequestId}`).digest("hex")}`
+        : undefined;
       try {
+        // The primary key makes retries atomic at the database boundary. The
+        // same request can therefore safely race with itself.
         message = await adminStorage.createMessage({
+          ...(messageId ? { id: messageId } : {}),
           matchId,
           senderId: userId,
           content: `__VOICE__:${publicUrl}`,
         });
-        console.log(`[VOICE_NOTE_PIPELINE] db insert complete messageCreated=${!!message?.id} insertMs=${Date.now() - tInsert}`);
+        console.log(`[VOICE_NOTE] message ready idPresent=${!!message?.id} insertMs=${Date.now() - tInsert}`);
       } catch (dbErr: any) {
+        if (messageId && dbErr?.code === "23505") {
+          const { data: existing, error: existingError } = await supabaseAdmin
+            .from("messages")
+            .select("id, match_id, sender_id, content, reaction, created_at")
+            .eq("id", messageId)
+            .maybeSingle();
+          if (!existingError && existing) {
+            message = {
+              id: existing.id,
+              matchId: existing.match_id,
+              senderId: existing.sender_id,
+              content: existing.content,
+              reaction: existing.reaction ?? null,
+              createdAt: existing.created_at ?? null,
+            };
+            shouldBroadcast = false;
+            console.log(`[VOICE_NOTE] idempotent retry reused existing message insertMs=${Date.now() - tInsert}`);
+          }
+        }
+        if (message) {
+          // The original successful insert already emits postgres_changes and
+          // performs the explicit broadcast. A retry returns that row without
+          // generating a second realtime event.
+        } else {
         console.error(`[VOICE_NOTE_PIPELINE] db insert error="${dbErr.message}"`);
         console.error(`[VOICE_NOTE_SPEED] db inserted FAILED insertMs=${Date.now() - tInsert}ms`);
         return res.status(500).json({ message: "Failed to save voice note. Please try again." });
+        }
+      }
+      // Keep the established broadcast path; postgres_changes remains the
+      // fallback for clients that do not receive the server broadcast.
+      if (shouldBroadcast) {
+        await broadcastMessage(matchId, {
+          id: message.id,
+          matchId: message.matchId,
+          senderId: message.senderId,
+          content: message.content,
+          reaction: message.reaction ?? null,
+          createdAt: message.createdAt ?? null,
+        }).catch((broadcastErr: any) => {
+          console.error(`[VOICE_NOTE] realtime broadcast failed error=${broadcastErr?.message ?? "unknown"}`);
+        });
       }
       const totalMs = Date.now() - tReceive;
       console.log(`[VOICE_NOTE_SPEED] db inserted — insertMs=${Date.now() - tInsert}ms totalMs=${totalMs}ms`);
