@@ -665,7 +665,13 @@ export default function Messaging() {
   }, [matchId, queryClient]);
 
   // Recording state
-  type VoicePhase = "idle" | "recording";
+  type VoicePhase =
+    | "idle"
+    | "requesting_permission"
+    | "recording"
+    | "stopping"
+    | "processing"
+    | "uploading";
   const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const isRecording = voicePhase === "recording";
   const [recordingTime, setRecordingTime] = useState(0);
@@ -746,6 +752,9 @@ export default function Messaging() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartMsRef = useRef<number>(0);
+  const isRecordingRef = useRef(false);
+  const stopRequestedRef = useRef(false);
+  const recordingGenerationRef = useRef(0);
   // Module-level shared stream — persists across component mounts so iOS never re-prompts.
   const micStreamRef = useRef<MediaStream | null>(null);
   // Permission state — drives the hint pill and denied card.
@@ -755,7 +764,40 @@ export default function Messaging() {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
   };
 
+  const resetVoiceCapture = (reason: string, discardChunks = true) => {
+    recordingGenerationRef.current += 1;
+    stopRecordingTimer();
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.onerror = null;
+      try { recorder.stop(); } catch {}
+    }
+    mediaRecorderRef.current = null;
+    releaseMicStream(reason);
+    micStreamRef.current = null;
+    if (discardChunks) audioChunksRef.current = [];
+    isRecordingRef.current = false;
+    stopRequestedRef.current = false;
+    setVoicePhase("idle");
+    setRecordingTime(0);
+    console.log("[VOICE_NOTE_PIPELINE] capture_reset", { reason });
+  };
+
   const startRecording = async () => {
+    if (isRecordingRef.current) {
+      console.log("[VOICE_NOTE_PIPELINE] duplicate_start_blocked");
+      return;
+    }
+    const recordingGeneration = ++recordingGenerationRef.current;
+    isRecordingRef.current = true;
+    stopRequestedRef.current = false;
+    recordingStartMsRef.current = Date.now();
+    setVoicePhase("requesting_permission");
+    console.log("[VOICE_NOTE_PIPELINE] voice_note_mic_tap", {
+      generation: recordingGeneration,
+    });
     try {
       // Use the module-level shared stream — persists across component mounts so
       // iOS never re-prompts after the first grant. requestMicStream() is a no-op
@@ -763,7 +805,17 @@ export default function Messaging() {
       const stream = await requestMicStream();
       micStreamRef.current = stream;
       setMicPermState("granted");
-      console.log("[VOICE_NOTE_MIC] recording started");
+      console.log("[VOICE_NOTE_PIPELINE] voice_note_permission_result", {
+        result: "granted",
+        generation: recordingGeneration,
+      });
+      if (
+        stopRequestedRef.current
+        || recordingGeneration !== recordingGenerationRef.current
+      ) {
+        resetVoiceCapture("recording-cancelled-before-start");
+        return;
+      }
 
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       const preferredTypes = isIOS
@@ -777,16 +829,51 @@ export default function Messaging() {
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
+        if (mediaRecorderRef.current !== recorder) return;
+        setVoicePhase("processing");
         const capturedMimeType = audioChunksRef.current.find(chunk => chunk.type)?.type || actualMimeType || (isIOS ? "audio/mp4" : "audio/webm");
         const blob = new Blob(audioChunksRef.current, { type: capturedMimeType });
+        console.log("[VOICE_NOTE_PIPELINE] voice_note_recorder_stopped", {
+          generation: recordingGeneration,
+          chunks: audioChunksRef.current.length,
+        });
+        console.log("[VOICE_NOTE_PIPELINE] voice_note_blob_created", {
+          generation: recordingGeneration,
+          size: blob.size,
+        });
+        console.log("[VOICE_NOTE_PIPELINE] voice_note_mime", {
+          generation: recordingGeneration,
+          requested: mimeType || "browser-default",
+          recorder: recorder.mimeType || "not-reported",
+          blob: blob.type || "not-reported",
+        });
+        mediaRecorderRef.current = null;
         releaseMicStream("recording-stopped");
         micStreamRef.current = null;
+        isRecordingRef.current = false;
+        stopRequestedRef.current = false;
+        audioChunksRef.current = [];
         if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: capturedMimeType });
         else setVoicePhase("idle");
       };
-      recorder.start(100);
+      recorder.onerror = event => {
+        if (mediaRecorderRef.current !== recorder) return;
+        console.error("[VOICE_NOTE_PIPELINE] voice_note_recording_failed", {
+          generation: recordingGeneration,
+          error: (event as any)?.error?.name ?? "MediaRecorderError",
+        });
+        resetVoiceCapture("recorder-error");
+        toast({ title: "Recording failed. Please try again.", variant: "destructive" });
+      };
       mediaRecorderRef.current = recorder;
-      recordingStartMsRef.current = Date.now();
+      recorder.start(100);
+      if (recorder.state !== "recording") {
+        throw new Error("MediaRecorder did not enter the recording state");
+      }
+      console.log("[VOICE_NOTE_PIPELINE] voice_note_recorder_started", {
+        generation: recordingGeneration,
+        mimeType: recorder.mimeType || actualMimeType || "not-reported",
+      });
       setVoicePhase("recording");
       setRecordingTime(0);
       recordingTimerRef.current = setInterval(() => {
@@ -795,15 +882,17 @@ export default function Messaging() {
           return t + 1;
         });
       }, 1000);
+      if (stopRequestedRef.current) stopRecording();
     } catch (err: any) {
-      releaseMicStream("recording-start-failed");
-      micStreamRef.current = null;
-      setVoicePhase("idle");
-      setRecordingTime(0);
+      resetVoiceCapture("recording-start-failed");
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
       if (isPermission) {
-        console.log("[VOICE_NOTE_MIC] permission denied");
+        console.log("[VOICE_NOTE_PIPELINE] voice_note_permission_result", {
+          result: "denied",
+          error: err?.name ?? "PermissionDeniedError",
+          generation: recordingGeneration,
+        });
         setMicPermState("denied");
       } else if (isNotFound) {
         setMicPermState("unavailable");
@@ -821,6 +910,7 @@ export default function Messaging() {
   };
 
   const stopRecording = () => {
+    stopRequestedRef.current = true;
     const elapsed = Date.now() - recordingStartMsRef.current;
     if (elapsed < 300) {
       cancelRecording();
@@ -828,7 +918,7 @@ export default function Messaging() {
       return;
     }
     stopRecordingTimer();
-    setVoicePhase("idle");
+    setVoicePhase("stopping");
     setRecordingTime(0);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
@@ -836,18 +926,8 @@ export default function Messaging() {
   };
 
   const cancelRecording = () => {
-    stopRecordingTimer();
-    const mr = mediaRecorderRef.current;
-    if (mr && mr.state !== "inactive") {
-      mr.ondataavailable = null;
-      mr.onstop = null;
-      try { mr.stop(); } catch { /* ignore */ }
-    }
-    audioChunksRef.current = [];
-    releaseMicStream("recording-cancelled");
-    micStreamRef.current = null;
-    setVoicePhase("idle");
-    setRecordingTime(0);
+    stopRequestedRef.current = true;
+    resetVoiceCapture("recording-cancelled");
   };
 
   // Pre-warm the shared mic stream as soon as this chat view mounts.
@@ -930,20 +1010,17 @@ export default function Messaging() {
   // Clean up the MediaRecorder on unmount.
   useEffect(() => {
     return () => {
-      stopRecordingTimer();
-      const mr = mediaRecorderRef.current;
-      if (mr && mr.state !== "inactive") {
-        mr.ondataavailable = null;
-        mr.onstop = null;
-        try { mr.stop(); } catch {}
-      }
-      releaseMicStream("chat-unmount");
-      micStreamRef.current = null;
+      resetVoiceCapture("chat-unmount");
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendVoiceNote = useMutation({
     mutationFn: async ({ blob, mimeType }: { blob: Blob; mimeType: string }) => {
+      setVoicePhase("uploading");
+      console.log("[VOICE_NOTE_PIPELINE] voice_note_upload_started", {
+        size: blob.size,
+        mimeType,
+      });
       // Client-side guard: reject before encoding to avoid unnecessary work.
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
       const normalizedMime = mimeType.toLowerCase();
@@ -964,7 +1041,14 @@ export default function Messaging() {
         credentials: "include",
       });
       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.message || "Failed to send"); }
-      return res.json();
+      const result = await res.json();
+      console.log("[VOICE_NOTE_PIPELINE] voice_note_upload_completed", {
+        messageId: result?.message?.id ? String(result.message.id).slice(0, 12) : "not-reported",
+      });
+      console.log("[VOICE_NOTE_PIPELINE] voice_note_message_inserted", {
+        messageId: result?.message?.id ? String(result.message.id).slice(0, 12) : "not-reported",
+      });
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
@@ -2128,20 +2212,52 @@ export default function Messaging() {
                   {/* Mic — hold to record, slide away to cancel */}
                   <button
                     onPointerDown={e => {
+                      e.preventDefault();
                       e.currentTarget.setPointerCapture(e.pointerId);
                       if (!voiceNotesUnlocked) {
                         showVoiceNoteGate();
                         return;
                       }
-                      if (voicePhase === "idle") startRecording();
+                      if (!isRecordingRef.current && voicePhase === "idle") startRecording();
                     }}
-                    onPointerUp={() => {
-                      if (voicePhase === "recording") stopRecording();
+                    onTouchStart={e => {
+                      e.preventDefault();
                     }}
-                    onPointerLeave={() => { if (voicePhase === "recording") cancelRecording(); }}
-                    onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
+                    onPointerUp={e => {
+                      e.preventDefault();
+                      if (stopRequestedRef.current) return;
+                      if (mediaRecorderRef.current?.state === "recording") {
+                        stopRecording();
+                      } else if (isRecordingRef.current) {
+                        stopRequestedRef.current = true;
+                        resetVoiceCapture("released-before-recorder-start");
+                      }
+                    }}
+                    onTouchEnd={e => {
+                      e.preventDefault();
+                      if (stopRequestedRef.current) return;
+                      if (mediaRecorderRef.current?.state === "recording") {
+                        stopRecording();
+                      } else if (isRecordingRef.current) {
+                        stopRequestedRef.current = true;
+                        resetVoiceCapture("released-before-recorder-start");
+                      }
+                    }}
+                    onPointerLeave={() => {
+                      if (isRecordingRef.current) cancelRecording();
+                    }}
+                    onPointerCancel={e => {
+                      e.preventDefault();
+                      if (isRecordingRef.current) cancelRecording();
+                    }}
                     onContextMenu={e => e.preventDefault()}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground select-none transition-transform active:scale-90 hover:bg-foreground/[0.06]"
+                    onMouseDown={e => e.preventDefault()}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground select-none transition-transform active:scale-90 hover:bg-foreground/[0.06]"
+                    style={{
+                      touchAction: "none",
+                      WebkitUserSelect: "none",
+                      WebkitTouchCallout: "none",
+                    }}
                     data-testid="button-mic-input"
                     title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to send" : "Hold to record voice note") : "Unlock voice notes"}
                   >
