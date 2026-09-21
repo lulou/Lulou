@@ -1,0 +1,384 @@
+The latest production voice-note fix at commit 1959cf5 is STILL failing on the real iPhone.
+
+Do not make another general voice-note patch yet.
+
+The previous report identified malformed moof-only MP4 recordings and changed the pipeline, but the real production feature still does not work.
+
+I need you to inspect ONE ACTUAL NEW VOICE NOTE recorded AFTER commit 1959cf5 and trace that exact recording through the entire production pipeline.
+
+==================================================
+CRITICAL RULE
+==================================================
+
+Do NOT diagnose using:
+
+- old malformed fixtures
+- old voice notes
+- local test recordings
+- synthetic MP4 samples
+
+Use a NEW real production recording created on the installed iPhone PWA after the 1959cf5 deployment.
+
+That exact voiceNoteId / clientRequestId / storage object is the source of truth.
+
+==================================================
+1. IDENTIFY THE EXACT NEW FAILED VOICE NOTE
+==================================================
+
+Find the newest failed voice note from the test account.
+
+Identify safely:
+
+- voiceNoteId
+- clientRequestId
+- messageId
+- created_at
+- source MIME
+- source byte size
+- final storage path
+- final output MIME
+- final output byte size
+
+Do not expose secrets or private message content.
+
+==================================================
+2. TRACE THE EXACT PRODUCTION PIPELINE
+==================================================
+
+For THAT exact note, trace:
+
+iPhone MediaRecorder
+→ stop
+→ Blob created
+→ upload request
+→ backend received bytes
+→ validation
+→ FFmpeg/transcode
+→ final M4A written
+→ Supabase upload
+→ message insert
+→ realtime delivery
+→ recipient media URL
+→ recipient audio load
+→ recipient playback
+
+Report PASS/FAIL at every step.
+
+Do not skip stages.
+
+==================================================
+3. VERIFY THE SOURCE FILE FROM THE REAL IPHONE
+==================================================
+
+Inspect the actual uploaded source bytes.
+
+Confirm:
+
+- byte size > 0
+- first bytes / container signature
+- whether ftyp exists
+- whether moov exists
+- whether moof exists
+- whether the MP4 is fragmented
+- whether FFprobe can parse it
+- actual duration
+- actual codec
+
+If the new recording is STILL moof-only:
+then removing timeslice was not sufficient.
+
+Find why iPhone is still producing incomplete fragmented MP4.
+
+==================================================
+4. VERIFY THE BLOB IS COMPLETE BEFORE UPLOAD
+==================================================
+
+Audit MediaRecorder stop handling.
+
+Do NOT assume `stop()` means final data has arrived.
+
+Verify the exact ordering:
+
+recorder.stop()
+→ final `dataavailable`
+→ final chunk appended
+→ `stop` event
+→ Blob constructed
+
+If the Blob is being built BEFORE the final `dataavailable` event, fix that race.
+
+This is a likely area to inspect carefully.
+
+==================================================
+5. CHECK REQUEST BODY INTEGRITY
+==================================================
+
+Compare:
+
+client Blob byte size
+vs
+server received byte size
+
+They must match exactly.
+
+If not, investigate:
+
+- multipart/form-data handling
+- body parsing
+- upload truncation
+- request abort
+- iPhone PWA network behavior
+- FormData/File construction
+
+Do not proceed until byte integrity is proven.
+
+==================================================
+6. CHECK TRANSCODER INPUT
+==================================================
+
+For the exact failed note:
+
+run FFprobe against the real server input.
+
+Report:
+
+- parse result
+- duration
+- streams
+- codec
+- container
+
+Then run the exact production FFmpeg command.
+
+Capture:
+
+- exit code
+- stderr category
+- output file existence
+- output byte size
+
+==================================================
+7. VERIFY FINAL M4A BEFORE MESSAGE INSERT
+==================================================
+
+Before inserting the chat message, verify the final output:
+
+- exists
+- > 0 bytes
+- FFprobe parses it
+- contains AAC audio
+- duration > 0
+- audio/mp4/M4A container valid
+
+Do not create the message if this validation fails.
+
+==================================================
+8. VERIFY SUPABASE OBJECT
+==================================================
+
+After upload:
+
+download/read the actual stored object from Supabase.
+
+Do not trust the upload response alone.
+
+Verify:
+
+- object exists
+- byte size matches local transcoded file
+- Content-Type is correct
+- HTTP 200
+- FFprobe on downloaded object succeeds
+
+If local output is valid but stored object is bad:
+fix the storage upload path.
+
+==================================================
+9. VERIFY RECIPIENT PLAYBACK URL
+==================================================
+
+On the recipient device, inspect the exact URL used by the audio element.
+
+Verify:
+
+- URL points to expected object
+- no stale old URL
+- no source URL instead of normalized M4A
+- HTTP 200
+- correct Content-Type
+- correct Content-Length
+
+==================================================
+10. CAPTURE THE REAL AUDIO ELEMENT FAILURE
+==================================================
+
+For the exact failed playback capture:
+
+audio.error.code
+audio.error.message if available
+networkState
+readyState
+currentSrc
+duration
+canplay fired yes/no
+loadedmetadata fired yes/no
+play() promise resolved/rejected
+DOMException name/message
+
+Do not reduce this to “Tap to reload”.
+
+I want the actual browser failure.
+
+==================================================
+11. CHECK MESSAGE FORMAT
+==================================================
+
+The report says messages persist:
+
+__VOICE__:<stable-public-Supabase-URL>
+
+Audit the exact parser for this format.
+
+Verify:
+
+- no whitespace corruption
+- no URL encoding corruption
+- no double prefix
+- no stale cached message body
+- no message parser stripping part of URL
+- no old `blob:` fallback overriding the stored URL
+
+==================================================
+12. CHECK OPTIMISTIC RECONCILIATION
+==================================================
+
+The sender may initially display a local optimistic Blob and later reconcile to the persisted URL.
+
+Verify this handoff.
+
+Confirm:
+
+optimistic local bubble
+→ persisted server message
+→ durable M4A URL
+
+No stale local blob reference must remain after reconciliation.
+
+==================================================
+13. CHECK REALTIME PAYLOAD
+==================================================
+
+Verify the recipient receives the same final message record that exists in the DB.
+
+Compare:
+
+DB message body/reference
+vs
+realtime payload
+vs
+recipient-rendered media source
+
+They must match.
+
+==================================================
+14. CHECK IPHONE PLAYBACK SPECIFICALLY
+==================================================
+
+If laptop can play the final M4A but iPhone cannot:
+
+inspect codec/profile/sample rate/container compatibility.
+
+Test the actual final M4A on:
+
+- Safari/iPhone
+- laptop browser
+
+If necessary normalize to a conservative iOS-safe AAC-LC M4A profile.
+
+Do not assume “AAC/M4A” alone guarantees Safari compatibility.
+
+==================================================
+15. DO NOT CHANGE THE UI YET
+==================================================
+
+Do not touch:
+
+- waveform styling
+- bubble styling
+- composer layout
+- retry icon
+- duration visuals
+
+until a newly recorded voice note actually:
+
+records
+sends
+arrives
+plays
+
+The current problem is functional.
+
+==================================================
+16. REAL PRODUCTION ACCEPTANCE TEST
+==================================================
+
+After the exact failure is fixed:
+
+Use:
+
+Device A = installed iPhone Lulou PWA
+Device B = laptop/browser
+
+Test one NEW 5-second note.
+
+Required proof:
+
+A:
+records successfully
+
+Server:
+receives exact bytes
+transcodes successfully
+stores valid final M4A
+inserts one message
+
+B:
+receives realtime message
+loads final URL
+plays successfully
+
+Then reverse direction.
+
+==================================================
+17. FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact new production voiceNoteId tested
+2. iPhone Blob byte size
+3. server received byte size
+4. whether sizes matched
+5. actual source container structure
+6. FFprobe result on source
+7. FFmpeg result
+8. final M4A byte size
+9. FFprobe result on final M4A
+10. Supabase stored-object byte size
+11. whether stored object matched final file
+12. recipient playback URL status
+13. audio.error.code
+14. play() rejection if any
+15. exact first failing stage
+16. exact fix
+17. files changed
+18. production commit
+19. live Vercel/Railway revision
+
+20. REAL DEVICE RESULT:
+- iPhone → laptop send PASS/FAIL
+- iPhone → laptop playback PASS/FAIL
+- laptop → iPhone send PASS/FAIL
+- laptop → iPhone playback PASS/FAIL
+
+Do not mark this resolved until a NEW post-fix production voice note plays successfully on the receiving device.
