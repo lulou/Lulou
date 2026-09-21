@@ -62,6 +62,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
         connectSrc: ["'self'", "https:", "wss:"],
+        mediaSrc: ["'self'", "blob:", "https://*.supabase.co"],
         fontSrc: ["'self'", "data:", "https:"],
         objectSrc: ["'none'"],
         frameSrc: ["'none'"],
