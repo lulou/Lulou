@@ -1,0 +1,371 @@
+STOP working on the waitlist for now.
+
+Voice notes are NOT working smoothly and are not reliably sending through in the live app.
+
+This is a core communication feature and needs to be fixed before launch work continues.
+
+Do NOT redesign the chat.
+Do NOT change message quotas.
+Do NOT change call progression.
+Do NOT change the voice-note unlock rule.
+
+Fix the actual voice-note pipeline end-to-end.
+
+==================================================
+EXPECTED VOICE NOTE FLOW
+==================================================
+
+Once voice notes are legitimately unlocked:
+
+tap/hold microphone
+→ permission granted
+→ recording starts immediately
+→ recording state is obvious
+→ user stops recording
+→ audio finalizes
+→ upload begins
+→ message appears optimistically
+→ upload completes
+→ server/message row is created
+→ recipient receives voice note in realtime
+→ recipient can play it immediately
+
+This should feel smooth and reliable.
+
+==================================================
+1. REPRODUCE THE LIVE FAILURE
+==================================================
+
+Use the actual production chat with an account where voice notes are already unlocked.
+
+Test on:
+- iPhone installed PWA
+- laptop/browser
+
+Record exactly where it fails:
+
+- mic tap does nothing?
+- recording does not start?
+- recording gets stuck?
+- stop does not finalize?
+- upload fails?
+- message row not created?
+- recipient never receives it?
+- playback fails?
+- retry fails?
+
+Do not guess.
+
+==================================================
+2. TRACE THE FULL PIPELINE
+==================================================
+
+Trace:
+
+mic interaction
+→ getUserMedia
+→ MediaRecorder
+→ chunks collected
+→ final Blob created
+→ MIME detected
+→ upload request
+→ storage upload
+→ message insert
+→ realtime delivery
+→ recipient playback
+
+Find the FIRST actual failing point.
+
+==================================================
+3. IPHONE RECORDING FORMAT
+==================================================
+
+Audit real iPhone-supported recording formats.
+
+Do not assume WebM support.
+
+Prefer supported formats in order using feature detection, for example:
+- audio/mp4
+- audio/x-m4a
+- audio/aac
+- webm/opus only where actually supported
+
+Use MediaRecorder.isTypeSupported().
+
+Do not hardcode one MIME type that fails on iPhone.
+
+==================================================
+4. DO NOT USE STALE MIME STATE
+==================================================
+
+The final upload MIME must come from the actual recorded chunks/blob, not stale React state.
+
+Ensure:
+- recorder type
+- blob.type
+- upload Content-Type
+- file extension
+
+all agree.
+
+==================================================
+5. RECORDING STATE MACHINE
+==================================================
+
+Use one clean state machine:
+
+idle
+→ requesting_permission
+→ recording
+→ stopping
+→ processing
+→ uploading
+→ sent
+
+Failure states:
+permission_denied
+recording_failed
+upload_failed
+
+Do not allow sticky states.
+
+If anything fails:
+→ return to usable idle/retry state
+
+==================================================
+6. MIC MUST NOT GET STUCK
+==================================================
+
+After every attempt:
+
+- stop MediaRecorder
+- stop all MediaStream tracks
+- clear recorder refs
+- clear chunks
+- clear timers
+- reset UI state
+
+Even after:
+- failed upload
+- user cancels
+- permission denial
+- navigation
+- component unmount
+
+==================================================
+7. IOS TOUCH HANDLING
+==================================================
+
+Audit iPhone interaction.
+
+If using press-and-hold:
+support:
+- pointerdown
+- pointerup
+- pointercancel
+- touch fallback if needed
+
+Do not rely only on mouse events.
+
+Make sure release always stops/finalizes the recording.
+
+==================================================
+8. SINGLE-FLIGHT RECORDING
+==================================================
+
+Rapid taps must not create multiple recorders.
+
+Only one recorder/upload may exist per attempted voice note.
+
+Prevent:
+- duplicate MediaRecorder instances
+- duplicate stop handlers
+- duplicate uploads
+- duplicate message rows
+
+==================================================
+9. OPTIMISTIC MESSAGE
+==================================================
+
+After recording ends:
+
+show the outgoing voice-note bubble immediately with a sending state.
+
+Example states:
+- processing
+- sending
+- sent
+- failed
+
+Do not make the user wonder whether anything happened.
+
+==================================================
+10. UPLOAD RELIABILITY
+==================================================
+
+Audit the actual upload path.
+
+Verify:
+- auth headers/session
+- request size
+- MIME
+- storage bucket
+- file path
+- signed/public URL logic
+- timeout
+- network retry
+- iPhone PWA behavior
+
+If upload fails:
+show Retry on the same bubble.
+
+Retry must use the same local blob if still available and must not duplicate the message.
+
+==================================================
+11. IDEMPOTENCY
+==================================================
+
+Use a stable client request ID for each voice-note attempt.
+
+Server/message insert must be idempotent.
+
+If upload/request retries:
+do not create two voice-note messages.
+
+==================================================
+12. REALTIME DELIVERY
+==================================================
+
+After successful send:
+
+recipient should receive the voice note immediately through the existing realtime messaging channel.
+
+No refresh.
+No reopening chat.
+No polling delay.
+
+==================================================
+13. PLAYBACK
+==================================================
+
+Recipient must be able to play the voice note reliably.
+
+Verify:
+- URL is valid
+- browser can decode format
+- duration loads
+- play/pause works
+- only one playback instance at a time if that is existing behavior
+
+Test iPhone ↔ laptop both directions.
+
+==================================================
+14. SERVER TRANSCODING
+==================================================
+
+If the existing backend already transcodes uploads to M4A, verify that path is actually completing.
+
+Check:
+upload
+→ transcode
+→ storage
+→ final URL
+→ message row
+
+Do not silently fail if ffmpeg/transcoding fails.
+
+If the server can safely preserve a directly playable source format, do not transcode unnecessarily.
+
+==================================================
+15. DO NOT BREAK UNLOCK LOGIC
+==================================================
+
+Preserve:
+
+voice notes unlock only after the first VALID included audio call completes.
+
+Do not reintroduce the old message-count unlock.
+
+This task is only reliability after entitlement is already true.
+
+==================================================
+16. SAFE DIAGNOSTICS
+==================================================
+
+Add safe temporary logs for:
+
+voice_note_mic_tap
+voice_note_permission_result
+voice_note_recorder_started
+voice_note_recorder_stopped
+voice_note_blob_created
+voice_note_mime
+voice_note_upload_started
+voice_note_upload_completed
+voice_note_message_inserted
+voice_note_realtime_received
+voice_note_playback_started
+
+Do not log:
+- audio contents
+- tokens
+- secrets
+
+==================================================
+17. REAL TWO-DEVICE TEST
+==================================================
+
+Test:
+
+A = iPhone
+B = laptop
+
+A records 5-second voice note.
+Expected:
+- starts smoothly
+- stops smoothly
+- sending state visible
+- arrives on B immediately
+- plays correctly
+
+Then:
+
+B records 5-second voice note.
+Expected:
+- arrives on iPhone immediately
+- plays correctly
+
+Also test:
+- quick 1-second note
+- 20-second note
+- failed network then retry
+- rapid tap protection
+- leave/re-enter chat after send
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact first failure found
+2. exact iPhone recording MIME
+3. whether MediaRecorder was starting correctly
+4. whether blob finalization was correct
+5. exact upload failure if any
+6. exact storage/message insert path
+7. realtime delivery result
+8. playback result
+9. sticky mic state cause
+10. retry/idempotency behavior
+11. files changed
+12. tests
+13. production commit
+14. live Vercel/Railway revision
+15. REAL two-device result:
+  - iPhone → laptop send PASS/FAIL
+  - laptop → iPhone send PASS/FAIL
+  - realtime arrival PASS/FAIL
+  - playback PASS/FAIL
+  - retry PASS/FAIL
+  - no duplicate message PASS/FAIL
