@@ -267,7 +267,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <button
         onClick={() => logout()}
         disabled={isLoggingOut}
-        className="flex items-center gap-1.5 text-sm text-foreground/75 hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
+        className="flex items-center gap-1.5 text-sm text-[hsl(20_18%_22%)] hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
         data-testid="button-header-logout"
       >
         <LogOut className="w-4 h-4" strokeWidth={2.15} />

@@ -41,13 +41,14 @@ describe("profile visual polish regressions", () => {
   it("strengthens Logout and Undo icons without changing their controls", () => {
     expect(layout).toContain('data-testid="button-header-logout"');
     expect(layout).toContain('className="w-4 h-4" strokeWidth={2.15}');
-    expect(layout).toContain("text-foreground/75 hover:text-destructive");
+    expect(layout).toContain("text-[hsl(20_18%_22%)] hover:text-destructive");
 
     expect(discover).toContain('data-testid="button-undo-pass"');
     expect(discover).toContain("flex h-11 w-11");
-    expect(discover).toContain("text-[hsl(var(--communication-wine))]");
-    expect(discover).toContain("disabled:text-muted-foreground/70 disabled:opacity-60");
+    expect(discover).toContain("text-[hsl(350_35%_30%)]");
+    expect(discover).toContain("disabled:text-[hsl(20_10%_35%)] disabled:opacity-70");
     expect(discover).toContain('className="h-[18px] w-[18px]" strokeWidth={2.15}');
     expect(discover).toContain('data-testid="button-discover-safety-menu"');
+    expect(discover).toContain('className="h-5 w-5" strokeWidth={2.15}');
   });
 });
