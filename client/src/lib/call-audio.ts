@@ -441,6 +441,10 @@ export function startIncomingRingtone(sessionId?: string | null): void {
 
     console.log("[CALL_RINGTONE] incoming ringtone started");
     console.log("[CALL_RING] ringtone started");
+    console.log("[CALL_STARTUP] startup_ringtone_started", {
+      callSessionId: sessionId,
+      startup_ringtone_started: true,
+    });
 
     el.play().catch(() => {
       // Blocked by autoplay policy (cold session, no prior gesture).
@@ -475,6 +479,12 @@ export function stopIncomingRingtone(reason: string): void {
   el.currentTime = 0;
   console.log(`[CALL_RINGTONE] stopped: ${reason}`);
   console.log(`[CALL_RING] ringtone stopped: ${reason}`);
+}
+
+/** Stop only when the named session still owns the incoming ringtone. */
+export function stopIncomingRingtoneForSession(sessionId: string | null | undefined, reason: string): void {
+  if (!sessionId || _ringtoneSessionId !== sessionId) return;
+  stopIncomingRingtone(reason);
 }
 
 /**

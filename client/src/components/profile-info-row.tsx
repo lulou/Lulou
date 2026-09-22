@@ -29,8 +29,8 @@ export function ProfileInfoRow({ age, location, height, dateOfBirth, pronouns, c
     >
       {items.map(({ label, value, testId }) => (
         <div key={label}>
-          <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground">{label}</p>
-          <p className="text-sm font-medium text-foreground mt-0.5" data-testid={testId}>{value}</p>
+          <p className="profile-metadata-label text-[10px] uppercase text-muted-foreground">{label}</p>
+          <p className="profile-metadata-value text-sm text-foreground mt-0.5 break-words" data-testid={testId}>{value}</p>
         </div>
       ))}
     </div>

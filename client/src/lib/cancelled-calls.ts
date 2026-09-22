@@ -27,6 +27,11 @@ function sessionKey(matchId: string, callSessionId: string) {
 export function markCallSessionCancelled(matchId: string, callSessionId?: string | null) {
   if (!callSessionId) return;
   const key = sessionKey(matchId, callSessionId);
+  // A terminal/user cancellation is permanent for this browser session. If the
+  // startup sweep previously marked the same key as recoverable, promote it by
+  // removing that startup-only marker before any in-flight verification can
+  // attempt to clear it.
+  startupOnlyKeys.delete(key);
   cancelledSessions.add(key);
   console.log("[CALL_SESSION] CALL_SESSION_MARKED_CANCELLED", {
     matchId,

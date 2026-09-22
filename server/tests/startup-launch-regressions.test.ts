@@ -24,6 +24,15 @@ describe("premium startup launch regressions", () => {
     expect(launch).toContain("return null");
   });
 
+  it("breathes subtly only while launch is active and respects reduced motion", () => {
+    expect(html).toContain("lulouBootMarkBreath");
+    expect(html).toContain("50% { transform:scale(1.06); }");
+    expect(html).toContain("1.9s ease-in-out infinite");
+    expect(html).toContain("prefers-reduced-motion: reduce");
+    expect(html).toContain(".lulou-boot-mark { animation:none !important;transform:none !important; }");
+    expect(html).toContain(".lulou-boot-shell--exit .lulou-boot-mark { animation:none !important;transform:none !important; }");
+  });
+
   it("preserves one logo node through the pre-React to React handoff", () => {
     expect(html.indexOf('id="root"></div>')).toBeLessThan(html.indexOf('id="lulou-boot-shell"'));
     expect(launch).not.toContain("<img");

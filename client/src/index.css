@@ -271,6 +271,22 @@ body.chat-open {
 }
 
 @layer utilities {
+  .profile-identity-title {
+    font-weight: 700;
+    letter-spacing: -0.018em;
+  }
+  .profile-metadata-label {
+    font-weight: 700;
+    letter-spacing: 0.11em;
+  }
+  .profile-metadata-value {
+    font-weight: 600;
+    letter-spacing: -0.006em;
+  }
+  .profile-section-label {
+    font-weight: 700;
+    letter-spacing: 0.09em;
+  }
   .voice-note {
     position: relative;
     display: flex;

@@ -5047,6 +5047,68 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/matches/:matchId/call/verify-incoming", isAuthenticated, async (req: any, res) => {
+    const userId = req.user.id;
+    const matchId = req.params.matchId;
+    const callSessionId = typeof req.body?.callSessionId === "string"
+      ? req.body.callSessionId
+      : null;
+    if (!callSessionId) {
+      return res.status(400).json({ valid: false, reason: "missing_session_id" });
+    }
+    try {
+      const { data: row, error } = await supabaseAdmin
+        .from("matches")
+        .select("id,user1_id,user2_id,call_started_at,call_initiator_id,call_answered,call_completed,call_session_id")
+        .eq("id", matchId)
+        .maybeSingle();
+      if (error) {
+        console.error("[CALL_VERIFY] DB_ERROR", { matchId, error: error.message });
+        return res.status(503).json({ valid: false, reason: "verification_unavailable" });
+      }
+      if (!row) return res.status(404).json({ valid: false, reason: "call_not_found" });
+
+      const isParticipant = row.user1_id === userId || row.user2_id === userId;
+      const callerId = row.call_initiator_id;
+      const calleeId = callerId === row.user1_id ? row.user2_id : row.user1_id;
+      const startedAtMs = row.call_started_at ? new Date(row.call_started_at).getTime() : Number.NaN;
+      const ageMs = Number.isFinite(startedAtMs) ? Date.now() - startedAtMs : Number.POSITIVE_INFINITY;
+      const reason =
+        !isParticipant ? "not_participant"
+        : row.call_session_id !== callSessionId ? "session_replaced"
+        : !callerId ? "missing_caller"
+        : callerId === userId ? "current_user_is_caller"
+        : calleeId !== userId ? "callee_mismatch"
+        : row.call_answered ? "already_answered"
+        : row.call_completed ? "already_completed"
+        : !row.call_started_at ? "not_ringing"
+        : ageMs < 0 || ageMs > CALL_STALE_RINGING_MS ? "expired"
+        : null;
+      if (reason) {
+        console.log("[CALL_VERIFY] INCOMING_REJECTED", {
+          matchId,
+          callSessionId,
+          reason,
+          ageMs: Number.isFinite(ageMs) ? ageMs : null,
+        });
+        return res.json({ valid: false, reason });
+      }
+
+      console.log("[CALL_VERIFY] INCOMING_CONFIRMED", { matchId, callSessionId, ageMs });
+      return res.json({
+        valid: true,
+        status: "ringing",
+        callSessionId,
+        callerId,
+        calleeId,
+        ageMs,
+      });
+    } catch (err: any) {
+      console.error("[CALL_VERIFY] ERROR", { matchId, error: err?.message });
+      return res.status(503).json({ valid: false, reason: "verification_unavailable" });
+    }
+  });
+
   app.post("/api/matches/:matchId/call/answer", isAuthenticated, async (req: any, res) => {
     try {
       const serverStorage = getCallStorage(req);

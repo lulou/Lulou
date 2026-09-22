@@ -56,14 +56,16 @@
   <body>
     <div id="root"></div>
     <div id="lulou-boot-shell" aria-hidden="true" style="position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:#faf8f5;padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));opacity:1;transition:opacity 220ms cubic-bezier(.22,1,.36,1);">
-      <img src="/lulou-logo-master.png" alt="" draggable="false" style="width:78px;height:78px;object-fit:contain;animation:lulouBootMarkIn 360ms cubic-bezier(.22,1,.36,1) both;" />
+      <img class="lulou-boot-mark" src="/lulou-logo-master.png" alt="" draggable="false" style="width:78px;height:78px;object-fit:contain;" />
     </div>
     <style>
-      @keyframes lulouBootMarkIn { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: scale(1); } }
+      @keyframes lulouBootMarkBreath { 0%, 100% { transform:scale(1); } 50% { transform:scale(1.06); } }
+      .lulou-boot-mark { animation:lulouBootMarkBreath 1.9s ease-in-out infinite;transform-origin:center;will-change:transform; }
       #lulou-boot-shell.lulou-boot-shell--exit { opacity:0;pointer-events:none; }
+      #lulou-boot-shell.lulou-boot-shell--exit .lulou-boot-mark { animation:none !important;transform:none !important; }
       @media (prefers-reduced-motion: reduce) {
         #lulou-boot-shell { transition:none !important; }
-        #lulou-boot-shell img { animation:none !important; }
+        .lulou-boot-mark { animation:none !important;transform:none !important; }
       }
     </style>
 

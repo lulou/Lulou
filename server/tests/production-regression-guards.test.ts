@@ -26,7 +26,23 @@ describe("production regression guards", () => {
     expect(app).toContain("isEndedCall(m)");
     expect(app).toContain("isStaleCall(m)");
     expect(signaling).toContain("isStartupSweepComplete()");
+    expect(signaling).toContain("/call/verify-incoming");
+    expect(signaling).toContain("verification.callSessionId !== ringSessionId");
+    expect(signaling).toContain("verification.calleeId !== userId");
+    expect(signaling).toContain('stopIncomingRingtoneForSession(callSessionId, "incoming_server_rejected")');
+    expect(signaling).toContain("latestRingCandidateByMatch.get(matchId) !== ringSessionId");
+    expect(signaling).toContain("if (!verification) {");
+    expect(signaling).toContain("clearStartupCancelledSession(matchId, ringSessionId)");
+    expect(signaling).toContain("isCallSessionCancelled(matchId, ringSessionId) && !isStartupCancelledOnly");
+    expect(app).toContain("if (isArmedSession(m.callSessionId)) continue");
     expect(audio).toContain("isStartupSweepComplete");
+    const routes = readFileSync("server/routes.ts", "utf8");
+    expect(routes).toContain('app.post("/api/matches/:matchId/call/verify-incoming"');
+    expect(routes).toContain('row.call_session_id !== callSessionId ? "session_replaced"');
+    expect(routes).toContain('calleeId !== userId ? "callee_mismatch"');
+    expect(routes).toContain('row.call_answered ? "already_answered"');
+    expect(routes).toContain('row.call_completed ? "already_completed"');
+    expect(routes).toContain('ageMs < 0 || ageMs > CALL_STALE_RINGING_MS ? "expired"');
   });
 
   it("hands an accepted call directly into the real active-call overlay", () => {

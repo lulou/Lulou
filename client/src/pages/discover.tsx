@@ -1310,7 +1310,7 @@ export default function Discover() {
           data-testid="discover-profile-identity"
         >
           <div className="flex items-center gap-2">
-            <h2 className="font-serif text-4xl font-bold tracking-tight" data-testid="text-profile-name">
+            <h2 className="profile-identity-title font-serif text-4xl leading-tight" data-testid="text-profile-name">
               {displayProfile.firstName}
             </h2>
             {displayProfile.photoVerified && (
@@ -1497,7 +1497,7 @@ export default function Discover() {
             }`}
             aria-hidden={isIdentityCollapsed}
           >
-            <h1 className="font-serif text-lg font-bold truncate text-start" data-testid="text-discover-expanded-name">
+            <h1 className="profile-identity-title font-serif text-lg truncate text-start" data-testid="text-discover-expanded-name">
               {displayProfile.firstName}
             </h1>
             {displayProfile.photoVerified && (
@@ -1512,7 +1512,7 @@ export default function Discover() {
             }`}
             aria-hidden={!isIdentityCollapsed}
           >
-            <h1 className="font-serif text-lg font-bold truncate text-center" data-testid="text-discover-sticky-name">
+            <h1 className="profile-identity-title font-serif text-lg truncate text-center" data-testid="text-discover-sticky-name">
               {displayProfile.firstName}
             </h1>
             {displayProfile.photoVerified && (

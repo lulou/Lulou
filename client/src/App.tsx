@@ -707,6 +707,10 @@ function CallDetectors({ userId }: { userId: string }) {
       if (!m.callStartedAt || !m.callSessionId) continue;
       if (m.callCompleted) continue;
       if (!m.callInitiatorId) continue;
+      // A current-browser armed session has passed an explicit live authority
+      // path (server-verified receiver ring, local caller start, or push restore).
+      // Do not let a later startup sweep/poll disarm that exact live session.
+      if (isArmedSession(m.callSessionId)) continue;
       // Already handled (either startup-cancelled or user-cancelled) — skip.
       // BUT: if the 5 s poll re-added callStartedAt to the cache (because the
       // server DB row wasn't cleared yet), the first sweep run called
@@ -953,8 +957,8 @@ function CallDetectors({ userId }: { userId: string }) {
     // ?push_call_sid URL param and arms the session via armSessionFromPush().
     // That session must bypass this guard — it is provably live, not stale.
     if (new Date(m.callStartedAt).getTime() < APP_LOAD_TIME) {
-      if (!isPushArmedSession(m.callSessionId)) return false;
-      // Push-armed: fall through to isArmedSession + cancelled checks below.
+      if (!isPushArmedSession(m.callSessionId) && !isArmedSession(m.callSessionId)) return false;
+      // Current-browser armed sessions were restored by a live authority path.
     }
     if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;

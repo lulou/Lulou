@@ -784,7 +784,7 @@ export default function ProfilePage() {
         <div className="flex-1">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <h1 className="font-serif text-2xl font-bold truncate" data-testid="text-profile-name">
+              <h1 className="profile-identity-title font-serif text-2xl truncate" data-testid="text-profile-name">
                 {profile.firstName}
               </h1>
               {profile.photoVerified && (
@@ -986,9 +986,9 @@ export default function ProfilePage() {
             data-testid="button-toggle-photos"
           >
             <Camera className="w-4 h-4 text-primary" />
-            <span className="text-xs font-medium tracking-wider uppercase text-muted-foreground">{t("section_photos")}</span>
+            <span className="profile-section-label text-xs uppercase text-muted-foreground">{t("section_photos")}</span>
             {profile.photos && profile.photos.length > 0 && (
-              <span className="text-xs text-muted-foreground">({profile.photos.length})</span>
+              <span className="profile-metadata-value text-xs text-muted-foreground">({profile.photos.length})</span>
             )}
             <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${showPhotos ? 'rotate-180' : ''}`} />
           </Button>
@@ -1730,7 +1730,7 @@ export default function ProfilePage() {
         </div>
         <Button
           size="sm"
-          className="shrink-0"
+          className="communication-wine-fill shrink-0"
           onClick={() => setShowElevateModal(true)}
           data-testid="button-elevate-upgrade"
         >

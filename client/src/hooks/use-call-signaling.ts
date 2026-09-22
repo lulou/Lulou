@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession, markSessionEndedForMatch } from "@/lib/cancelled-calls";
-import { armCallSession, markSessionAsVideo, isPushArmedSession, getLoginTime } from "@/lib/live-call-sessions";
+import { armCallSession, disarmCallSession, markSessionAsVideo, isPushArmedSession, getLoginTime } from "@/lib/live-call-sessions";
+import { stopIncomingRingtoneForSession } from "@/lib/call-audio";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
@@ -33,6 +34,70 @@ const subscribedChannels = new Map<string, ReturnType<typeof supabase.channel>>(
 let callEndedCallback: ((matchId: string, callSessionId?: string | null) => void) | null = null;
 let callRingHandler: ((active: boolean) => void) | null = null;
 const recentlyProcessed = new Set<string>();
+const latestRingCandidateByMatch = new Map<string, string>();
+
+async function verifyIncomingCall(
+  matchId: string,
+  callSessionId: string | null,
+): Promise<any | null> {
+  if (!callSessionId) return null;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 3_000);
+  try {
+    const response = await apiRequest(
+      "POST",
+      `/api/matches/${matchId}/call/verify-incoming`,
+      { callSessionId },
+      { signal: controller.signal },
+    );
+    return await response.json();
+  } catch (error) {
+    console.warn("[CALL_STARTUP] startup_call_server_revalidated", {
+      matchId,
+      callSessionId,
+      startup_call_server_revalidated: false,
+      startup_call_rejected_reason: error instanceof Error && error.name === "AbortError"
+        ? "verification_timeout"
+        : "verification_failed",
+    });
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+function rejectIncomingCandidate(matchId: string, callSessionId: string | null, reason: string) {
+  console.log("[CALL_STARTUP] startup_call_rejected_reason", {
+    matchId,
+    callSessionId,
+    startup_call_rejected_reason: reason,
+  });
+  if (callSessionId) {
+    markCallSessionCancelled(matchId, callSessionId);
+    disarmCallSession(callSessionId);
+    stopIncomingRingtoneForSession(callSessionId, "incoming_server_rejected");
+  }
+  const stillLatest = !!callSessionId && latestRingCandidateByMatch.get(matchId) === callSessionId;
+  if (stillLatest) callRingHandler?.(false);
+  const clearIfExactSession = (old: any) => {
+    if (!old || old.callSessionId !== callSessionId) return old;
+    return {
+      ...old,
+      callStartedAt: null,
+      callInitiatorId: null,
+      callAnswered: false,
+      callCompleted: false,
+      callSessionId: null,
+      callConnectedAt: null,
+    };
+  };
+  queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, old =>
+    Array.isArray(old)
+      ? old.map((match: any) => match.id === matchId ? clearIfExactSession(match) : match)
+      : old
+  );
+  queryClient.setQueryData<any>(["/api/matches", matchId], clearIfExactSession);
+}
 
 export function setCallEndedHandler(handler: ((matchId: string, callSessionId?: string | null) => void) | null) {
   callEndedCallback = handler;
@@ -92,7 +157,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         config: { broadcast: { self: false } },
       });
 
-      channel.on("broadcast", { event: "call-signal" }, ({ payload }) => {
+      channel.on("broadcast", { event: "call-signal" }, async ({ payload }) => {
         console.log("[CALL_SIGNAL] BROADCAST_RECEIVED", { matchId, payloadType: payload?.type, senderId: payload?.userId || payload?.callerId, isSelf: (payload?.userId || payload?.callerId) === userId });
         if (!payload) return;
         const event = payload as CallSignalEvent;
@@ -227,6 +292,16 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           const ringDiagId = typeof ring.startCallDiagId === "string" ? ring.startCallDiagId : null;
           const ringAttempt = typeof ring.startCallAttempt === "number" ? ring.startCallAttempt : 0;
           const ringReceivedAt = Date.now();
+          if (ringSessionId) latestRingCandidateByMatch.set(matchId, ringSessionId);
+          console.log("[CALL_STARTUP] startup_call_candidate_found", {
+            matchId,
+            startup_call_candidate_id: ringSessionId,
+            startup_call_status: "ringing_signal",
+            startup_call_callee_match: !!userId && ring.callerId !== userId,
+            startup_call_age_ms: ringSessionId
+              ? Math.max(0, Date.now() - (getCallSessionTimestamp(ringSessionId) ?? Date.now()))
+              : null,
+          });
           const reportRingProgress = (
             diagnosticEvent: "incoming_guard_decision" | "incoming_cache_updated",
             outcome: "applied" | "stale",
@@ -273,23 +348,10 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             });
           }
 
-          // ── Pre-load ring guard ─────────────────────────────────────────────
-          // Block calls that started before this browser session regardless of
-          // whether the startup sweep has run yet. The sweep is a useEffect and
-          // may not have executed when the first rering arrives (Realtime connects
-          // fast; /api/matches fetch is slower). Without this check the session
-          // gets armed, ringtone starts, sweep runs and stops it, next rering
-          // re-arms, sweep stops it again — an oscillating ring every ~10 s.
-          //
-          // Strategy A — cache already has the match (most common on revisit):
-          //   Read callStartedAt from the TanStack Query cache. If it predates
-          //   APP_LOAD_TIME, permanently cancel and bail.
-          //
-          // Strategy B — cache is empty (cold first load):
-          //   Fall through to the isStartupCancelledOnly check; the sweep will
-          //   mark it startup-cancelled after the first /api/matches response, and
-          //   the NEXT rering will hit Strategy A or the isStartupCancelledOnly
-          //   block below.
+          // Pre-load timestamps are diagnostics, not authority. A genuine call may
+          // begin just before the user opens/resumes the app. The exact session is
+          // allowed to proceed to bounded server verification after the startup
+          // sweep; stale rows and replayed events fail that verification.
           const cachedMatches = queryClient.getQueryData<any[]>(["/api/matches"]);
           const cachedMatchEntry = cachedMatches?.find((m: any) => m.id === matchId);
           const cachedCallStartAt = cachedMatchEntry?.callStartedAt;
@@ -306,59 +368,26 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           // marked cancelled, all rererings were dropped, and the incoming call
           // overlay never appeared.
           //
-          // Safe rule: if the ring's encoded timestamp predates APP_LOAD_TIME AND
-          // the cache confirms no active call, the ring is for a call that ended
-          // before this page session — block it.
           const ringTimestampMs = getCallSessionTimestamp(ringSessionId);
           if (cachedMatchEntry !== undefined && !cachedCallStartAt && ringTimestampMs !== null && ringTimestampMs < APP_LOAD_TIME) {
-            // Push-notification exception: if the app was opened by tapping an
-            // incoming-call notification, the session is already armed via the
-            // startup sweep — never cancel it based on a pre-load timestamp.
-            if (isPushArmedSession(ringSessionId)) {
-              console.log("[CALL_RING] pre-load rering allowed — session already push-armed", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
-            } else {
-              console.log("[CALL_SIGNAL] STALE_RING_BLOCKED pre-load session with null cache", {
-                matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME,
-              });
-              markCallSessionCancelled(matchId, ringSessionId);
-              reportRingProgress("incoming_guard_decision", "stale", "stale_null_cache");
-              return;
-            }
+            console.log("[CALL_SIGNAL] PRE_LOAD_RING_REQUIRES_SERVER_CHECK", {
+              matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME,
+            });
           }
 
           if (cachedCallStartAt) {
             const callStartMs = new Date(cachedCallStartAt).getTime();
             if (callStartMs > 0 && callStartMs < APP_LOAD_TIME) {
-              // Same push-notification exception: allow rererings for sessions
-              // that were explicitly armed by a push notification tap.
-              if (isPushArmedSession(ringSessionId)) {
-                console.log("[CALL_RING] pre-load rering allowed — session already push-armed", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
-              } else {
-                console.log("[CALL_SIGNAL] PRE_LOAD_RING_BLOCKED stale call predates session", {
-                  matchId, callStartMs, APP_LOAD_TIME, delta: APP_LOAD_TIME - callStartMs,
-                });
-                markCallSessionCancelled(matchId, ringSessionId);
-                reportRingProgress("incoming_guard_decision", "stale", "stale_cached_start");
-                return;
-              }
+              console.log("[CALL_SIGNAL] PRE_LOAD_RING_REQUIRES_SERVER_CHECK", {
+                matchId, callStartMs, APP_LOAD_TIME, delta: APP_LOAD_TIME - callStartMs,
+              });
             }
           }
 
-          // ── Startup-cancelled block ─────────────────────────────────────────
-          // The startup sweep runs this path for calls whose callStartedAt was
-          // confirmed < APP_LOAD_TIME by the /api/matches response.  Previously
-          // we called clearStartupCancelledSession() here to allow live rererings
-          // to lift the block — but that created an oscillation: sweep blocks →
-          // rering lifts → sweep blocks again every 10 s poll.
-          //
-          // Correct behaviour: once the sweep marks a pre-load call startup-
-          // cancelled, NO rering should re-enable it.  If the caller wants to
-          // reach the refreshed user they must start a new call (new sessionId).
+          // Startup-only cancellation blocks cached state, but a new Realtime
+          // rering may lift it only after exact server verification below.
           if (isStartupCancelledOnly(matchId, ringSessionId)) {
-            console.log("[CALL_SIGNAL] STARTUP_RERING_BLOCKED permanently cancelled pre-load rering", { matchId });
-            markCallSessionCancelled(matchId, ringSessionId);
-            reportRingProgress("incoming_guard_decision", "stale", "startup_cancelled");
-            return;
+            console.log("[CALL_SIGNAL] STARTUP_RERING_REQUIRES_SERVER_CHECK", { matchId });
           }
           // ── Pre-sweep block ─────────────────────────────────────────────────
           // The startup staleness sweep needs one /api/matches response to
@@ -378,27 +407,8 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           // Pre-load stale calls will have been startup-cancelled by the sweep
           // and will hit isStartupCancelledOnly → blocked permanently.
           if (!isStartupSweepComplete()) {
-            // Post-load calls (timestamp >= APP_LOAD_TIME): we can't yet know if
-            // this is a stale replay or a genuine fresh ring — just defer.  The
-            // rering interval is 2 s, so the next rering will arrive after the
-            // sweep has completed and will be evaluated normally.  Do NOT mark it
-            // startup-cancelled: that would permanently block a genuine new call
-            // that started in the ~0-3 s window between page load and sweep.
-            if (ringTimestampMs === null || ringTimestampMs >= APP_LOAD_TIME) {
-              console.log("[CALL_SIGNAL] PRE_SWEEP_RING_DEFERRED — call is post-load or has no proven stale timestamp", { matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME });
-              reportRingProgress("incoming_guard_decision", "stale", "presweep_deferred");
-              return;
-            }
-            // Pre-load calls: mark startup-cancelled NOW (not just on the next rering).
-            // If the server clears callStartedAt before the first /api/matches
-            // response, the startup sweep will see no stale call and skip the
-            // match entirely — leaving the session un-cancelled.  Recording it
-            // here ensures that even in that race window, the session is
-            // blocked once the sweep completes and `isStartupCancelledOnly`
-            // is re-checked on the next rering.
-            markStartupCancelledSession(matchId, ringSessionId);
-            console.log("[CALL_SIGNAL] PRE_SWEEP_RING_BLOCKED — startup sweep not yet complete, session marked startup-cancelled", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
-            reportRingProgress("incoming_guard_decision", "stale", "presweep_stale");
+            console.log("[CALL_SIGNAL] PRE_SWEEP_RING_DEFERRED", { matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME });
+            reportRingProgress("incoming_guard_decision", "stale", "presweep_deferred");
             return;
           }
 
@@ -428,7 +438,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             return false;
           })();
           if (staleRelativeToLogin) {
-            console.log("[CALL_SIGNAL] PRE_LOGIN_RING_BLOCKED — call predates current login, ignoring rering", {
+            console.log("[CALL_SIGNAL] PRE_LOGIN_RING_REQUIRES_SERVER_CHECK", {
               matchId,
               callSessionId: ringSessionId?.slice(0, 8),
               ringTimestampMs,
@@ -436,19 +446,61 @@ export function useCallSignaling(matchIds: string[], userId: string) {
               APP_LOAD_TIME,
               cachedCallStartAt,
             });
-            markCallSessionCancelled(matchId, ringSessionId);
-            reportRingProgress("incoming_guard_decision", "stale", "prelogin_stale");
-            return;
           }
 
-          // Skip stale ring signals for sessions that were cancelled by user action
-          if (isCallSessionCancelled(matchId, ringSessionId)) {
+          // User/terminal cancellations are permanent. Startup-only cancellation
+          // may be lifted after exact server verification.
+          if (isCallSessionCancelled(matchId, ringSessionId) && !isStartupCancelledOnly(matchId, ringSessionId)) {
             console.log("[CALL_SIGNAL] STALE_RING_BLOCKED", { matchId, callSessionId: ringSessionId, reason: "session_already_cancelled" });
             reportRingProgress("incoming_guard_decision", "stale", "session_cancelled");
           } else {
-            // Arm the session: this is a live Realtime call:ring event, so the
-            // session is confirmed active. Only armed sessions may trigger overlays
-            // or audio — DB-polled data alone cannot arm a session.
+            // Realtime is a prompt to verify, not call authority. Fail closed
+            // unless the server confirms this exact session is still an
+            // unanswered incoming call for the authenticated user.
+            const verification = await verifyIncomingCall(matchId, ringSessionId);
+            if (!verification) {
+              // Fail silent, but do not permanently cancel a possibly-live call.
+              // A later rering can retry the bounded verification.
+              reportRingProgress("incoming_guard_decision", "stale", "presweep_deferred");
+              return;
+            }
+            if (
+              !verification.valid
+              || verification.callSessionId !== ringSessionId
+              || verification.calleeId !== userId
+              || verification.callerId !== ring.callerId
+            ) {
+              rejectIncomingCandidate(
+                matchId,
+                ringSessionId,
+                verification.reason ?? "server_verification_failed",
+              );
+              reportRingProgress("incoming_guard_decision", "stale", "session_cancelled");
+              return;
+            }
+            if (latestRingCandidateByMatch.get(matchId) !== ringSessionId) {
+              console.log("[CALL_STARTUP] startup_call_rejected_reason", {
+                matchId,
+                callSessionId: ringSessionId,
+                startup_call_rejected_reason: "superseded_during_verification",
+              });
+              return;
+            }
+            clearStartupCancelledSession(matchId, ringSessionId);
+            if (isCallSessionCancelled(matchId, ringSessionId)) {
+              // A terminal/user action arrived while verification was in flight.
+              disarmCallSession(ringSessionId);
+              stopIncomingRingtoneForSession(ringSessionId, "cancelled_during_verification");
+              return;
+            }
+            console.log("[CALL_STARTUP] startup_call_server_revalidated", {
+              matchId,
+              callSessionId: ringSessionId,
+              startup_call_server_revalidated: true,
+              startup_call_status: verification.status,
+              startup_call_age_ms: verification.ageMs,
+            });
+            // Only the exact server-confirmed session may trigger overlays/audio.
             console.log("[CALL_SIGNAL] RING_ARM_DECISION", {
               matchId,
               callSessionId: ringSessionId?.slice(0, 8),
