@@ -45,7 +45,7 @@ describe("profile visual polish regressions", () => {
 
     expect(discover).toContain('data-testid="button-undo-pass"');
     expect(discover).toContain("flex h-11 w-11");
-    expect(discover).toContain("text-[hsl(350_35%_30%)]");
+    expect(discover).toContain("text-[hsl(350_35%_22%)]");
     expect(discover).toContain("disabled:text-[hsl(20_10%_35%)] disabled:opacity-70");
     expect(discover).toContain('className="h-[18px] w-[18px]" strokeWidth={2.15}');
     expect(discover).toContain('data-testid="button-discover-safety-menu"');

@@ -1522,7 +1522,7 @@ export default function Discover() {
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-muted-foreground/20 bg-background text-[hsl(350_35%_30%)] shadow-sm transition-colors active:scale-95 disabled:text-[hsl(20_10%_35%)] disabled:opacity-70"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-muted-foreground/20 bg-background text-[hsl(350_35%_22%)] shadow-sm transition-colors active:scale-95 disabled:text-[hsl(20_10%_35%)] disabled:opacity-70"
               style={lastActedProfile && !undoPass.isPending
                 ? { borderColor: "hsl(var(--primary) / 0.5)", background: "hsl(var(--primary) / 0.08)" }
                 : undefined}
