@@ -38,6 +38,15 @@ describe("profile visual polish regressions", () => {
     expect(infoRow).toContain("break-words");
   });
 
+  it("uses semibold prompt-card copy and a fully opaque Discover toolbar", () => {
+    expect(css).toContain(".profile-prompt-card");
+    expect(css).toMatch(/\.profile-prompt-card\s*\{[^}]*font-weight:\s*600/s);
+    expect(discover).toContain("profile-prompt-card rounded-md");
+    expect(discover).toContain('className="sticky z-40 bg-background border-b px-5 py-3"');
+    expect(discover).toContain('className="pointer-events-none absolute inset-x-0 bottom-full bg-background"');
+    expect(discover).not.toContain("sticky z-40 bg-background/95 backdrop-blur-sm");
+  });
+
   it("strengthens Logout and Undo icons without changing their controls", () => {
     expect(layout).toContain('data-testid="button-header-logout"');
     expect(layout).toContain('className="w-4 h-4" strokeWidth={2.15}');

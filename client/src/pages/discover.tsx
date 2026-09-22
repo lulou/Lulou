@@ -268,7 +268,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
           {items.map((item, i) => (
             <div
               key={i}
-              className={`rounded-md px-4 py-3 text-sm leading-relaxed cursor-pointer ${
+              className={`profile-prompt-card rounded-md px-4 py-3 text-sm leading-relaxed cursor-pointer ${
                 isStarter
                   ? "bg-muted/50 hover-elevate"
                   : "border hover-elevate"
@@ -1477,14 +1477,14 @@ export default function Discover() {
     >
       <div
         ref={discoverToolbarRef}
-        className="sticky z-40 bg-background/95 backdrop-blur-sm border-b px-5 py-3"
+        className="sticky z-40 bg-background border-b px-5 py-3"
         style={{ top: "env(safe-area-inset-top, 0px)" }}
         data-discover-sticky-name-state={isIdentityCollapsed ? "visible" : "hidden"}
       >
         {isIdentityCollapsed && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-full bg-background/95 backdrop-blur-sm"
+            className="pointer-events-none absolute inset-x-0 bottom-full bg-background"
             style={{ height: "env(safe-area-inset-top, 0px)" }}
           />
         )}

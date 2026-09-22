@@ -287,6 +287,10 @@ body.chat-open {
     font-weight: 700;
     letter-spacing: 0.09em;
   }
+  .profile-prompt-card {
+    font-weight: 600;
+    letter-spacing: -0.004em;
+  }
   .voice-note {
     position: relative;
     display: flex;
