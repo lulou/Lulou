@@ -1,0 +1,394 @@
+Fix the chat message quota logic so EVERY user-authored message counts toward the sender’s remaining message allowance, including voice notes.
+
+Current bug:
+
+- Text messages correctly deduct from the sender’s remaining message count.
+- Voice notes do NOT deduct from the sender’s remaining message count.
+- This means users can effectively bypass the stage message quota by sending voice notes.
+
+That must be fixed.
+
+==================================================
+EXPECTED RULE
+==================================================
+
+For message-stage quotas, EVERY outbound user message should count as ONE message unless it is explicitly a system message.
+
+That includes:
+
+- normal text message = -1
+- voice note = -1
+
+Example:
+
+User has 5 messages remaining.
+
+They send:
+
+voice note
+voice note
+voice note
+
+Remaining count must become:
+
+2
+
+If they then send one text message:
+
+remaining count becomes:
+
+1
+
+==================================================
+1. USE ONE AUTHORITATIVE MESSAGE-COUNT RULE
+==================================================
+
+Do NOT maintain separate quota counting logic for text and voice notes.
+
+Create/use one authoritative helper for whether a message consumes quota.
+
+Something equivalent to:
+
+isQuotaConsumingUserMessage(message)
+
+should return TRUE for:
+
+- text message from user
+- voice note from user
+
+and FALSE for:
+
+- system messages
+- call-history messages
+- stage notifications
+- automated Lulou messages
+- other non-user-authored system events
+
+Use existing message types/schema where possible.
+
+==================================================
+2. VOICE NOTES MUST NOT BYPASS THE STAGE
+==================================================
+
+A user must not be able to send unlimited voice notes while text quota remains fixed.
+
+Example:
+
+Stage allows 12 messages.
+
+User sends:
+
+6 text
+6 voice notes
+
+That user has used all 12 messages.
+
+They should not be able to send another user-authored message until the next progression state permits it.
+
+==================================================
+3. COUNT PER SENDER
+==================================================
+
+Preserve the existing rule that quotas are tracked independently for each participant.
+
+If:
+
+User A has 5 remaining
+User B has 9 remaining
+
+A sending a voice note:
+
+A → 4
+B remains 9
+
+Do not alter the other user’s outgoing allowance.
+
+==================================================
+4. DEDUCT ONLY AFTER SUCCESSFUL MESSAGE CREATION
+==================================================
+
+Do not consume quota simply because recording started.
+
+A voice note should count when the authoritative voice-note message is successfully created/sent.
+
+Do NOT deduct for:
+
+- cancelled recording
+- failed recording
+- failed upload
+- failed transcode
+- message insert failure
+
+If send ultimately succeeds:
+
+deduct exactly ONE.
+
+==================================================
+5. RETRIES MUST NOT DOUBLE-DEDUCT
+==================================================
+
+Voice-note uploads already use a stable clientRequestId / message ID.
+
+Use that same idempotency principle for quota counting.
+
+If a failed request is retried:
+
+do NOT deduct another message if the same authoritative message already exists.
+
+One successful voice-note message = exactly one quota unit.
+
+==================================================
+6. REALTIME UI UPDATE
+==================================================
+
+As soon as a voice note successfully sends:
+
+the sender’s remaining message count should update immediately.
+
+Do not wait for:
+
+- polling
+- leaving/re-entering chat
+- page refresh
+
+Example:
+
+display says:
+
+5 messages left
+
+voice note successfully sends
+
+immediately display:
+
+4 messages left
+
+Then reconcile with authoritative server state.
+
+==================================================
+7. RECIPIENT/STAGE SYNC
+==================================================
+
+Because message counts affect stage progression, the other user must also receive the updated authoritative stage/message state through the existing realtime system.
+
+If a voice note causes a user to reach their message quota:
+
+the counterpart should see that progression state immediately.
+
+No stale:
+
+“2 messages remaining”
+
+after those messages were actually voice notes.
+
+==================================================
+8. AUDIT CURRENT FILTERING
+==================================================
+
+Find why voice notes are currently excluded.
+
+Check for logic such as:
+
+- counting only messages with text
+- ignoring `__VOICE__:` messages
+- filtering attachment/media messages
+- only counting message_type === "text"
+- SQL counts excluding voice-note type
+- frontend count calculation different from backend
+- stage resolver using old text-only logic
+
+Fix the ROOT counting rule, not just the visible number.
+
+==================================================
+9. SERVER MUST BE AUTHORITATIVE
+==================================================
+
+Do not rely only on frontend decrement.
+
+The backend/stage resolver must count voice notes as quota-consuming messages too.
+
+Otherwise refresh/device-switch will restore the wrong count.
+
+Server truth must be:
+
+text + voice notes = user-authored message count
+
+according to the current stage window.
+
+==================================================
+10. EXISTING HISTORICAL VOICE NOTES
+==================================================
+
+Audit whether already-sent voice notes inside the CURRENT active stage should be included when recomputing remaining messages.
+
+They should count exactly as user-authored messages.
+
+Do NOT retroactively corrupt completed historical stages.
+
+Use existing stage boundaries/timestamps/message ranges correctly.
+
+==================================================
+11. DO NOT COUNT SYSTEM CALL EVENTS
+==================================================
+
+Do NOT accidentally count things like:
+
+- “You called Leo”
+- “Missed call from…”
+- “First call complete”
+- Lulou stage messages
+- availability events
+- other automated/system rows
+
+Only genuine messages authored/sent by the user should consume message allowance.
+
+==================================================
+12. VOICE-NOTE UNLOCK RULE REMAINS SEPARATE
+==================================================
+
+Do not confuse:
+
+VOICE NOTE ELIGIBILITY
+
+with:
+
+MESSAGE QUOTA CONSUMPTION
+
+Voice notes may only be available after the existing unlock requirement.
+
+But once voice notes ARE available:
+
+each sent voice note counts as one message toward that stage’s message quota.
+
+==================================================
+13. REAL TEST
+==================================================
+
+Use a user with exactly:
+
+5 messages remaining.
+
+Test:
+
+Send voice note #1
+Expected:
+4 remaining
+
+Send voice note #2
+Expected:
+3 remaining
+
+Send voice note #3
+Expected:
+2 remaining
+
+Send text
+Expected:
+1 remaining
+
+Send final voice note
+Expected:
+0 remaining
+
+Then verify:
+
+- further user-authored sending is blocked according to existing stage logic
+- counterpart sees stage completion immediately
+- refresh still shows 0 remaining
+- second device shows same authoritative state
+
+==================================================
+14. MIXED MESSAGE TEST
+==================================================
+
+Also test:
+
+5 remaining
+
+text
+→ 4
+
+voice note
+→ 3
+
+text
+→ 2
+
+voice note
+→ 1
+
+voice note
+→ 0
+
+Exactly five successful outbound messages should consume all five.
+
+==================================================
+15. FAILURE / RETRY TEST
+==================================================
+
+Test:
+
+5 remaining
+
+start voice note
+upload fails
+→ still 5
+
+retry succeeds
+→ 4
+
+retry duplicate request again
+→ remains 4
+
+No double deduction.
+
+==================================================
+16. DO NOT BREAK
+==================================================
+
+Do not change:
+
+- working voice-note recording
+- playback
+- transcoding
+- voice-note UI
+- unread counts
+- push notifications
+- call system
+- stage quota NUMBERS themselves
+- payments
+- Discover
+- Likes
+- Connections
+- Intent Wheel
+- Profile
+
+This task is specifically making voice notes consume message quota exactly like text messages.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact reason voice notes were excluded from message quota
+2. authoritative quota-counting helper/rule
+3. backend counting fix
+4. frontend immediate decrement/update fix
+5. retry/idempotency protection
+6. current-stage historical voice-note handling
+7. realtime stage-sync behavior
+8. files changed
+9. tests
+10. production commit
+11. live Vercel/Railway revision
+12. REAL TEST:
+  - 5 → voice note → 4 PASS/FAIL
+  - 4 → voice note → 3 PASS/FAIL
+  - mixed text + voice notes PASS/FAIL
+  - failed voice note does not deduct PASS/FAIL
+  - successful retry deducts once PASS/FAIL
+  - refresh preserves correct count PASS/FAIL
+  - counterpart sees progression immediately PASS/FAIL
+
+Do not mark complete unless voice notes and text messages consume exactly the same per-message quota on the authoritative server state.
