@@ -1,0 +1,548 @@
+Apply ONE scoped production polish + startup reliability pass covering the current typography, colour consistency, loading-screen motion, and the regression where an incoming ring has started happening again when opening the app.
+
+Use the latest REAL production screenshots and current iPhone behavior as the source of truth.
+
+There are FOUR issues to fix together:
+
+1. Typography in areas like AGE / LOCATION / profile names / PHOTOS still needs a stronger premium iOS feel.
+2. The “Elevate Your Profile” button must use the exact same wine/burgundy as the outgoing voice-note bubbles.
+3. The new Lulou loading badge/logo is correct, but it should gently expand and contract so it visibly feels like the app is loading.
+4. An incoming ring/call has started happening again when opening the app. That regression must be fixed so startup never invents or resurrects a stale call.
+
+Do NOT break unrelated functionality.
+
+==================================================
+PART 1 — PREMIUM TYPOGRAPHY
+==================================================
+
+The screenshots show several labels/details that still look too thin/light.
+
+Examples include:
+
+DISCOVER:
+- top profile name, e.g. “Aria”
+- AGE
+- age value
+- LOCATION
+- location value
+
+PROFILE:
+- AGE
+- age value
+- LOCATION
+- location value
+- PHOTOS
+
+These are examples of the TYPE of text treatment I want changed.
+
+Audit the shared typography styles/tokens used for:
+
+- profile metadata headings
+- profile metadata values
+- section labels
+- compact field headings
+- profile identity labels
+- equivalent information labels across Lulou
+
+Make them stronger and more premium.
+
+==================================================
+2. DO NOT BOLD EVERYTHING
+==================================================
+
+Use hierarchy, not blanket bold.
+
+Suggested direction:
+
+PRIMARY PROFILE NAMES / IMPORTANT TITLES
+→ 650–700
+
+IMPORTANT METADATA VALUES
+→ 600–650
+
+SMALL METADATA LABELS
+→ 600–700
+
+SECTION HEADINGS
+→ strong semibold/bold
+
+BODY COPY
+→ regular
+
+SECONDARY COPY
+→ regular/medium
+
+Do NOT globally set the whole app to bold.
+
+==================================================
+3. IOS TYPOGRAPHY FEEL
+==================================================
+
+Keep the existing font family/design language.
+
+Do NOT introduce a random new font.
+
+The final result should feel:
+
+- clean
+- confident
+- premium
+- iOS-like
+- restrained
+
+not:
+
+- Android
+- Material Design
+- weak/thin
+- heavy everywhere
+
+==================================================
+4. DISCOVER PROFILE NAME
+==================================================
+
+The top Discover profile name should be visibly stronger.
+
+Preserve:
+
+- expanded top-left behavior
+- collapsed centered behavior
+- Undo
+- 3-dot menu
+- scroll transition
+
+Only improve typography.
+
+==================================================
+5. AGE / LOCATION / PHOTOS
+==================================================
+
+Strengthen hierarchy for:
+
+AGE
+LOCATION
+PHOTOS
+
+and their corresponding values.
+
+Do not break responsive layout.
+
+Verify:
+
+- Sydney, NSW, Australia wraps cleanly
+- no collisions
+- no horizontal scroll
+- no clipped labels
+
+==================================================
+PART 2 — ELEVATE BUTTON COLOUR
+==================================================
+
+The “Elevate Your Profile” button still uses a lighter red/pink.
+
+I want it changed to the EXACT same colour as the outgoing voice-note bubble background.
+
+VOICE NOTE BURGUNDY/WINE IS THE SOURCE OF TRUTH.
+
+Do NOT change the voice-note colour.
+
+Find the exact existing token/value and reuse it.
+
+==================================================
+6. DO NOT EYEBALL THE COLOUR
+==================================================
+
+Reuse the actual outgoing voice-note bubble background token/value.
+
+Apply it to:
+
+Elevate Your Profile
+
+Preserve:
+
+- dimensions
+- icon
+- chevron
+- click behavior
+- loading behavior
+- checkout behavior
+
+Only update fill/derived pressed state as needed.
+
+==================================================
+PART 3 — LOADING BADGE / SPLASH MOTION
+==================================================
+
+The new Lulou loading badge/logo is correct.
+
+KEEP:
+
+- current logo asset
+- current placement
+- current background
+- current overall size
+
+But make it feel like it is actively loading.
+
+I want the Lulou badge/logo to gently expand and contract while startup is resolving.
+
+==================================================
+7. LOADING ANIMATION
+==================================================
+
+Use a subtle premium breathing motion.
+
+Suggested:
+
+scale:
+1.00
+→ 1.06
+→ 1.00
+
+Duration:
+approximately 1.6–2.2 seconds
+
+Timing:
+ease-in-out
+
+Loop continuously ONLY while the splash/loading state is active.
+
+Do NOT:
+
+- bounce
+- spin
+- shake
+- flash
+- pulse aggressively
+- use Android spinner
+
+It should look like a calm premium iOS loading animation.
+
+==================================================
+8. REDUCED MOTION
+==================================================
+
+Respect:
+
+prefers-reduced-motion
+
+If reduced motion is enabled:
+
+keep the logo static or use only a very subtle opacity change.
+
+==================================================
+9. STOP ANIMATION WHEN APP IS READY
+==================================================
+
+The breathing animation must stop/unmount as soon as the app has enough state to render the correct route.
+
+Do not keep animating behind the app.
+
+Do not introduce artificial delay.
+
+Flow should be:
+
+open app
+→ Lulou badge appears
+→ gentle expand/contract
+→ bootstrap finishes
+→ smooth fade into correct screen
+
+==================================================
+10. NO BLANK / DUPLICATE LOADERS
+==================================================
+
+Do not create:
+
+splash
+→ spinner
+→ another loader
+→ app
+
+There should still be one authoritative startup experience.
+
+==================================================
+PART 4 — RANDOM INCOMING RING ON APP OPEN HAS RETURNED
+==================================================
+
+This is a regression.
+
+When opening Lulou, an incoming ring/call has started happening again.
+
+That must NOT happen unless there is a REAL, CURRENT, AUTHORITATIVE incoming call session for that exact user.
+
+App startup must never resurrect:
+
+- stale call sessions
+- old ringing rows
+- ended calls
+- declined calls
+- missed calls
+- cancelled calls
+- expired calls
+- failed calls
+- old local call state
+- stale realtime events
+- previous device session state
+
+==================================================
+11. TRACE THE STARTUP RING
+==================================================
+
+Audit the exact startup call flow.
+
+Trace:
+
+app opens
+→ session/auth restores
+→ CallDetectors mount
+→ call subscription/query runs
+→ candidate call session selected
+→ ringtone owner created
+→ incoming overlay/ring starts
+
+Find the exact reason a ring starts during launch.
+
+Do not simply suppress audio globally.
+
+==================================================
+12. ONLY RING FOR A VALID CURRENT INCOMING CALL
+==================================================
+
+Before starting incoming ringtone, verify ALL of:
+
+- call session exists
+- calleeId === current authenticated user
+- status === ringing
+- call has not ended
+- not cancelled
+- not declined
+- not missed
+- not failed
+- not expired
+- call createdAt is within the valid ringing window
+- exact session is still authoritative on server
+- current user is not the caller
+- no newer terminal update superseded it
+
+If ANY condition fails:
+
+DO NOT RING.
+
+==================================================
+13. STARTUP REVALIDATION BEFORE AUDIO
+==================================================
+
+On cold launch / resume:
+
+do not immediately trust cached/local call state.
+
+Revalidate the candidate call with the server before starting ringtone.
+
+Use a short bounded verification.
+
+This is especially important because stale app/PWA state may survive backgrounding or service-worker restoration.
+
+==================================================
+14. STALE LOCAL CALL STATE MUST BE CLEARED
+==================================================
+
+Audit:
+
+- local/session storage
+- query cache
+- in-memory singleton call state
+- ringtone ownership
+- service-worker restored state
+- previous CallDetectors state
+
+If the authoritative server says there is no current ringing call:
+
+clear stale local ringing state immediately.
+
+==================================================
+15. NO RINGTONE UNTIL AUTH IS RESOLVED
+==================================================
+
+Do not arm incoming call audio while:
+
+- auth user is unknown
+- session is still restoring
+- X-Session-Id is stale
+- user identity is unresolved
+
+The callee identity must be known first.
+
+==================================================
+16. GLOBAL CALL LISTENER STILL NEEDS TO WORK
+==================================================
+
+Do NOT break legitimate incoming calls.
+
+Once startup is complete:
+
+if a real new call arrives for the user:
+
+- incoming overlay appears
+- ringtone starts
+- slide-to-answer works
+
+The fix is specifically to prevent false/stale ringing, not to disable global call detection.
+
+==================================================
+17. APP RESUME
+==================================================
+
+Also test:
+
+- cold open
+- foreground → background → foreground
+- PWA reopen
+- service-worker refresh
+- login restore
+
+No false ringtone in any of these.
+
+If there is a real ringing call during resume:
+show it correctly.
+
+==================================================
+18. SAFE DIAGNOSTICS
+==================================================
+
+Add safe temporary startup call logs:
+
+startup_call_candidate_found
+startup_call_candidate_id
+startup_call_status
+startup_call_callee_match
+startup_call_age_ms
+startup_call_server_revalidated
+startup_call_rejected_reason
+startup_ringtone_started
+
+Do NOT log:
+
+- auth tokens
+- TURN credentials
+- private message contents
+
+==================================================
+19. DO NOT BREAK
+==================================================
+
+Do not change:
+
+- real incoming call flow
+- slide-to-answer
+- call WebRTC logic
+- voice notes
+- payments
+- message quotas
+- availability
+- number sharing
+- video-call purchase
+- profile logic
+- Discover logic
+- Likes logic
+- Connections
+- Intent Wheel
+- onboarding/auth rules
+
+This is a startup validation/ringtone regression fix plus visual polish.
+
+==================================================
+20. REAL IPHONE VERIFICATION
+==================================================
+
+TYPOGRAPHY:
+
+Verify:
+- Discover profile name stronger
+- AGE stronger
+- LOCATION stronger
+- Profile metadata stronger
+- PHOTOS stronger
+- no overflow
+
+ELEVATE:
+
+Verify:
+- exact voice-note burgundy
+- button still works
+
+LOADING:
+
+Fully close installed Lulou PWA and reopen.
+
+Expected:
+- correct Lulou badge appears
+- gently expands/contracts
+- no blank screen
+- no spinner
+- smooth transition
+- animation stops when app loads
+
+FALSE RING:
+
+Repeat cold launch multiple times.
+
+Expected:
+- NO incoming ringtone unless an actual live call exists
+
+Run at least 10 cold launches with no active call.
+
+Required:
+10/10 = no false ringing.
+
+Then create ONE real incoming call.
+
+Expected:
+- legitimate incoming ringtone still works.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact typography tokens/classes changed
+2. exact font weights used
+3. exact screens affected
+4. confirmation body text was not globally bolded
+
+5. exact voice-note colour token/value reused
+6. confirmation Elevate now matches voice notes exactly
+
+7. exact loading badge component
+8. exact scale range
+9. animation duration/easing
+10. reduced-motion behavior
+11. dismissal/stop condition
+
+12. exact cause of incoming ring on app startup
+13. exact stale state/session involved
+14. exact authoritative validation rule added
+15. exact server revalidation behavior
+16. exact stale-state cleanup behavior
+
+17. files changed
+18. production commit
+19. live Vercel/Railway revision
+
+20. REAL IPHONE RESULTS:
+- typography premium/bolder PASS/FAIL
+- no clipping/overflow PASS/FAIL
+- Elevate exact voice-note colour PASS/FAIL
+- loading badge expands/contracts PASS/FAIL
+- loading animation feels subtle/premium PASS/FAIL
+- animation stops after bootstrap PASS/FAIL
+- 10/10 cold launches with NO false ring PASS/FAIL
+- background/resume no false ring PASS/FAIL
+- legitimate real incoming call still rings PASS/FAIL
+
+Do not mark complete unless:
+1. the premium typography/colour changes are correct,
+2. the loading badge visibly but subtly expands/contracts while loading,
+AND
+3. opening Lulou no longer triggers any false incoming ring when no real active incoming call exists.

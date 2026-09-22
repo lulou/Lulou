@@ -3,8 +3,8 @@ name: Call ringtone ownership
 description: Durable lifecycle rule for global incoming ringtone and outgoing ringback behavior.
 ---
 
-Ringtone and ringback state belong to the authoritative server-backed call session, not to the lifecycle of a React overlay or page.
+Ringtone and ringback state belong to the authoritative server-backed call session, not to the lifecycle of a React overlay, page, cache row, or Realtime event.
 
-**Why:** Overlay remounts, temporary query gaps, startup verification, and tab navigation can run effect cleanup while the same call is still ringing. Stopping audio from those transitions produced a single ring or no ring even though the call session remained live.
+**Why:** Overlay remounts, temporary query gaps, startup verification, and tab navigation can run effect cleanup while the same call is still ringing. Realtime events can also be replayed after termination. Async verification creates replacement and terminal races unless ownership stays exact-session scoped.
 
-**How to apply:** Start or retry audio while the exact armed session is ringing. Stop it only when that session answers, declines, cancels, expires, fails, connects, or is replaced. Navigation must not silence a valid global incoming call.
+**How to apply:** Treat Realtime as a prompt, not authority: verify the exact session, callee, caller, unanswered state, and age on the server before arming. Fail silent but retry transient verification failures. Cleanup must stop only the rejected session. A terminal event must promote any startup-only cancellation to permanent so a late verification cannot revive it.
