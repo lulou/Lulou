@@ -1,0 +1,381 @@
+STOP changing checkout, Stripe return handling, entitlements, or Safari bfcache.
+
+The REAL production iPhone test has failed again.
+
+I am physically tapping the circled VIDEO “Unlock” control in the live installed Lulou app and the requested purchase sheet STILL DOES NOT APPEAR.
+
+So despite the previous report saying:
+
+- CommunicationControl is wired
+- PurchasePrompt exists
+- $6.99 exists in the bundle
+- video-starter exists
+- checkout service is wired
+
+THE ACTUAL CONTROL I AM TAPPING IS STILL NOT OPENING THE PURCHASE UI.
+
+This means the failure is currently BEFORE CHECKOUT.
+
+Do not do any more work downstream until this exact tap works.
+
+==================================================
+ONLY GOAL FOR THIS TASK
+==================================================
+
+On the exact production screen shown in my screenshot:
+
+I tap:
+
+VIDEO CAMERA
+Unlock
+
+and IMMEDIATELY see:
+
+Video calls
+
+Video Call Starter Pack
+1 video-call credit
+$6.99 AUD
+
+[ Unlock Video Call — $6.99 ]
+
+[ Not now ]
+
+That is the entire acceptance target for phase 1.
+
+Do not touch Stripe Checkout until that works on the real iPhone.
+
+==================================================
+1. IDENTIFY THE EXACT LIVE RENDERER
+==================================================
+
+Do NOT assume the CommunicationControl you previously edited is the renderer shown in my screenshot.
+
+Trace the actual DOM/component tree for THIS EXACT production screen.
+
+Identify:
+
+- page route
+- parent component
+- communication-control row component
+- exact video button element
+- exact props passed to it
+- exact state value
+- exact click handler attached to the DOM node
+
+I want proof that the element visible in the screenshot is the same element being edited.
+
+There may be:
+
+- duplicate CommunicationControl implementations
+- legacy chat renderer
+- matches.tsx vs messaging.tsx mismatch
+- mobile-specific renderer
+- conditional completed-stage renderer
+- invisible overlay intercepting clicks
+
+Audit all of them.
+
+==================================================
+2. VERIFY THE TAP ACTUALLY FIRES
+==================================================
+
+Add temporary SAFE production instrumentation to the exact video control.
+
+On pointer/tap, log:
+
+video_unlock_pointerdown
+video_unlock_click
+video_unlock_handler_entered
+video_unlock_state
+video_unlock_prompt_requested
+video_unlock_prompt_rendered
+
+Do not log secrets.
+
+Then physically test the production iPhone.
+
+Determine the FIRST missing event.
+
+Example:
+
+pointerdown YES
+click YES
+handler NO
+
+or:
+
+handler YES
+prompt_requested YES
+prompt_rendered NO
+
+Find the first real failure.
+
+==================================================
+3. CHECK FOR INTERACTION BLOCKERS
+==================================================
+
+Inspect the exact rendered video control for:
+
+- disabled attribute
+- pointer-events: none
+- parent pointer-events
+- transparent overlay
+- z-index collision
+- progression tracker overlay
+- absolute-positioned element over the button
+- stale loading state
+- touch-action interference
+- preventDefault
+- stopPropagation
+- wrong button type
+- conditional early return
+- stale closure
+- wrong feature prop
+- mobile/iPhone-specific event path
+
+The control must have a proper touch target of at least approximately 44×44px.
+
+==================================================
+4. LOCKED MEANS TAPPABLE
+==================================================
+
+Important:
+
+“Locked” / “Unlock” does NOT mean disabled.
+
+The video control must remain tappable while purchase is required.
+
+Do NOT use:
+
+disabled={true}
+
+for a purchasable locked control.
+
+State should be:
+
+visually locked
+BUT interactively enabled
+
+so tapping opens purchase information.
+
+==================================================
+5. DO NOT DEPEND ON purchaseRequired TO OPEN THE SHEET
+==================================================
+
+If the visible state says:
+
+Unlock
+
+then tapping it MUST open the purchase sheet.
+
+Do not gate the sheet behind another contradictory boolean such as:
+
+gate.purchaseRequired === true
+
+if the authoritative UI has already resolved this control as a paid locked video state.
+
+Create one clear semantic condition, equivalent to:
+
+videoState === "purchase_required"
+
+Then:
+
+tap
+→ open purchase sheet
+
+No toast.
+No silent return.
+No no-op.
+
+==================================================
+6. PURCHASE SHEET MUST ACTUALLY MOUNT
+==================================================
+
+Once tap handler fires:
+
+set/open the actual purchase sheet state.
+
+Verify:
+
+- state changes false → true
+- PurchasePrompt mounts
+- it is not immediately unmounted
+- it is not rendered behind the page
+- it is not offscreen
+- it is not clipped by overflow
+- it is not hidden by z-index
+- it respects iPhone safe area
+
+Do not merely confirm the text exists in the JavaScript bundle.
+
+I need the sheet VISIBLE.
+
+==================================================
+7. EXACT CONTENT
+==================================================
+
+When the sheet appears it must show:
+
+Video calls
+
+Take your connection face-to-face.
+
+Video Call Starter Pack
+
+1 video-call credit
+
+$6.99 AUD
+
+Primary CTA:
+
+Unlock Video Call — $6.99
+
+Secondary:
+
+Not now
+
+==================================================
+8. MATCH ELEVATE VISUALLY AND BEHAVIORALLY
+==================================================
+
+Use the SAME proven modal/sheet presentation pattern as Elevate.
+
+Compare the exact Elevate path:
+
+tap Elevate
+→ purchase sheet visibly opens
+
+with:
+
+tap Video Unlock
+→ purchase sheet should visibly open
+
+If Elevate uses a different modal host/portal than Video currently uses:
+
+reuse the working Elevate presentation architecture.
+
+Do not create another fragile modal mechanism.
+
+==================================================
+9. PHASE 1 TEST — DO NOT GO FURTHER
+==================================================
+
+On the real iPhone:
+
+1. Fully close installed Lulou.
+2. Reopen.
+3. Open this exact chat.
+4. Confirm video shows:
+  Unlock
+5. Tap the video camera/Unlock area.
+
+PASS ONLY IF:
+
+purchase sheet visibly appears immediately.
+
+If it does NOT:
+
+continue debugging this exact interaction.
+
+Do NOT move to Stripe.
+
+==================================================
+10. ONLY AFTER PHASE 1 PASSES
+==================================================
+
+Only after the purchase sheet visibly opens on the real iPhone:
+
+test the primary CTA:
+
+Unlock Video Call — $6.99
+
+Then trace:
+
+CTA
+→ startPurchase
+→ POST /api/stripe/extras-checkout
+→ video-starter
+→ checkout response
+
+Because Stripe is currently under review, it is acceptable for checkout creation to return the existing temporary unavailable error.
+
+But even while Stripe is paused:
+
+THE PURCHASE SHEET MUST STILL OPEN.
+
+The current Stripe review is NOT an excuse for the locked icon doing nothing.
+
+==================================================
+11. DO NOT MODIFY
+==================================================
+
+Do not modify:
+
+- video price
+- Stripe keys
+- Stripe account
+- entitlement rules
+- call logic
+- voice notes
+- messages
+- Meet flow
+- availability
+- journey completion
+- Elevate
+- progression tracker
+
+This task is FIRST AND FOREMOST fixing:
+
+VIDEO UNLOCK TAP
+→ PURCHASE SHEET VISIBLE
+
+==================================================
+12. REQUIRED REAL IPHONE EVIDENCE
+==================================================
+
+Do not return another report where every item says NOT RUN.
+
+Physically verify phase 1.
+
+If your environment cannot operate my authenticated production iPhone, say that explicitly and DO NOT claim the interaction is fixed.
+
+In that case, provide instrumentation that lets the next real tap conclusively tell us which event failed.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact route/component rendering the video icon in THIS production screen
+2. exact DOM button/control tapped
+3. whether pointerdown fired
+4. whether click fired
+5. whether handler entered
+6. exact video state at tap
+7. whether purchase-prompt state changed
+8. whether PurchasePrompt actually mounted
+9. exact FIRST failure found
+10. exact fix
+11. files changed
+12. production commit
+13. live Vercel revision
+
+14. REAL IPHONE PHASE-1 RESULT:
+  - Video Unlock physically tapped: PASS/FAIL
+  - handler fired: PASS/FAIL
+  - purchase sheet visibly appeared: PASS/FAIL
+  - $6.99 AUD visibly shown: PASS/FAIL
+  - 1 video-call credit visibly shown: PASS/FAIL
+
+Only if ALL phase-1 items PASS may you then report:
+
+15. CTA checkout request fired: PASS/FAIL
+16. Stripe response/result
+
+DO NOT mark this complete because text exists in a deployed bundle.
+
+The only acceptable phase-1 proof is:
+
+I tap the circled Video Unlock control on the real production screen and the purchase sheet visibly opens.
