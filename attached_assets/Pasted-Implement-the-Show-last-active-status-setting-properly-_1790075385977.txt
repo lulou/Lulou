@@ -1,0 +1,222 @@
+Implement the “Show last active status” setting properly on profile views.
+
+Use the attached REAL Settings screenshot as the source of truth.
+
+Current setting:
+
+Show last active status
+“Let matches see when you were last online”
+
+I want this setting to actually control a visible presence label on the user’s profile.
+
+==================================================
+EXPECTED BEHAVIOR
+==================================================
+
+If a user has:
+
+Show last active status = ON
+
+then other eligible users viewing their profile should see a small green status beside their name.
+
+Example:
+
+Aria, 25   Active today
+
+or visually:
+
+Aria, 25
+● Active today
+
+Use a subtle green indicator/text.
+
+==================================================
+STATUS RULE
+==================================================
+
+For now, if the user has been active within the current day:
+
+show:
+
+Active today
+
+in green.
+
+Do NOT expose:
+- exact timestamp
+- “last seen at 14:32”
+- precise minute/hour activity
+
+Keep it privacy-conscious and premium.
+
+==================================================
+IF SETTING IS OFF
+==================================================
+
+If:
+
+Show last active status = OFF
+
+then show NOTHING.
+
+No:
+- green dot
+- “Active today”
+- last-seen copy
+- placeholder spacing
+
+The profile layout should close naturally.
+
+==================================================
+PROFILE PLACEMENT
+==================================================
+
+Place the status close to the person’s name on profile views.
+
+For example:
+
+Aria, 25   Active today
+
+or directly beneath/right beside the name depending on available width.
+
+Keep it compact.
+
+Do NOT put it in a giant badge.
+
+==================================================
+DESIGN
+==================================================
+
+Use:
+- subtle green
+- small semibold text
+- optional tiny green dot
+- premium iOS-like spacing
+- same typography family as Lulou
+
+Do NOT use:
+- bright neon green
+- oversized pill
+- Android-style status chip
+
+==================================================
+AUTHORITATIVE DATA
+==================================================
+
+Use the actual persisted:
+
+show_last_active_status
+
+setting.
+
+Do not infer from local UI state only.
+
+Also use the real last-active timestamp already tracked by Lulou.
+
+The viewer should only see presence if:
+- target user has opted in
+- target user has valid recent activity
+
+==================================================
+WHERE TO SHOW IT
+==================================================
+
+Apply consistently to relevant profile views, including:
+
+- Discover full profile
+- Likes profile view
+- Connection profile / View profile
+
+Do not necessarily show it on the user’s own profile unless that already fits the design.
+
+==================================================
+ACTIVE TODAY LOGIC
+==================================================
+
+Use the user’s existing last-active timestamp.
+
+If activity occurred during the current local/calendar day according to the app’s existing timezone handling:
+
+show:
+Active today
+
+If not:
+show nothing for now unless there is already an approved broader last-active design.
+
+Do NOT invent:
+- Active yesterday
+- Active this week
+
+unless already supported elsewhere.
+
+==================================================
+REALTIME / REFRESH
+==================================================
+
+If the user changes:
+
+Show last active status
+
+the profile visibility should update on the next authoritative refresh/realtime update.
+
+Do not require app reinstall.
+
+==================================================
+PRIVACY
+==================================================
+
+This setting must be respected everywhere.
+
+OFF means OFF.
+
+Do not leak last-active state through:
+- profile card
+- Likes
+- Connections
+- Discover
+- API responses rendered elsewhere
+
+if the user has opted out.
+
+==================================================
+DO NOT BREAK
+==================================================
+
+Do not change:
+- profile matching logic
+- online green verification dot
+- selfie verification
+- Discover ranking
+- Likes
+- Connections
+- messaging
+- call logic
+- push notifications
+- Settings layout
+
+This is only implementing the existing last-active visibility feature.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact persisted setting used
+2. exact last-active field used
+3. exact “Active today” rule
+4. profile components updated
+5. styling/token used for green state
+6. privacy behavior when setting is OFF
+7. files changed
+8. production commit
+9. live Vercel/Railway revision
+10. real iPhone verification:
+  - setting ON shows Active today PASS/FAIL
+  - setting OFF hides it completely PASS/FAIL
+  - Discover profile PASS/FAIL
+  - Likes profile PASS/FAIL
+  - Connection profile PASS/FAIL
+  - no exact timestamp exposed PASS/FAIL
+
+Do not mark complete unless turning “Show last active status” ON actually shows a subtle green “Active today” by the user’s name on profile views, and turning it OFF hides that status everywhere.

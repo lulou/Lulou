@@ -1,0 +1,404 @@
+Fix THREE production issues shown in the latest screenshots:
+
+1. NPC / bot accounts have appeared again even though they were supposed to be permanently removed.
+2. Intent Wheel is showing users while Discover says there is nobody available.
+3. Several UI colours still do not match the approved outgoing voice-note burgundy/wine colour.
+
+Use the REAL production screenshots as the source of truth.
+
+Do NOT make broad unrelated changes.
+
+==================================================
+PART 1 — NPC / BOT ACCOUNT HAS RETURNED
+==================================================
+
+An NPC / bot-style account has appeared in Lulou again.
+
+This is a regression.
+
+We previously removed the bot/NPC/test profiles months ago and the only live accounts should be legitimate user-created accounts / approved test accounts.
+
+Find out EXACTLY why one of these accounts has resurfaced.
+
+Audit:
+
+- profiles table
+- auth users
+- seed data
+- demo/test account creation
+- development fixtures
+- migration scripts
+- cron/jobs
+- fallback profiles
+- Intent candidate generation
+- Discover candidate generation
+- legacy NPC flags
+- bot/test profile metadata
+
+Do NOT simply hide one specific user ID.
+
+Find the root source that is allowing NPC/test/bot profiles into production eligibility.
+
+==================================================
+BOT/NPC ELIGIBILITY RULE
+==================================================
+
+Create/use ONE authoritative production eligibility rule.
+
+A profile should be excluded from live user-facing discovery if it is:
+
+- bot
+- NPC
+- demo
+- seed
+- internal test-only
+- deleted
+- suspended
+- hidden
+- incomplete
+- missing required production profile state
+
+Use existing metadata/flags where available.
+
+If the project currently lacks a reliable marker for legacy NPC/test accounts, identify the exact legacy accounts safely and create a durable classification so they cannot reappear.
+
+Do not delete legitimate real users.
+
+==================================================
+AUDIT EXISTING PRODUCTION ACCOUNTS
+==================================================
+
+Inspect all currently eligible production profiles and classify:
+
+- real user
+- approved test account
+- bot/NPC/demo
+- invalid/incomplete
+
+Do not expose private user data in the report.
+
+Confirm which account caused the regression and why.
+
+==================================================
+PART 2 — INTENT SHOWS 5 USERS BUT DISCOVER SHOWS NONE
+==================================================
+
+The Intent Wheel currently shows approximately 5 users/candidates.
+
+Discover simultaneously shows no one.
+
+That is inconsistent.
+
+If the same candidate pool is meant to feed both systems, this is a bug.
+
+Trace both candidate pipelines:
+
+DISCOVER:
+→ eligibility
+→ gender preference
+→ age
+→ distance
+→ already opened/closed
+→ blocked
+→ removed
+→ active status
+→ profile completeness
+→ photo validity
+
+INTENT:
+→ candidate query
+→ eligibility
+→ photo resolver
+→ exclusions
+→ prior interactions
+→ block/remove rules
+
+Find why Intent is accepting users that Discover rejects, OR why Discover is incorrectly filtering valid users.
+
+==================================================
+ONE AUTHORITATIVE CANDIDATE ELIGIBILITY LAYER
+==================================================
+
+Do NOT maintain two conflicting candidate eligibility implementations.
+
+Create/reuse one shared canonical function/query for:
+
+isEligibleDiscoveryCandidate(viewer, candidate)
+
+Both:
+
+- Discover
+- Intent Wheel
+
+should use the same base production eligibility rules.
+
+Feature-specific differences are fine only where intentional.
+
+Example:
+
+Intent may sample eligible users differently,
+
+but it should NOT show:
+
+- bots
+- blocked users
+- removed users
+- invalid profiles
+- people outside the user’s declared dating preference
+- users Discover considers fundamentally ineligible
+
+==================================================
+DISCOVER MUST NOT SAY EMPTY IF ELIGIBLE USERS EXIST
+==================================================
+
+If there are 5 genuinely eligible candidates available to Intent and no feature-specific exclusion prevents Discover from showing them:
+
+Discover should NOT show:
+
+“That’s everyone for now”
+
+Fix the first incorrect filter/state that produces the empty Discover result.
+
+==================================================
+CHECK STALE CACHE / REALTIME
+==================================================
+
+Audit:
+
+- React Query cache
+- stale query keys
+- service-worker cache
+- candidate pagination cursor
+- exhausted feed flag
+- local dismissed IDs
+- session persistence
+- stale “no more profiles” state
+
+Discover may be stuck in an exhausted state while Intent is fetching fresh server candidates.
+
+If so:
+fix the state invalidation.
+
+==================================================
+BLOCK / REMOVE CONSISTENCY
+==================================================
+
+Any blocked/removed user must be excluded in BOTH directions from:
+
+- Discover
+- Intent
+- Likes eligibility
+- Wheel candidates
+
+Do not allow one feature to reintroduce someone another feature has removed.
+
+==================================================
+PHOTO VALIDITY
+==================================================
+
+Preserve the existing canonical profile-photo resolver.
+
+Do not let Intent show placeholder / logo / room / test images while Discover correctly rejects them.
+
+If a candidate has no valid user photo:
+exclude them from both relevant discovery surfaces according to existing product rules.
+
+==================================================
+PART 3 — COLOURS STILL DO NOT MATCH VOICENOTES
+==================================================
+
+The screenshots still show primary wine/pink elements using inconsistent shades.
+
+The outgoing VOICE-NOTE bubble is still the colour source of truth.
+
+DO NOT change the voice-note colour.
+
+Instead, update remaining relevant UI elements to use the exact same token/value.
+
+==================================================
+ELEMENTS TO AUDIT
+==================================================
+
+From the current screenshots, inspect at minimum:
+
+- Settings toggles
+- Save changes button
+- selected Search Radius button (e.g. 50 mi)
+- any other filled primary CTA still using the lighter pink/red
+- equivalent active/selected controls in Profile / Settings
+
+Do NOT blindly recolour destructive actions like:
+
+Delete account
+Log out
+
+Those can remain semantically destructive red if intentionally separate.
+
+==================================================
+VOICE-NOTE COLOUR IS SOURCE OF TRUTH
+==================================================
+
+Find the exact outgoing voice-note bubble background token/value.
+
+Reuse it for primary Lulou accent fills that are currently using a lighter pink.
+
+Do NOT eyeball a near match.
+
+Do NOT create another new burgundy.
+
+==================================================
+SEMANTIC COLOUR RULE
+==================================================
+
+Use:
+
+VOICE-NOTE BURGUNDY/WINE
+=
+primary Lulou filled action / selected state
+
+DESTRUCTIVE RED
+=
+delete / destructive actions only
+
+MUTED TAUPE/GREY
+=
+inactive / secondary / disabled
+
+GREEN
+=
+specific active communication/availability state only where already intentionally used
+
+Do not mix these roles.
+
+==================================================
+SETTINGS SCREEN
+==================================================
+
+Audit the Settings screen shown.
+
+Primary switches such as:
+
+- Show last active status
+- Comment filter
+
+should use the same approved Lulou accent family when ON.
+
+If they currently use a different pink/red, replace with the voice-note token.
+
+Do not change functionality.
+
+==================================================
+EDIT PROFILE / FILTERS SCREEN
+==================================================
+
+Audit:
+
+- selected radius pill
+- Save changes button
+- other selected/primary filled controls
+
+They should match the voice-note burgundy exactly where semantically appropriate.
+
+Do not change:
+- option values
+- search radius logic
+- dropdown behavior
+- profile save behavior
+
+==================================================
+DO NOT BREAK
+==================================================
+
+Do not change:
+
+- real user profiles
+- authentication
+- profile editing behavior
+- filters
+- call system
+- voice notes
+- payments
+- stage progression
+- Likes
+- Connections
+- bottom nav behavior
+
+This task is specifically:
+
+1. permanently excluding NPC/bot/demo accounts from production eligibility
+2. reconciling Intent vs Discover candidate eligibility/state
+3. finishing remaining colour-token consistency
+
+==================================================
+REAL PRODUCTION ACCEPTANCE TEST
+==================================================
+
+TEST 1 — NPC/BOT
+
+Open Discover and Intent.
+
+Expected:
+- no NPC/bot/demo profiles
+- no legacy test account resurfacing
+
+TEST 2 — DISCOVER / INTENT CONSISTENCY
+
+If Intent has eligible candidates:
+
+Expected:
+- Discover reflects the same base eligibility pool unless a documented feature-specific exclusion applies
+
+If Discover is empty:
+
+Expected:
+- Intent must not be showing fundamentally ineligible candidates
+
+TEST 3 — BLOCK / REMOVE
+
+Remove/block a test candidate.
+
+Expected:
+- disappears from Discover
+- disappears from Intent
+
+TEST 4 — COLOUR
+
+Verify:
+- voice-note colour unchanged
+- Settings ON toggles match approved wine token
+- selected radius pill matches approved wine token
+- Save changes button matches approved wine token
+- destructive actions remain semantically distinct
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact NPC/bot account regression cause
+2. exact source/table/job/seed that reintroduced it
+3. authoritative production profile eligibility rule
+4. how legacy NPC/test accounts are now permanently excluded
+5. exact reason Intent showed users while Discover showed none
+6. exact Discover vs Intent filter/state mismatch found
+7. shared eligibility logic implemented
+8. stale cache/feed-state fix if applicable
+9. exact voice-note background token/value used
+10. exact controls recoloured
+11. confirmation destructive red actions were preserved separately
+12. files changed
+13. production commit
+14. live Vercel/Railway revision
+
+15. REAL PRODUCTION RESULTS:
+- no NPC/bot/demo profiles in Discover PASS/FAIL
+- no NPC/bot/demo profiles in Intent PASS/FAIL
+- Intent/Discover base eligibility aligned PASS/FAIL
+- blocked/removed candidate excluded everywhere PASS/FAIL
+- voice-note colour unchanged PASS/FAIL
+- Settings toggles matched PASS/FAIL
+- selected radius matched PASS/FAIL
+- Save changes matched PASS/FAIL
+
+Do not mark complete unless the NPC/test accounts are permanently excluded, Discover and Intent use one coherent base candidate eligibility system, and the remaining primary accent colours match the outgoing voice-note burgundy exactly.
