@@ -243,6 +243,23 @@ export function useRealtimeMessages(
             : { ...old, dateChoiceUser2: choice };
         });
       })
+      .on("broadcast", { event: "meet-availability" }, ({ payload }) => {
+        if (!payload) return;
+        queryClient.setQueryData<MatchDetailLike>(["/api/matches", matchId], (old) =>
+          old ? {
+            ...old,
+            meetAvailability1: payload.meetAvailability1 ?? null,
+            meetAvailability2: payload.meetAvailability2 ?? null,
+          } : old
+        );
+        queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
+        console.log("[MEET_AVAILABILITY] realtime update received", {
+          matchId: matchId.slice(0, 8),
+          realtime_delivery_ms: typeof payload.serverBroadcastAt === "number"
+            ? Math.max(0, Date.now() - payload.serverBroadcastAt)
+            : null,
+        });
+      })
       .on("broadcast", { event: "voice-note-unlock" }, () => {
         // Retroactive/legacy path — fired by the entitlement endpoint when it
         // detects callStage > 0 on a cold cache hit. Reuse the same callback.

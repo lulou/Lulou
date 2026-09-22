@@ -9,6 +9,7 @@ import {
 } from "@shared/schema";
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
+import { decideMeetAvailabilityAcceptance } from "@shared/meet-availability";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db, pool as localPool } from "./db";
@@ -3658,6 +3659,45 @@ export class SupabaseStorage implements IStorage {
       .eq("id", matchId)
       .select()
       .single();
+    return updated ? mapMatch(updated) : undefined;
+  }
+
+  async acceptMeetAvailability(
+    matchId: string,
+    userId: string,
+    expectedOtherAvailability: string,
+  ): Promise<Match | undefined> {
+    const { data: matchData } = await this.sb
+      .from("matches")
+      .select("*")
+      .eq("id", matchId)
+      .maybeSingle();
+    if (!matchData) return undefined;
+    const match = mapMatch(matchData);
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if ((match.callStage || 0) < 1) return undefined;
+
+    const isUser1 = match.user1Id === userId;
+    const myColumn = isUser1 ? "meet_availability_1" : "meet_availability_2";
+    const otherColumn = isUser1 ? "meet_availability_2" : "meet_availability_1";
+    const currentOther = isUser1 ? match.meetAvailability2 : match.meetAvailability1;
+    const currentMine = isUser1 ? match.meetAvailability1 : match.meetAvailability2;
+    const decision = decideMeetAvailabilityAcceptance(
+      currentMine,
+      currentOther,
+      expectedOtherAvailability,
+    );
+    if (!decision.ok) return undefined;
+
+    const { data: updated, error } = await this.sb
+      .from("matches")
+      .update({ [myColumn]: decision.copiedAvailability })
+      .eq("id", matchId)
+      .is(myColumn, null)
+      .eq(otherColumn, decision.copiedAvailability)
+      .select()
+      .maybeSingle();
+    if (error) throw new Error(`acceptMeetAvailability error: ${error.message}`);
     return updated ? mapMatch(updated) : undefined;
   }
 

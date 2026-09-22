@@ -43,6 +43,7 @@ import { welcomeEmail } from "./emailTemplates";
 import { registerAdminSimulatorRoutes } from "./adminSimulator";
 import { isLegacyEstablishedProfile } from "@shared/onboarding-compatibility";
 import { isQuotaConsumingUserMessage } from "@shared/message-quota";
+import { canonicalizeMeetAvailability, resolveMeetAvailability } from "@shared/meet-availability";
 import { createUserMessageWithQuota } from "./messageQuota";
 import {
   isIncludedCallTypeAllowed,
@@ -3936,7 +3937,12 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Match not found" });
       }
       if (IS_DEV) console.log(`[MATCH_DETAIL] ${req.params.matchId} — ${match.messages?.length ?? 0} msgs in ${Date.now() - t0} ms`);
-      res.json({ ...match, profile: sanitizeOtherProfile(match.profile) });
+      const isUser1 = match.user1Id === userId;
+      const meetAvailability = resolveMeetAvailability(
+        isUser1 ? match.meetAvailability1 : match.meetAvailability2,
+        isUser1 ? match.meetAvailability2 : match.meetAvailability1,
+      );
+      res.json({ ...match, profile: sanitizeOtherProfile(match.profile), meetAvailability });
     } catch (error) {
       console.error(`[MATCH_DETAIL] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch match" });
@@ -6943,16 +6949,75 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Please select 1-5 time slots" });
       }
 
-      const availability = JSON.stringify(slots);
+      const availability = canonicalizeMeetAvailability(slots);
+      if (!availability) {
+        return res.status(400).json({ message: "Availability slots are invalid" });
+      }
       const match = await storage.setMeetAvailability(matchId, userId, availability);
       if (!match) {
         return res.status(404).json({ message: "Match not found or calls not completed yet" });
       }
 
-      res.json(match);
+      await broadcastViaHttpApi(`chat:${matchId}`, "meet-availability", {
+        matchId,
+        meetAvailability1: match.meetAvailability1,
+        meetAvailability2: match.meetAvailability2,
+        changedBy: userId,
+        serverBroadcastAt: Date.now(),
+      });
+      const isUser1 = match.user1Id === userId;
+      res.json({
+        ...match,
+        meetAvailability: resolveMeetAvailability(
+          isUser1 ? match.meetAvailability1 : match.meetAvailability2,
+          isUser1 ? match.meetAvailability2 : match.meetAvailability1,
+        ),
+      });
     } catch (error) {
       console.error("Error setting meet availability:", error);
       res.status(500).json({ message: "Failed to set availability" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/meet-availability/accept", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const expectedOtherAvailability = typeof req.body?.expectedOtherAvailability === "string"
+        ? req.body.expectedOtherAvailability
+        : "";
+      if (!expectedOtherAvailability) {
+        return res.status(400).json({ message: "Expected availability is required" });
+      }
+
+      const match = await storage.acceptMeetAvailability(
+        matchId,
+        userId,
+        expectedOtherAvailability,
+      );
+      if (!match) {
+        return res.status(409).json({ message: "Availability changed. Review the latest time and try again." });
+      }
+
+      await broadcastViaHttpApi(`chat:${matchId}`, "meet-availability", {
+        matchId,
+        meetAvailability1: match.meetAvailability1,
+        meetAvailability2: match.meetAvailability2,
+        changedBy: userId,
+        serverBroadcastAt: Date.now(),
+      });
+      const isUser1 = match.user1Id === userId;
+      return res.json({
+        ...match,
+        meetAvailability: resolveMeetAvailability(
+          isUser1 ? match.meetAvailability1 : match.meetAvailability2,
+          isUser1 ? match.meetAvailability2 : match.meetAvailability1,
+        ),
+      });
+    } catch (error) {
+      console.error("Error accepting meet availability:", error);
+      return res.status(500).json({ message: "Failed to accept availability" });
     }
   });
 

@@ -27,6 +27,8 @@ import { useLanguageContext } from "@/contexts/language-context";
 import { type TranslationKey } from "@/lib/i18n";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { resolveCommunicationEntitlements, type CallGate } from "@shared/communication-entitlements";
+import { resolveMeetAvailability } from "@shared/meet-availability";
+import { MeetAvailabilityStatePanel } from "@/components/meet-availability-state";
 import {
   CommunicationControl,
   getCommunicationIconStyle,
@@ -91,9 +93,11 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
   const myNumberExchanged = isUser1 ? matchDetail.numberExchanged1 : matchDetail.numberExchanged2;
   const theirNumberExchanged = isUser1 ? matchDetail.numberExchanged2 : matchDetail.numberExchanged1;
 
-  const mySlots: string[] = myAvailability ? JSON.parse(myAvailability) : [];
-  const theirSlots: string[] = theirAvailability ? JSON.parse(theirAvailability) : [];
-  const matchingSlots = mySlots.filter(s => theirSlots.includes(s));
+  const meetAvailability = resolveMeetAvailability(myAvailability, theirAvailability);
+  const mySlots = meetAvailability.selfAvailability;
+  const theirSlots = meetAvailability.otherAvailability;
+  const matchingSlots = meetAvailability.matchingAvailability;
+  const labelForSlot = (slot: string) => dateSlots.find(d => d.value === slot)?.label || slot;
 
   const { data: myProfile } = useQuery<Profile>({ queryKey: ["/api/profile"] });
 
@@ -102,12 +106,32 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
       const res = await apiRequest("POST", `/api/matches/${matchId}/meet-availability`, { slots: selectedSlots });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["/api/matches", matchId], (old: any) => old ? { ...old, ...updated } : updated);
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
       toast({ title: t("availability_shared"), description: t("availability_shared_desc").replace("{name}", matchDetail.profile.firstName) });
       setShowDatePicker(false);
     },
     onError: (error: Error) => {
+      toast({ title: t("could_not_save"), description: error.message, variant: "destructive" });
+    },
+  });
+
+  const acceptAvailability = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${matchId}/meet-availability/accept`, {
+        expectedOtherAvailability: theirAvailability,
+      });
+      return res.json();
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["/api/matches", matchId], (old: any) => old ? { ...old, ...updated } : updated);
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
+      toast({ title: t("meet_time_agreed") });
+    },
+    onError: (error: Error) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId], exact: true });
       toast({ title: t("could_not_save"), description: error.message, variant: "destructive" });
     },
   });
@@ -274,78 +298,17 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
   return (
     <div className="p-4 border-t">
       <Card className="p-5 text-center space-y-4 bg-primary/5 border-primary/20">
-        <Check className="w-6 h-6 text-primary mx-auto" />
-        <p className="font-medium text-sm">{t("all_calls_completed")}</p>
-        <p className="text-xs text-muted-foreground">{t("ready_to_meet_real")}</p>
-
-        {mySlots.length > 0 && theirSlots.length > 0 && matchingSlots.length > 0 ? (
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center gap-2 justify-center">
-              <Heart className="w-4 h-4 text-primary" />
-              <p className="font-medium text-sm text-primary">{t("your_date_on_cards")}</p>
-              <Heart className="w-4 h-4 text-primary" />
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">{t("you_both_matched_on")}</p>
-              <div className="flex flex-wrap gap-1 justify-center">
-                {matchingSlots.map((s: string) => {
-                  const matched = dateSlots.find(d => d.value === s);
-                  return <Badge key={s} className="text-xs bg-primary/15 text-primary border-primary/30">{matched?.label || s}</Badge>;
-                })}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 items-center pt-1">
-              <Button size="sm" className="communication-wine-fill" onClick={handleExchangeNumber} data-testid="button-exchange-number">
-                <PhoneForwarded className="w-4 h-4 me-2" /> {t("exchange_number_btn")}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
-                <Calendar className="w-4 h-4 me-2" /> {t("update_availability_btn")}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {mySlots.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground">{t("your_availability_lbl")}</p>
-                <div className="flex flex-wrap gap-1 justify-center">
-                  {mySlots.map((s: string) => {
-                    const matched = dateSlots.find(d => d.value === s);
-                    return <Badge key={s} variant="secondary" className="text-xs">{matched?.label || s}</Badge>;
-                  })}
-                </div>
-              </div>
-            )}
-
-            {theirSlots.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground">{t("their_availability_lbl").replace("{name}", matchDetail.profile.firstName)}</p>
-                <div className="flex flex-wrap gap-1 justify-center">
-                  {theirSlots.map((s: string) => {
-                    const matched = dateSlots.find(d => d.value === s);
-                    return <Badge key={s} variant="outline" className="text-xs">{matched?.label || s}</Badge>;
-                  })}
-                </div>
-              </div>
-            )}
-
-            {mySlots.length > 0 && theirSlots.length > 0 && matchingSlots.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t("no_matching_times")}</p>
-            )}
-
-            <div className="flex flex-col gap-2 items-center">
-              {mySlots.length === 0 ? (
-                <Button size="sm" className="communication-wine-fill" onClick={() => setShowDatePicker(true)} data-testid="button-ready-to-meet">
-                  <Calendar className="w-4 h-4 me-2" /> {t("ready_to_meet")}
-                </Button>
-              ) : (
-                <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
-                  <Calendar className="w-4 h-4 me-2" /> {t("update_availability_btn")}
-                </Button>
-              )}
-            </div>
-          </>
-        )}
+        <MeetAvailabilityStatePanel
+          resolution={meetAvailability}
+          otherName={matchDetail.profile.firstName}
+          labelForSlot={labelForSlot}
+          onAccept={() => acceptAvailability.mutate()}
+          onChooseAnother={() => { setSelectedSlots([]); setShowDatePicker(true); }}
+          onUpdate={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }}
+          onExchangeNumber={handleExchangeNumber}
+          accepting={acceptAvailability.isPending}
+          t={t}
+        />
       </Card>
     </div>
   );
@@ -1696,7 +1659,22 @@ export default function Messaging() {
   }
   const displayStarters = aiStartersData?.starters?.length ? aiStartersData.starters : FALLBACK_STARTERS;
 
-  const statusLabel = allCallsDone ? t("status_ready_to_meet")
+  const headerMeetAvailability = matchDetail
+    ? resolveMeetAvailability(
+        matchDetail.user1Id === user?.id ? matchDetail.meetAvailability1 : matchDetail.meetAvailability2,
+        matchDetail.user1Id === user?.id ? matchDetail.meetAvailability2 : matchDetail.meetAvailability1,
+      )
+    : null;
+  const postCallStatusLabel = headerMeetAvailability?.state === "both_match"
+    ? t("status_ready_to_meet")
+    : headerMeetAvailability?.state === "other_only"
+      ? t("their_availability_lbl").replace("{name}", shellProfile?.firstName ?? "")
+      : headerMeetAvailability?.state === "self_only"
+        ? t("your_availability_lbl")
+        : headerMeetAvailability?.state === "both_mismatch"
+          ? t("no_matching_times")
+          : t("share_availability_btn");
+  const statusLabel = allCallsDone ? postCallStatusLabel
     : callStage === 3 ? t("status_face_call_stage")
     : callStage === 2 ? t("status_20_msg_stage")
     : effectiveIsLimitReached ? t("call_time_badge")
