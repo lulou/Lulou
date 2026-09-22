@@ -1001,7 +1001,15 @@ export default function Messaging() {
       });
       return result;
     },
-    onSuccess: (_data: any, vars) => {
+    onSuccess: (data: any, vars) => {
+      const prog = data?.progression;
+      if (prog) {
+        queryClient.setQueryData(["/api/matches", matchId], (old: any) =>
+          old ? { ...old, messageCount1: prog.user1Count, messageCount2: prog.user2Count } : old
+        );
+        setLocalSentCount(0);
+        queryClient.refetchQueries({ queryKey: ["/api/matches", matchId], exact: true });
+      }
       setPendingVoiceNotes(prev => prev.filter(note => note.tempId !== vars.tempId));
       setTimeout(() => URL.revokeObjectURL(vars.blobUrl), 15_000);
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
@@ -1069,7 +1077,10 @@ export default function Messaging() {
   const sendMessage = useMutation({
     mutationFn: async (vars: { content: string; tempId: string }) => {
       if (!matchId) throw new Error("No match");
-      const res = await apiRequest("POST", `/api/matches/${matchId}/messages`, { content: vars.content });
+      const res = await apiRequest("POST", `/api/matches/${matchId}/messages`, {
+        content: vars.content,
+        clientRequestId: vars.tempId,
+      });
       return res.json();
     },
     onMutate: async (vars: { content: string; tempId: string }) => {

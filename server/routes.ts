@@ -42,6 +42,8 @@ import { sendEmail, getEmailLog } from "./emailService";
 import { welcomeEmail } from "./emailTemplates";
 import { registerAdminSimulatorRoutes } from "./adminSimulator";
 import { isLegacyEstablishedProfile } from "@shared/onboarding-compatibility";
+import { isQuotaConsumingUserMessage } from "@shared/message-quota";
+import { createUserMessageWithQuota } from "./messageQuota";
 import {
   isIncludedCallTypeAllowed,
   resolveCommunicationEntitlements,
@@ -855,6 +857,7 @@ const discoverSafetyActionBodySchema = z.object({
 
 const messageBodySchema = z.object({
   content: z.string().min(1).max(500),
+  clientRequestId: z.string().regex(/^[A-Za-z0-9_-]{8,120}$/).optional(),
 });
 
 const AUTO_REPLIES = [
@@ -4137,7 +4140,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid message: content is required (1-500 chars)", errors: fieldErrors });
       }
 
-      const { content } = parsed.data;
+      const { content, clientRequestId } = parsed.data;
 
       if (!content.startsWith("__VOICE__:") && containsContactInfo(content)) {
         return res.status(400).json({ message: "No exchange of information until a date has been agreed upon. Complete your calls and match your availability first!" });
@@ -4161,86 +4164,46 @@ export async function registerRoutes(
       const isUser1Sender = match.user1Id === userId;
       const preCount1 = match.messageCount1 ?? 0;
       const preCount2 = match.messageCount2 ?? 0;
-      const myPreCount = isUser1Sender ? preCount1 : preCount2;
-
-      if (callStage === 0) {
-        const tCount0 = Date.now();
-        const [extension] = await db.select().from(userBenefits).where(and(
-          eq(userBenefits.userId, userId),
-          eq(userBenefits.type, "message_extension"),
-          eq(userBenefits.activatedMatchId, matchId),
-        )).limit(1);
-        if (IS_DEV) console.log(`[MSG] extension check: ${Date.now() - tCount0} ms | count=${myPreCount} ext=${!!extension}`);
-        const limit = extension ? 20 : 15;
-        if (myPreCount >= limit) {
-          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 0, count: myPreCount, limit });
+      // The locked SQL transaction below is the sole quota authority. Keeping
+      // pre-limit rejection here would break an idempotent retry of the final
+      // successfully committed message because the counter is already at limit.
+      // ── Step 3: Atomically create message + consume quota ─────────────────────
+      const FC_THRESHOLD = 15;
+      const isCountedMessage = isQuotaConsumingUserMessage({ content, callStage });
+      const textMessageId = clientRequestId
+        ? `text_${createHash("sha256").update(`${matchId}:${userId}:${clientRequestId}`).digest("hex")}`
+        : undefined;
+      let created;
+      try {
+        created = await createUserMessageWithQuota({
+          matchId,
+          senderId: userId,
+          messageId: textMessageId,
+          content: content.trim(),
+          consumesQuota: isCountedMessage,
+          stage0Limit: callStage === 0 && (await db.select().from(userBenefits).where(and(
+            eq(userBenefits.userId, userId),
+            eq(userBenefits.type, "message_extension"),
+            eq(userBenefits.activatedMatchId, matchId),
+          )).limit(1)).length > 0 ? 20 : 15,
+        });
+      } catch (createErr: any) {
+        if (createErr?.message?.includes("MESSAGE_QUOTA_REACHED_CALL")) {
           return res.status(400).json({ message: "Message limit reached. Time to call!" });
         }
-      } else if (callStage === 1) {
-        // Post-first-call messaging phase: 12 messages each before date planning unlocks.
-        // Once BOTH users have completed 12 messages the date-planning stage is reached and
-        // messaging becomes free — the user may have chosen "Keep Messaging".
-        // Must stay in sync with POST_CALL_THRESHOLD (client/src/pages/matches.tsx) and
-        // msgLimit (client/src/pages/messaging.tsx).
-        const tCount1 = Date.now();
-        const messageCount = await storage.getUserMessageCount(matchId, userId);
-        if (IS_DEV) console.log(`[MSG] post-call count: ${Date.now() - tCount1} ms | count=${messageCount}`);
-        const POST_CALL_LIMIT = 12;
-        if (messageCount >= POST_CALL_LIMIT) {
-          const theirCount = match.user1Id === userId ? (match.messageCount2 || 0) : (match.messageCount1 || 0);
-          if (theirCount < POST_CALL_LIMIT) {
-            // Only the current user has finished — still blocked until both are done.
-            console.log("[CONNECTION_STAGE] POST_CALL_LIMIT_REACHED", { matchId, userId, callStage: 1, count: messageCount, limit: POST_CALL_LIMIT, theirCount });
-            return res.status(400).json({ message: "Message limit reached. Time to plan your date!" });
-          }
-          // Both users completed 12 → free messaging (Keep Messaging mode). Fall through.
-          console.log("[CONNECTION_STAGE] POST_CALL_FREE_MESSAGING", { matchId, userId, myCount: messageCount, theirCount });
+        if (createErr?.message?.includes("MESSAGE_QUOTA_REACHED_DATE")) {
+          return res.status(400).json({ message: "Message limit reached. Time to plan your date!" });
         }
+        console.error("[MSG] atomic message creation failed:", createErr?.message);
+        return res.status(503).json({ message: "Message service temporarily unavailable. Please try again." });
       }
-
-      // ── Step 3: Counter increment (BEFORE insert — eliminates WAL race) ────────
-      // WHY THIS ORDER MATTERS:
-      // Inserting the message triggers a Supabase postgres_changes WAL event that
-      // fires on the client immediately (~100–200 ms).  useUnreadCounts (matches.tsx)
-      // picks it up and calls:
-      //   invalidateQueries({ queryKey: ["/api/matches", matchId], exact: true })
-      // That refetch hits GET /api/matches/:id while the counter update is still in
-      // flight, reads counter=0, and patches the client cache to 0 — snapping the
-      // badge back to 15.  Incrementing FIRST means the counter is already committed
-      // in Supabase by the time any refetch arrives, so it reads the correct value.
-      const FC_THRESHOLD = 15;
-      let newCount1 = preCount1;
-      let newCount2 = preCount2;
+      const message = created.message;
+      const newCount1 = created.user1Count;
+      const newCount2 = created.user2Count;
       let progressionEvent: { type: string } | null = null;
       let progression: object | null = null;
 
-      // Counted messages: stage 0 (pre-call, 15-limit) and stage 1 (post-call, 12-limit).
-      // System payloads (__VOICE__:, __SCHEDULE__:, __SYS__:, etc.) never consume allowance.
-      // callStage >= 2 is free messaging — no counter increment needed.
-      const isCountedMessage = (callStage === 0 || callStage === 1) && !content.trim().startsWith("__");
       if (isCountedMessage) {
-        const tInc0 = Date.now();
-        // ── Primary path: atomic RPC (requires increment_message_count_fn.sql) ──
-        // CRITICAL: must use supabaseAdmin (Supabase DB) not the Drizzle `db`
-        // (Railway/Neon DB via DATABASE_URL).  All reads use Supabase PostgREST.
-        const { data: rpcResult, error: rpcErr } = await supabaseAdmin.rpc(
-          "increment_message_count",
-          { p_match_id: matchId, p_is_user1: isUser1Sender },
-        );
-        if (rpcErr) {
-          console.error("[MSG] increment_message_count RPC failed:", rpcErr.message);
-          return res.status(503).json({
-            message: "Message counter temporarily unavailable. Please try again.",
-            detail: rpcErr.message,
-          });
-        } else {
-          // RPC returns a one-row TABLE result; supabase-js wraps it in an array.
-          const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
-          newCount1 = (row as any)?.out_count1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
-          newCount2 = (row as any)?.out_count2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
-        }
-        if (IS_DEV) console.log(`[MSG] counter-increment: ${Date.now() - tInc0} ms | count1=${newCount1} count2=${newCount2} rpcErr=${rpcErr?.message ?? "none"}`);
-
         // ── Milestone detection (stage 0 only) ────────────────────────────────
         // FC_THRESHOLD is the pre-call messaging milestone; cannot fire in stage 1.
         if (callStage === 0) {
@@ -4264,15 +4227,14 @@ export async function registerRoutes(
         };
       }
 
-      // ── Step 4: Insert message (AFTER counter so WAL refetch sees updated count) ─
-      const tInsert0 = Date.now();
       const recipientId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const message = await adminStorage.createMessage({
-        matchId,
-        senderId: userId,
-        content: content.trim(),
-      });
-      if (IS_DEV) console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
+
+      // A lost response can be retried with the same clientRequestId. The
+      // transaction returns the existing message/counts without repeating any
+      // unread, realtime, push, or milestone side effects.
+      if (!created.inserted) {
+        return res.json({ ...message, progressionEvent: null, progression });
+      }
 
       // Publish a fast badge delta immediately after the committed insert.
       // The chat message itself is broadcast after unread persistence below:
@@ -6104,6 +6066,9 @@ export async function registerRoutes(
         /^[A-Za-z0-9_-]{8,120}$/.test(requestIdValue)
         ? requestIdValue
         : null;
+      const messageId = clientRequestId
+        ? `voice_${createHash("sha256").update(`${matchId}:${userId}:${clientRequestId}`).digest("hex")}`
+        : undefined;
 
       if (audioBuffer.length > 10_000_000) {
         return res.status(400).json({ message: "Audio file too large (max 10 MB)" });
@@ -6114,6 +6079,39 @@ export async function registerRoutes(
       if (!match) return res.status(404).json({ message: "Match not found" });
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       console.log(`[VOICE_NOTE_SPEED] upload started — matchMetaMs=${Date.now() - tMatchMeta}ms`);
+
+      // Mirror the normal message route's per-sender stage gate. A retry of an
+      // already-created deterministic message is allowed through so it can
+      // return success without consuming quota again.
+      let isExistingRetry = false;
+      let voiceStage0Limit = 15;
+      if (messageId) {
+        const { data: existing } = await supabaseAdmin
+          .from("messages")
+          .select("id")
+          .eq("id", messageId)
+          .maybeSingle();
+        isExistingRetry = !!existing;
+      }
+      if (!isExistingRetry && match.callStage === 0) {
+        const [extension] = await db.select().from(userBenefits).where(and(
+          eq(userBenefits.userId, userId),
+          eq(userBenefits.type, "message_extension"),
+          eq(userBenefits.activatedMatchId, matchId),
+        )).limit(1);
+        const limit = extension ? 20 : 15;
+        voiceStage0Limit = limit;
+        const myCount = match.user1Id === userId ? (match.messageCount1 ?? 0) : (match.messageCount2 ?? 0);
+        if (myCount >= limit) {
+          return res.status(400).json({ message: "Message limit reached. Time to call!" });
+        }
+      } else if (!isExistingRetry && match.callStage === 1) {
+        const myCount = match.user1Id === userId ? (match.messageCount1 ?? 0) : (match.messageCount2 ?? 0);
+        const theirCount = match.user1Id === userId ? (match.messageCount2 ?? 0) : (match.messageCount1 ?? 0);
+        if (myCount >= 12 && theirCount < 12) {
+          return res.status(400).json({ message: "Message limit reached. Time to plan your date!" });
+        }
+      }
 
       const safeMime = mimeType.length < 100 ? mimeType : "audio/webm";
 
@@ -6187,57 +6185,49 @@ export async function registerRoutes(
 
       const tInsert = Date.now();
       console.log(`[VOICE_NOTE] message persistence start`);
-      let message: any;
-      let shouldBroadcast = true;
-      const messageId = clientRequestId
-        ? `voice_${createHash("sha256").update(`${matchId}:${userId}:${clientRequestId}`).digest("hex")}`
-        : undefined;
+      const voiceContent = `__VOICE__:${publicUrl}`;
+      const consumesQuota = isQuotaConsumingUserMessage({
+        content: voiceContent,
+        callStage: match.callStage,
+      });
+      let created;
       try {
-        // The primary key makes retries atomic at the database boundary. The
-        // same request can therefore safely race with itself.
-        message = await adminStorage.createMessage({
-          ...(messageId ? { id: messageId } : {}),
+        created = await createUserMessageWithQuota({
           matchId,
           senderId: userId,
-          content: `__VOICE__:${publicUrl}`,
+          messageId,
+          content: voiceContent,
+          consumesQuota,
+          stage0Limit: voiceStage0Limit,
         });
-        console.log(`[VOICE_NOTE] message ready idPresent=${!!message?.id} insertMs=${Date.now() - tInsert}`);
-      } catch (dbErr: any) {
-        if (messageId && dbErr?.code === "23505") {
-          const { data: existing, error: existingError } = await supabaseAdmin
-            .from("messages")
-            .select("id, match_id, sender_id, content, reaction, created_at")
-            .eq("id", messageId)
-            .maybeSingle();
-          if (!existingError && existing) {
-            message = {
-              id: existing.id,
-              matchId: existing.match_id,
-              senderId: existing.sender_id,
-              content: existing.content,
-              reaction: existing.reaction ?? null,
-              createdAt: existing.created_at ?? null,
-            };
-            shouldBroadcast = false;
-            console.log(`[VOICE_NOTE] idempotent retry reused existing message insertMs=${Date.now() - tInsert}`);
-          }
+      } catch (createErr: any) {
+        if (createErr?.message?.includes("MESSAGE_QUOTA_REACHED_CALL")) {
+          return res.status(400).json({ message: "Message limit reached. Time to call!" });
         }
-        if (message) {
-          // The original successful insert already emits postgres_changes and
-          // performs the explicit broadcast. A retry returns that row without
-          // generating a second realtime event.
-        } else {
-        console.error(`[VOICE_NOTE_PIPELINE] db insert error="${dbErr.message}"`);
+        if (createErr?.message?.includes("MESSAGE_QUOTA_REACHED_DATE")) {
+          return res.status(400).json({ message: "Message limit reached. Time to plan your date!" });
+        }
+        console.error(`[VOICE_NOTE_PIPELINE] db insert error="${createErr?.message}"`);
         console.error(`[VOICE_NOTE_SPEED] db inserted FAILED insertMs=${Date.now() - tInsert}ms`);
-        return res.status(500).json({ message: "Failed to save voice note. Please try again." });
-        }
+        return res.status(503).json({ message: "Failed to save voice note. Please try again." });
       }
-      // A voice note is a real message for unread delivery, even though its
-      // protocol content is excluded from progression/message quotas. Keep all
-      // post-insert effects behind shouldBroadcast: the deterministic message
-      // id makes a retry safe without a second badge, realtime event, preview,
-      // or push notification.
-      if (shouldBroadcast) {
+      const message = created.message;
+      const progression = consumesQuota ? {
+        user1Count: created.user1Count,
+        user2Count: created.user2Count,
+        myCount: match.user1Id === userId ? created.user1Count : created.user2Count,
+        theirCount: match.user1Id === userId ? created.user2Count : created.user1Count,
+        voiceNotesEligible: true,
+        firstCallEligible: false,
+        callStage: created.callStage,
+        currentUserPendingMilestone: null,
+      } : null;
+      console.log(`[VOICE_NOTE] message ready idPresent=${!!message?.id} inserted=${created.inserted} insertMs=${Date.now() - tInsert}`);
+
+      // Message creation and quota consumption are one transaction. A repeated
+      // clientRequestId returns the existing state and never repeats delivery.
+      const shouldDeliver = created.inserted;
+      if (shouldDeliver) {
         const serverInsertedAt = Date.now();
         const recipientId = otherUserId;
         console.log("[VOICE_NOTE_DIAGNOSTIC]", {
@@ -6288,6 +6278,11 @@ export async function registerRoutes(
           content: message.content,
           reaction: message.reaction ?? null,
           createdAt: message.createdAt ?? null,
+          progression: progression ? {
+            user1Count: progression.user1Count,
+            user2Count: progression.user2Count,
+            callStage: progression.callStage,
+          } : null,
           serverInsertedAt,
         }).catch((broadcastErr: any) => {
           console.error(`[VOICE_NOTE] realtime broadcast failed error=${broadcastErr?.message ?? "unknown"}`);
@@ -6365,7 +6360,7 @@ export async function registerRoutes(
       const totalMs = Date.now() - tReceive;
       console.log(`[VOICE_NOTE_SPEED] db inserted — insertMs=${Date.now() - tInsert}ms totalMs=${totalMs}ms`);
       console.log(`[VOICE_NOTE_PIPELINE] response returned status=200 totalMs=${totalMs}`);
-      res.json({ success: true, message });
+      res.json({ success: true, message, progression });
     } catch (err: any) {
       console.error("[VOICE] ERROR:", err.message);
       res.status(500).json({ message: err.message || "Failed to send voice note" });

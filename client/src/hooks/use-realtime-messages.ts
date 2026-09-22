@@ -47,7 +47,20 @@ export function useRealtimeMessages(
       createdAt: row.created_at ?? row.createdAt,
       voiceTranscript: row.voice_transcript ?? row.voiceTranscript ?? null,
     };
-    if (handledMessageIdsRef.current.has(newMsg.id)) return;
+    const alreadyHandled = handledMessageIdsRef.current.has(newMsg.id);
+    // Reconcile authoritative counts even if the postgres_changes event arrived
+    // before the explicit broadcast for this same message ID.
+    if (row.progression) {
+      queryClient.setQueryData<MatchDetailLike>(
+        ["/api/matches", matchId],
+        (old) => old ? {
+          ...old,
+          messageCount1: row.progression.user1Count,
+          messageCount2: row.progression.user2Count,
+        } : old,
+      );
+    }
+    if (alreadyHandled) return;
     handledMessageIdsRef.current.add(newMsg.id);
     if (handledMessageIdsRef.current.size > 500) {
       const first = handledMessageIdsRef.current.values().next().value;

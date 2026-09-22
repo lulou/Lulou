@@ -1837,7 +1837,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       if (!match.id) {
         throw new Error("No match selected");
       }
-      const res = await apiRequest("POST", `/api/matches/${match.id}/messages`, { content: vars.content });
+      const res = await apiRequest("POST", `/api/matches/${match.id}/messages`, {
+        content: vars.content,
+        clientRequestId: vars.tempId,
+      });
       return res.json();
     },
     onMutate: async (vars: { content: string; tempId: string }) => {
@@ -3279,6 +3282,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       pendingVoiceRetryIdsRef.current.delete(vars.tempId);
       setVoicePhase("idle");
       const realMsg = data?.message as Message | undefined;
+      const prog = data?.progression;
       // Delay blob URL revoke by 15s — the CDN preload audio element references it and the
       // browser may still be mid-fetch. Revoking immediately cuts that off on some browsers.
       setTimeout(() => URL.revokeObjectURL(vars.blobUrl), 15_000);
@@ -3287,8 +3291,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], (old) => {
           if (!old) return old;
           const exists = old.messages.some(m => m.id === realMsg.id);
-          if (exists) return old;
-          return { ...old, messages: [...old.messages, realMsg] };
+          if (exists) {
+            return prog
+              ? { ...old, messageCount1: prog.user1Count, messageCount2: prog.user2Count }
+              : old;
+          }
+          return {
+            ...old,
+            messages: [...old.messages, realMsg],
+            ...(prog ? { messageCount1: prog.user1Count, messageCount2: prog.user2Count } : {}),
+          };
         });
         console.log(`[VOICE_NOTE_SEND] cache updated messageId=${realMsg.id} — voice note visible`);
         addDbg(`onSuccess: cache updated id=${realMsg.id}`);
@@ -3296,6 +3308,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         console.warn(`[VOICE_NOTE_SEND] no realMsg in response — invalidating query`);
         addDbg(`onSuccess: no realMsg — invalidating query`);
         queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      }
+      if (prog) {
+        setLocalSentCount(0);
+        queryClient.refetchQueries({ queryKey: ["/api/matches", match.id], exact: true });
       }
       // Remove the pending entry — real message is now in cache
       setPendingVoiceNotes(prev => prev.filter(v => v.tempId !== vars.tempId));

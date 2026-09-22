@@ -29,9 +29,10 @@ describe("authoritative unread badges", () => {
 
   it("gives first-insert voice notes the text message unread/push delivery contract", () => {
     const voiceRoute = routes.slice(routes.indexOf('app.post("/api/voice-notes/send/:matchId"'));
-    const insert = voiceRoute.indexOf("let shouldBroadcast = true");
+    const insert = voiceRoute.indexOf("created = await createUserMessageWithQuota");
     const effects = voiceRoute.slice(insert);
-    expect(effects).toContain('if (shouldBroadcast) {');
+    expect(effects).toContain("const shouldDeliver = created.inserted");
+    expect(effects).toContain("if (shouldDeliver) {");
     expect(effects).toContain('event: "voice_note_message_inserted"');
     expect(effects).toContain('delta: 1');
     expect(effects).toContain("incrementMatchBadge(recipientId, matchId)");
@@ -49,8 +50,8 @@ describe("authoritative unread badges", () => {
 
   it("does not duplicate voice unread, realtime, or push effects for idempotent retries", () => {
     const voiceRoute = routes.slice(routes.indexOf('app.post("/api/voice-notes/send/:matchId"'));
-    const retryGate = voiceRoute.indexOf("shouldBroadcast = false");
-    const effects = voiceRoute.slice(voiceRoute.indexOf("if (shouldBroadcast) {", retryGate));
+    const retryGate = voiceRoute.indexOf("const shouldDeliver = created.inserted");
+    const effects = voiceRoute.slice(voiceRoute.indexOf("if (shouldDeliver) {", retryGate));
     expect(retryGate).toBeGreaterThan(-1);
     expect(effects).toContain("incrementMatchBadge(recipientId, matchId)");
     expect(effects).toContain("isUserActiveInChat(recipientId, matchId)");
