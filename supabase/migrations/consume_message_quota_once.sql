@@ -184,7 +184,7 @@ BEGIN
     v_message.sender_id::TEXT,
     v_message.content,
     v_message.reaction::TEXT,
-    v_message.created_at AT TIME ZONE 'UTC',
+    v_message.created_at::TIMESTAMPTZ,
     COALESCE(v_match.message_count_1, 0),
     COALESCE(v_match.message_count_2, 0),
     COALESCE(v_match.call_stage, 0);

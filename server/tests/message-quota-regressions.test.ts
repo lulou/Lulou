@@ -22,6 +22,7 @@ describe("message quota parity", () => {
     const quotaInsert = migration.indexOf("INSERT INTO public.message_quota_consumptions", messageInsert);
     expect(messageInsert).toBeGreaterThan(-1);
     expect(quotaInsert).toBeGreaterThan(messageInsert);
+    expect(migration).toContain("v_message.created_at::TIMESTAMPTZ");
     expect(routes).toContain("created = await createUserMessageWithQuota");
   });
 
