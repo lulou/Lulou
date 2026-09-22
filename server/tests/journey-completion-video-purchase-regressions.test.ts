@@ -55,6 +55,13 @@ describe("journey completion and locked video regressions", () => {
     expect(purchasePrompt).toContain('price: "$6.99 AUD"');
     expect(purchasePrompt).toContain('packs: [VIDEO_PACKS[0]]');
     expect(purchasePrompt).toContain("Unlock Video Call — $6.99");
+    expect(purchasePrompt).toContain('subtitle: "Take your connection face-to-face."');
+    expect(purchasePrompt).toContain('data-testid="button-not-now"');
+  });
+
+  it("resets the pending checkout state after an iPhone bfcache return", () => {
+    expect(purchasePrompt).toContain('window.addEventListener("pageshow", handlePageShow)');
+    expect(purchasePrompt).toContain("if (event.persisted) setLoading(null)");
   });
 
   it("reports the Stripe paused state without granting a credit", () => {

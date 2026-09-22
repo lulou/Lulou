@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Phone, Video, Mic, Check, Sparkles } from "lucide-react";
@@ -53,7 +53,7 @@ const FEATURE_META: Record<PurchaseFeature, {
     Icon: Video,
     color: "hsl(var(--primary))",
     title: "Video calls",
-    subtitle: "Take your connection face-to-face. Video calls are available as a paid extra once you reach the eligible stage.",
+    subtitle: "Take your connection face-to-face.",
     packs: [VIDEO_PACKS[0]],
   },
   mic: {
@@ -74,6 +74,17 @@ interface PurchasePromptProps {
 export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Match Elevate's iPhone-safe Stripe return handling. Safari can restore the
+  // page from bfcache after Back/Cancel with the old loading state still held in
+  // React memory; clear it so the locked control can be used again immediately.
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setLoading(null);
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, []);
 
   const startCheckout = (itemId: string) => {
     setLoading(itemId);
