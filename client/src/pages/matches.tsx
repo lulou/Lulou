@@ -392,7 +392,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
           </div>
           <Input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder={t("your_phone_ph")} maxLength={20} data-testid={`input-phone-inline-${matchId}`} />
           <div className="flex items-center gap-2 justify-center">
-            <Button size="sm" onClick={() => savePhoneAndExchange.mutate()} disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending} data-testid={`button-confirm-exchange-inline-${matchId}`}>
+            <Button size="sm" className="communication-wine-fill" onClick={() => savePhoneAndExchange.mutate()} disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending} data-testid={`button-confirm-exchange-inline-${matchId}`}>
               {savePhoneAndExchange.isPending ? t("sending_ellipsis") : t("share_my_number")}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowPhoneInput(false)}>{t("cancel_btn")}</Button>
@@ -426,7 +426,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
           </div>
           <p className="text-xs text-muted-foreground text-center">{selectedSlots.length}/5 {t("slots_selected_label")}</p>
           <div className="flex items-center gap-2 justify-center">
-            <Button size="sm" onClick={() => saveAvailability.mutate()} disabled={selectedSlots.length === 0 || saveAvailability.isPending} data-testid={`button-save-avail-inline-${matchId}`}>
+            <Button size="sm" className="communication-wine-fill" onClick={() => saveAvailability.mutate()} disabled={selectedSlots.length === 0 || saveAvailability.isPending} data-testid={`button-save-avail-inline-${matchId}`}>
               {saveAvailability.isPending ? t("saving_ellipsis") : t("share_availability_btn")}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowDatePicker(false)}>{t("cancel_btn")}</Button>
@@ -479,7 +479,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
               </div>
             </div>
             <div className="flex flex-col gap-2 items-center pt-1">
-              <Button size="sm" onClick={handleExchangeNumber} data-testid={`button-exchange-number-${matchId}`}>
+              <Button size="sm" className="communication-wine-fill" onClick={handleExchangeNumber} data-testid={`button-exchange-number-${matchId}`}>
                 <PhoneForwarded className="w-4 h-4 me-2" /> {t("exchange_number_btn")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid={`button-update-avail-${matchId}`}>
@@ -510,7 +510,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
             )}
             <div className="flex flex-col gap-2 items-center">
               {mySlots.length === 0 ? (
-                <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid={`button-ready-to-meet-${matchId}`}>
+                <Button size="sm" className="communication-wine-fill" onClick={() => setShowDatePicker(true)} data-testid={`button-ready-to-meet-${matchId}`}>
                   <Calendar className="w-4 h-4 me-2" /> {t("ready_to_meet")}
                 </Button>
               ) : (
@@ -3550,6 +3550,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     messageCount1: detail.messageCount1,
     messageCount2: detail.messageCount2,
     voiceNotesUnlocked,
+    videoCredits: videoCredits ?? 0,
+    paidVideoConsumed: detail.lastCallMediaType === "video" && detail.lastCallIsPaid === true,
   });
 
   const showCommunicationGate = (feature: "phone" | "video", gate: CallGate) => {
@@ -3583,10 +3585,22 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const feature = isVideo ? "video" : "phone";
     const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
     if (gate.state === "locked") {
+      if (isVideo && gate.purchaseRequired) {
+        setPurchasePromptFeature("video");
+        return;
+      }
       showCommunicationGate(feature, gate);
       return;
     }
     if (startCall.isPending || startPaidCall.isPending) return;
+    if (isVideo) {
+      if (gate.state === "available") {
+        startPaidCall.mutate({ isVideo: true });
+      } else {
+        setPurchasePromptFeature("video");
+      }
+      return;
+    }
     if (gate.state === "available") {
       if (!isVideo && callStage === 0 && callStageState !== "READY_TO_CALL") {
         if (callStageState === "CALL_STAGE_UNLOCKED") {
@@ -3972,49 +3986,51 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </div>
         </div>
         {/* ── Fixed-size communication controls; labels never resize surfaces. ── */}
-        <div className={"flex items-start justify-center gap-4 border-t border-border/30 px-4 pb-2.5 pt-2" + (inputFocused ? " hidden" : "")} data-ui-version="communication-controls-105">
-            {!allCallsDone && (
-              <CommunicationControl
-                onClick={() => handleCallAction(false)}
-                busy={startCall.isPending || startPaidCall.isPending}
-                state={communicationEntitlements.audio.state}
-                testId={`button-phone-tray-${match.id}`}
-                ariaLabel="Audio call"
-                icon={<Phone />}
-                label={communicationEntitlements.audio.state === "locked"
-                    ? "Locked"
-                    : communicationEntitlements.audio.state === "available"
-                      ? "Call"
-                      : (phoneCredits ?? 0) > 0 ? "Use 1" : "Unlock"}
-              />
-            )}
-            {!allCallsDone && (
-              <CommunicationControl
-                onClick={() => handleCallAction(true)}
-                busy={startCall.isPending || startPaidCall.isPending}
-                state={communicationEntitlements.video.state}
-                testId={`button-video-tray-${match.id}`}
-                ariaLabel="Video call"
-                icon={<Video />}
-                label={communicationEntitlements.video.state === "locked"
-                    ? "Locked"
-                    : communicationEntitlements.video.state === "available"
-                      ? "Video"
-                      : (videoCredits ?? 0) > 0 ? "Use 1" : "Unlock"}
-              />
-            )}
-            {/* ── Face / video call button — unlocks after all voice calls done ── */}
-            {allCallsDone && (
-              <CommunicationControl
-                onClick={() => handleCallAction(true)}
-                busy={startPaidCall.isPending}
-                state={communicationEntitlements.video.state}
-                testId={`button-face-call-tray-${match.id}`}
-                ariaLabel={t("face_call_label")}
-                icon={<Video />}
-                label={(videoCredits ?? 0) > 0 ? "Use 1" : "Unlock"}
-              />
-            )}
+        <div className={"flex items-start justify-center gap-4 border-t border-border/30 px-4 pb-2.5 pt-2" + (inputFocused ? " hidden" : "")} data-ui-version="communication-controls-106">
+            <CommunicationControl
+              onClick={() => handleCallAction(false)}
+              busy={startCall.isPending || startPaidCall.isPending}
+              state={communicationEntitlements.audio.state}
+              testId={`button-phone-tray-${match.id}`}
+              ariaLabel="Audio call"
+              icon={<Phone />}
+              label={allCallsDone
+                ? "Used"
+                : communicationEntitlements.audio.state === "locked"
+                  ? "Locked"
+                  : communicationEntitlements.audio.state === "available"
+                    ? "Call"
+                    : (phoneCredits ?? 0) > 0 ? "Use 1" : "Unlock"}
+            />
+            <CommunicationControl
+              onClick={() => {
+                if (communicationEntitlements.voiceNote.state === "locked") {
+                  showVoiceNoteGate();
+                  return;
+                }
+                document.querySelector(`[data-testid="button-mic-input-${match.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+              state={allCallsDone && voiceNotesUnlocked ? "used_paid" : communicationEntitlements.voiceNote.state}
+              testId={`button-mic-tray-${match.id}`}
+              ariaLabel="Voice note"
+              icon={<Mic />}
+              label={allCallsDone && voiceNotesUnlocked ? "Used" : communicationEntitlements.voiceNote.state === "locked" ? "Locked" : "Voice"}
+            />
+            <CommunicationControl
+              onClick={() => handleCallAction(true)}
+              busy={startPaidCall.isPending}
+              state={communicationEntitlements.video.state}
+              testId={`button-video-tray-${match.id}`}
+              ariaLabel="Video call"
+              icon={<Video />}
+              label={communicationEntitlements.video.state === "used_paid"
+                ? "Used"
+                : communicationEntitlements.video.purchaseRequired
+                ? "Unlock"
+                : communicationEntitlements.video.state === "locked"
+                  ? "Locked"
+                  : "Video"}
+            />
           </div>
       {expanded && !inputFocused && <SparkProgressBar sparkStep={sparkStep} />}
       {expanded && !inputFocused && postCallProgressReady && eitherKeep && (
@@ -4101,7 +4117,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                           isVoiceNote
                             ? ""
                             : isMe
-                            ? "bg-primary text-primary-foreground px-4 py-3"
+                            ? "outgoing-message px-4 py-3"
                             : "bg-muted cursor-pointer px-4 py-3"
                         } ${!isMe && !isVoiceNote ? "active:scale-[0.98] transition-transform" : ""}`}
                         onClick={isVoiceNote ? undefined : () => handleMessageTap(msg)}
@@ -4487,7 +4503,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     size="sm"
                     onClick={() => setDateChoiceMut.mutate('plan')}
                     disabled={setDateChoiceMut.isPending}
-                    className="w-full"
+                    className="w-full communication-wine-fill"
                     data-testid={`button-plan-date-now-${match.id}`}
                   >
                     <Calendar className="w-3.5 h-3.5 me-1.5" /> {t("plan_date_btn")}

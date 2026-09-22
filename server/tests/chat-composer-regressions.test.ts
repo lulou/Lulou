@@ -176,8 +176,8 @@ describe("chat composer regressions", () => {
     expect(control).toContain('aria-disabled={state === "locked"}');
     expect(control).not.toMatch(/\sdisabled=\{state/);
     expect(control).toMatch(/<button[\s\S]*\{icon\}[\s\S]*\{label\}[\s\S]*<\/button>/);
-    expect(messaging).toContain('data-ui-version="communication-controls-105"');
-    expect(matches).toContain('data-ui-version="communication-controls-105"');
+    expect(messaging).toContain('data-ui-version="communication-controls-106"');
+    expect(matches).toContain('data-ui-version="communication-controls-106"');
     expect(messaging).not.toContain("callStateStyle(communicationEntitlements.audio, true)");
     expect(messaging).not.toContain("callStateStyle(communicationEntitlements.video, true)");
     expect(matches).not.toContain("callStateStyle(communicationEntitlements.audio, true)");

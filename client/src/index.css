@@ -136,6 +136,7 @@ body.chat-open {
   --popover-border: 28 18% 88%;
   --primary: 350 45% 52%;
   --primary-foreground: 0 0% 100%;
+  --communication-wine: 350 35% 43%;
   --secondary: 350 16% 89%;
   --secondary-foreground: 350 16% 20%;
   --muted: 28 14% 90%;
@@ -286,7 +287,15 @@ body.chat-open {
   .voice-note-wrap { display: flex; flex-direction: column; align-items: flex-start; margin-block: .18rem; }
   .voice-note-wrap:has(.voice-note-outgoing) { align-items: flex-end; }
   .voice-note:active { transform: scale(.985); }
-  .voice-note-outgoing { color: hsl(var(--primary-foreground)); background: hsl(350 35% 43%); box-shadow: 0 3px 12px hsl(350 28% 28% / .12); }
+  .voice-note-outgoing { color: hsl(var(--primary-foreground)); background: hsl(var(--communication-wine)); box-shadow: 0 3px 12px hsl(350 28% 28% / .12); }
+  .outgoing-message,
+  .communication-wine-fill {
+    color: hsl(var(--primary-foreground));
+    background: hsl(var(--communication-wine));
+    border-color: hsl(var(--communication-wine));
+  }
+  .communication-wine-fill:hover { background: hsl(350 35% 38%); }
+  .communication-wine-fill:active { background: hsl(350 35% 34%); }
   .voice-note-incoming { color: hsl(23 18% 22%); background: hsl(38 34% 94%); border-color: hsl(28 22% 86%); box-shadow: 0 2px 9px hsl(25 22% 25% / .06); }
   .voice-note audio { display: none; }
   .voice-note-control {

@@ -7,6 +7,7 @@ test("locks calls and reports precise remaining messages before thresholds", () 
     callStage: 0,
     messageCount1: 12,
     messageCount2: 15,
+    videoCredits: 1,
   });
 
   assert.equal(state.audio.state, "locked");
@@ -66,14 +67,22 @@ test("call availability and call completion remain separate states", () => {
   assert.equal(stageAdvancedWithoutPersistedCompletion.voiceNote.state, "locked");
 });
 
-test("unlocks included video only after the post-call message stage", () => {
+test("keeps video paid-locked until the post-call stage is eligible and a credit exists", () => {
   const locked = resolveCommunicationEntitlements({
     callStage: 1,
     messageCount1: 11,
     messageCount2: 12,
     voiceNotesUnlocked: true,
+    videoCredits: 1,
   });
   const available = resolveCommunicationEntitlements({
+    callStage: 1,
+    messageCount1: 12,
+    messageCount2: 12,
+    voiceNotesUnlocked: true,
+    videoCredits: 1,
+  });
+  const unpaid = resolveCommunicationEntitlements({
     callStage: 1,
     messageCount1: 12,
     messageCount2: 12,
@@ -83,6 +92,8 @@ test("unlocks included video only after the post-call message stage", () => {
   assert.equal(locked.video.state, "locked");
   assert.equal(locked.video.remainingMessages, 1);
   assert.equal(available.video.state, "available");
+  assert.equal(unpaid.video.state, "locked");
+  assert.equal(unpaid.video.reason, "purchase_required");
   assert.equal(available.audio.state, "used_paid");
 });
 
@@ -92,9 +103,26 @@ test("completed included calls remain used after reload-shaped resolution", () =
     messageCount1: 0,
     messageCount2: 0,
     voiceNotesUnlocked: true,
+    paidVideoConsumed: true,
   });
 
   assert.equal(state.audio.state, "used_paid");
   assert.equal(state.video.state, "used_paid");
+  assert.equal(state.video.reason, "used");
   assert.equal(state.voiceNote.state, "available");
+});
+
+test("keeps a completed paid video wine-used after its credit is consumed", () => {
+  const state = resolveCommunicationEntitlements({
+    callStage: 4,
+    messageCount1: 0,
+    messageCount2: 0,
+    voiceNotesUnlocked: true,
+    videoCredits: 0,
+    paidVideoConsumed: true,
+  });
+
+  assert.equal(state.video.state, "used_paid");
+  assert.equal(state.video.reason, "used");
+  assert.equal(state.video.purchaseRequired, undefined);
 });

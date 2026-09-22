@@ -167,6 +167,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
           <div className="flex items-center gap-2 justify-center">
             <Button
               size="sm"
+              className="communication-wine-fill"
               onClick={() => savePhoneAndExchange.mutate()}
               disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending}
               data-testid="button-confirm-exchange"
@@ -217,6 +218,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
           <div className="flex items-center gap-2 justify-center">
             <Button
               size="sm"
+              className="communication-wine-fill"
               onClick={() => saveAvailability.mutate()}
               disabled={selectedSlots.length === 0 || saveAvailability.isPending}
               data-testid="button-save-availability"
@@ -256,7 +258,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
           )}
           {theirNumberExchanged && (
             <Button
-              className="w-full mt-2"
+              className="w-full mt-2 communication-wine-fill"
               onClick={() => navigate(`/date-plan/${matchId}`)}
               data-testid="button-plan-date"
             >
@@ -293,7 +295,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
               </div>
             </div>
             <div className="flex flex-col gap-2 items-center pt-1">
-              <Button size="sm" onClick={handleExchangeNumber} data-testid="button-exchange-number">
+              <Button size="sm" className="communication-wine-fill" onClick={handleExchangeNumber} data-testid="button-exchange-number">
                 <PhoneForwarded className="w-4 h-4 me-2" /> {t("exchange_number_btn")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
@@ -333,7 +335,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
 
             <div className="flex flex-col gap-2 items-center">
               {mySlots.length === 0 ? (
-                <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid="button-ready-to-meet">
+                <Button size="sm" className="communication-wine-fill" onClick={() => setShowDatePicker(true)} data-testid="button-ready-to-meet">
                   <Calendar className="w-4 h-4 me-2" /> {t("ready_to_meet")}
                 </Button>
               ) : (
@@ -1488,6 +1490,8 @@ export default function Messaging() {
     messageCount1: matchDetail?.messageCount1,
     messageCount2: matchDetail?.messageCount2,
     voiceNotesUnlocked,
+    videoCredits,
+    paidVideoConsumed: matchDetail?.lastCallMediaType === "video" && matchDetail?.lastCallIsPaid === true,
   });
 
   const showCommunicationGate = (feature: "phone" | "video", gate: CallGate) => {
@@ -1516,8 +1520,22 @@ export default function Messaging() {
   const handleCallAction = (isVideo: boolean) => {
     const feature = isVideo ? "video" : "phone";
     const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
-    if (gate.state === "locked") return showCommunicationGate(feature, gate);
+    if (gate.state === "locked") {
+      if (isVideo && gate.purchaseRequired) {
+        setPurchasePromptFeature("video");
+        return;
+      }
+      return showCommunicationGate(feature, gate);
+    }
     if (startPaidCall.isPending) return;
+    if (isVideo) {
+      if (gate.state === "available") {
+        startPaidCall.mutate({ isVideo: true });
+      } else {
+        setPurchasePromptFeature("video");
+      }
+      return;
+    }
     if (gate.state === "available") {
       navigate("/matches");
       return;
@@ -1783,40 +1801,52 @@ export default function Messaging() {
         </div>
 
         {/* ── Fixed-size communication controls; labels never resize surfaces. ── */}
-        {(!allCallsDone || voiceNotesUnlocked) && (
-          <div className="flex items-start justify-center gap-4 border-t border-border/30 pb-2.5 pt-2" data-ui-version="communication-controls-105">
-            {!allCallsDone && (
-              <CommunicationControl
-                onClick={() => handleCallAction(false)}
-                busy={startPaidCall.isPending}
-                state={communicationEntitlements.audio.state}
-                testId="button-phone-tray"
-                ariaLabel="Audio call"
-                icon={<Phone />}
-                label={communicationEntitlements.audio.state === "locked"
-                    ? "Locked"
-                    : communicationEntitlements.audio.state === "available"
-                      ? "Call"
-                      : phoneCredits > 0 ? "Use 1" : "Unlock"}
-              />
-            )}
-            {!allCallsDone && (
-              <CommunicationControl
-                onClick={() => handleCallAction(true)}
-                busy={startPaidCall.isPending}
-                state={communicationEntitlements.video.state}
-                testId="button-video-tray"
-                ariaLabel="Video call"
-                icon={<Video />}
-                label={communicationEntitlements.video.state === "locked"
-                    ? "Locked"
-                    : communicationEntitlements.video.state === "available"
-                      ? "Video"
-                      : videoCredits > 0 ? "Use 1" : "Unlock"}
-              />
-            )}
-          </div>
-        )}
+        <div className="flex items-start justify-center gap-4 border-t border-border/30 pb-2.5 pt-2" data-ui-version="communication-controls-106">
+          <CommunicationControl
+            onClick={() => handleCallAction(false)}
+            busy={startPaidCall.isPending}
+            state={communicationEntitlements.audio.state}
+            testId="button-phone-tray"
+            ariaLabel="Audio call"
+            icon={<Phone />}
+            label={allCallsDone
+              ? "Used"
+              : communicationEntitlements.audio.state === "locked"
+                ? "Locked"
+                : communicationEntitlements.audio.state === "available"
+                  ? "Call"
+                  : phoneCredits > 0 ? "Use 1" : "Unlock"}
+          />
+          <CommunicationControl
+            onClick={() => {
+              if (communicationEntitlements.voiceNote.state === "locked") {
+                showVoiceNoteGate();
+                return;
+              }
+              document.querySelector('[data-testid="button-mic-input"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+            state={allCallsDone && voiceNotesUnlocked ? "used_paid" : communicationEntitlements.voiceNote.state}
+            testId="button-mic-tray"
+            ariaLabel="Voice note"
+            icon={<Mic />}
+            label={allCallsDone && voiceNotesUnlocked ? "Used" : communicationEntitlements.voiceNote.state === "locked" ? "Locked" : "Voice"}
+          />
+          <CommunicationControl
+            onClick={() => handleCallAction(true)}
+            busy={startPaidCall.isPending}
+            state={communicationEntitlements.video.state}
+            testId="button-video-tray"
+            ariaLabel="Video call"
+            icon={<Video />}
+            label={communicationEntitlements.video.state === "used_paid"
+              ? "Used"
+              : communicationEntitlements.video.purchaseRequired
+              ? "Unlock"
+              : communicationEntitlements.video.state === "locked"
+                ? "Locked"
+                : "Video"}
+          />
+        </div>
 
         {/* ── Chat / Profile tab bar ── */}
         <div className="flex" role="tablist">
@@ -1945,7 +1975,7 @@ export default function Messaging() {
                       isVoiceNote
                         ? ""
                         : isMe
-                        ? "bg-primary text-primary-foreground px-3 py-2"
+                        ? "outgoing-message px-3 py-2"
                         : "bg-card border cursor-pointer px-3 py-2"
                     } ${!isMe && !isVoiceNote ? "active:scale-[0.98] transition-transform" : ""}`}
                     onClick={isVoiceNote ? undefined : () => handleMessageTap(msg)}

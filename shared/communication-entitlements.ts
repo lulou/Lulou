@@ -7,12 +7,14 @@ export type CommunicationGateReason =
   | "waiting_for_partner"
   | "schedule"
   | "complete_first_call"
+  | "purchase_required"
   | "used";
 
 export type CallGate = {
   state: CommunicationGateState;
   reason?: CommunicationGateReason;
   remainingMessages: number;
+  purchaseRequired?: boolean;
 };
 
 export type VoiceNoteGate = {
@@ -32,6 +34,8 @@ type ResolveCommunicationEntitlementsInput = {
   messageCount1: number | null | undefined;
   messageCount2: number | null | undefined;
   voiceNotesUnlocked?: boolean;
+  videoCredits?: number;
+  paidVideoConsumed?: boolean;
 };
 
 function stageProgress(
@@ -56,6 +60,8 @@ export function resolveCommunicationEntitlements({
   messageCount1,
   messageCount2,
   voiceNotesUnlocked = false,
+  videoCredits = 0,
+  paidVideoConsumed = false,
 }: ResolveCommunicationEntitlementsInput): CommunicationEntitlements {
   const stage = Math.max(0, callStage ?? 0);
   const count1 = Math.max(0, messageCount1 ?? 0);
@@ -82,7 +88,7 @@ export function resolveCommunicationEntitlements({
         : { state: "available", remainingMessages: 0 }
       : { state: "used_paid", reason: "used", remainingMessages: 0 };
 
-  const video: CallGate =
+  const videoStageGate: CallGate =
     stage === 0
       ? {
           state: "locked",
@@ -98,6 +104,18 @@ export function resolveCommunicationEntitlements({
             }
           : { state: "available", remainingMessages: 0 }
         : { state: "used_paid", reason: "used", remainingMessages: 0 };
+  const video: CallGate = videoStageGate.state === "locked"
+    ? { ...videoStageGate, purchaseRequired: videoCredits <= 0 }
+    : videoCredits > 0
+      ? { state: "available", remainingMessages: 0 }
+      : paidVideoConsumed
+        ? { state: "used_paid", reason: "used", remainingMessages: 0 }
+        : {
+            state: "locked",
+            reason: "purchase_required",
+            remainingMessages: 0,
+            purchaseRequired: true,
+          };
 
   const voiceNote: VoiceNoteGate = voiceNotesUnlocked
     ? { state: "available", remainingMessages: 0 }
