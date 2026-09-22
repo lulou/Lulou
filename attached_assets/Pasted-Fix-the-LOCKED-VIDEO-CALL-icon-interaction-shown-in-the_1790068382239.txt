@@ -1,0 +1,219 @@
+Fix the LOCKED VIDEO CALL icon interaction shown in the attached production screenshot.
+
+The circled video camera control currently shows:
+
+Unlock
+
+but tapping it is not behaving like a real paid feature.
+
+I want this to work the SAME WAY as the existing Elevate purchase flow.
+
+==================================================
+EXPECTED USER FLOW
+==================================================
+
+User taps the locked Video icon
+
+→ premium purchase sheet/modal opens
+→ shows exactly what they are buying
+→ shows the agreed price
+→ primary CTA starts the existing Stripe checkout
+→ user completes or cancels payment
+→ Lulou updates entitlement state accordingly
+
+Do not leave this icon dead.
+
+==================================================
+PRICE
+==================================================
+
+Use the agreed price:
+
+Video Call Starter Pack
+1 video-call credit
+$6.99 AUD
+
+Do NOT invent another price.
+
+Do NOT change Stripe pricing.
+
+==================================================
+PURCHASE SHEET
+==================================================
+
+When user taps the circled video icon, show something like:
+
+Video calls
+
+Take your connection face-to-face.
+
+Video Call Starter Pack
+
+1 video call
+
+$6.99 AUD
+
+Primary button:
+
+Unlock Video Call — $6.99
+
+Secondary:
+
+Not now
+
+==================================================
+MATCH THE ELEVATE FLOW
+==================================================
+
+This should reuse the SAME purchase/checkout pattern already used by Elevate.
+
+Audit the current Elevate implementation and reuse:
+
+- purchase modal/sheet behavior
+- purchase service
+- checkout session creation
+- Stripe redirect
+- cancel return
+- success handling
+- entitlement refresh
+
+Do NOT build a separate payment system for video calls.
+
+==================================================
+TAP CHAIN
+==================================================
+
+Trace the exact live production chain:
+
+Video Unlock icon
+→ onClick
+→ purchase sheet
+→ Unlock CTA
+→ purchase service
+→ backend checkout route
+→ Stripe checkout session
+→ checkout URL
+→ window.location.assign() / existing iPhone-safe redirect
+
+If any part fails, identify the first failing point.
+
+==================================================
+STRIPE CURRENTLY PAUSED
+==================================================
+
+If Stripe still rejects live charges because the account is under review:
+
+the UI should still:
+
+- open the purchase sheet
+- show $6.99 AUD
+- allow the user to attempt purchase
+
+Then if backend returns the existing Stripe-disabled error:
+
+show a clean message like:
+
+“Purchases are temporarily unavailable. Please try again later.”
+
+Do NOT:
+
+- grant a video credit
+- turn the icon green
+- silently fail
+
+==================================================
+VIDEO ICON STATE
+==================================================
+
+Before purchase:
+
+- muted taupe/grey
+- label “Unlock”
+- tappable
+
+After successful authoritative purchase:
+
+- 1 video credit exists
+- if stage eligible, icon becomes green
+- label becomes Video
+
+After credit is used and balance returns to 0:
+
+- icon returns to muted/locked
+- tapping it opens the purchase sheet again
+
+==================================================
+DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- call logic
+- message logic
+- voice notes
+- stage progression
+- Stripe product pricing
+- Elevate flow
+- availability
+- Meet flow
+- chat layout
+
+This task is specifically making the circled Video Unlock control behave exactly like a paid feature should.
+
+==================================================
+REAL TEST
+==================================================
+
+1. Tap circled Video Unlock icon
+Expected:
+- purchase sheet opens
+
+2. Confirm:
+- $6.99 AUD visible
+- 1 video call visible
+
+3. Tap:
+Unlock Video Call — $6.99
+
+Expected:
+- existing Stripe checkout flow starts
+
+4. Cancel checkout
+Expected:
+- return to Lulou
+- no credit
+- icon remains locked
+
+5. Successful payment when Stripe permits
+Expected:
+- 1 video credit granted
+- icon becomes green if eligible
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact production component for circled Video icon
+2. exact reason tap previously failed
+3. exact Elevate purchase flow reused
+4. exact purchase item/SKU used
+5. confirmation $6.99 AUD shown
+6. exact checkout route
+7. iPhone redirect behavior
+8. Stripe-disabled error behavior
+9. entitlement refresh behavior
+10. files changed
+11. production commit
+12. live Vercel/Railway revision
+13. real iPhone verification:
+  - tap opens purchase sheet PASS/FAIL
+  - $6.99 AUD shown PASS/FAIL
+  - checkout CTA works PASS/FAIL
+  - Stripe checkout opens when permitted PASS/FAIL
+  - cancelled checkout leaves locked PASS/FAIL
+  - successful purchase grants credit PASS/FAIL
+  - icon becomes green when entitled PASS/FAIL
+
+Do not mark complete unless the circled Video Unlock icon behaves like Elevate: tap → price → checkout.
