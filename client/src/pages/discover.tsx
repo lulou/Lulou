@@ -1522,7 +1522,7 @@ export default function Discover() {
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-muted-foreground/20 bg-background text-foreground shadow-sm transition-colors active:scale-95 disabled:opacity-40"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-muted-foreground/20 bg-background text-[hsl(var(--communication-wine))] shadow-sm transition-colors active:scale-95 disabled:text-muted-foreground/70 disabled:opacity-60"
               style={lastActedProfile && !undoPass.isPending
                 ? { borderColor: "hsl(var(--primary) / 0.5)", background: "hsl(var(--primary) / 0.08)" }
                 : undefined}
@@ -1531,7 +1531,7 @@ export default function Discover() {
               aria-label="Undo last action"
               data-testid="button-undo-pass"
             >
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              <RotateCcw className="h-[18px] w-[18px]" strokeWidth={2.15} aria-hidden="true" />
             </button>
             <button
               type="button"
