@@ -1,0 +1,205 @@
+Improve the post-call “meet availability” flow shown in the attached production screenshots.
+
+The current behavior is:
+
+User A shares availability, for example:
+
+Wed, Sep 23 – Morning (10am)
+
+User B then sees User A’s availability, but the UX is incomplete.
+
+I want the receiving user to be able to either:
+
+- Accept that exact availability
+OR
+- Choose a different time
+
+BUT ONLY if the receiving user has NOT already shared their own availability.
+
+==================================================
+EXPECTED BEHAVIOR
+==================================================
+
+CASE 1 — ONLY ONE USER HAS SHARED AVAILABILITY
+
+User A has shared:
+
+Wed, Sep 23 – Morning (10am)
+
+User B has NOT yet shared availability.
+
+User B should see:
+
+Leo’s availability:
+Wed, Sep 23 – Morning (10am)
+
+Then two clear actions:
+
+[ Accept ]
+[ Choose another time ]
+
+or equivalent premium Lulou wording.
+
+If User B taps Accept:
+
+→ save the SAME availability for User B
+→ both users now have matching availability
+→ transition both users into the agreed / ready-to-meet state
+→ update realtime on both devices immediately
+
+If User B taps Choose another time:
+
+→ open the normal availability picker
+→ User B selects another option
+→ persist it
+→ show comparison/overlap state between both users
+
+==================================================
+CASE 2 — RECEIVING USER ALREADY SHARED AVAILABILITY
+==================================================
+
+If User B has already submitted their own availability:
+
+DO NOT show:
+
+Accept
+Choose another time
+
+as if they have not responded.
+
+Instead show the existing comparison state:
+
+- User A availability
+- User B availability
+- overlap / mismatch / agreed state
+- update availability action if appropriate
+
+==================================================
+CASE 3 — BOTH AVAILABILITIES MATCH
+==================================================
+
+If both users have the same availability:
+
+show a clear premium confirmation such as:
+
+“Time agreed”
+
+or:
+
+“You’re both available”
+
+Then move into the existing next-step / ready-to-meet state.
+
+Do not keep showing unnecessary selection controls.
+
+==================================================
+CASE 4 — BOTH USERS HAVE DIFFERENT AVAILABILITY
+==================================================
+
+If both users already submitted different availability:
+
+show the normal mismatch state and allow:
+
+Update availability
+
+Do NOT show a one-sided Accept button unless product logic intentionally supports accepting the other user’s slot and replacing your own current choice.
+
+If that replacement behavior is supported, label it clearly, e.g.:
+
+“Switch to their time”
+
+not simply “Accept”.
+
+==================================================
+UI DESIGN
+==================================================
+
+Keep it premium and iOS-like.
+
+For the one-sided availability state, use:
+
+Their availability
+Wed, Sep 23 – Morning (10am)
+
+Primary action:
+Accept
+
+Secondary action:
+Choose another time
+
+Use Lulou’s existing wine/blush/ivory palette.
+
+Do NOT make this look like a bulky form.
+
+Use:
+- compact card
+- clean hierarchy
+- subtle border
+- rounded iOS-style buttons
+- restrained spacing
+
+==================================================
+REALTIME
+==================================================
+
+When the receiver taps Accept:
+
+the other user should see the agreed state immediately.
+
+No refresh.
+No polling delay.
+
+Use the existing realtime availability infrastructure.
+
+==================================================
+AUTHORITATIVE SERVER LOGIC
+==================================================
+
+Do not make Accept a frontend-only visual state.
+
+Accept must persist the receiving user’s availability as the exact same canonical availability slot/value as the sender’s.
+
+Use the same normalized availability representation already used by the app.
+
+Prevent race conditions if both users act at the same time.
+
+==================================================
+DO NOT BREAK
+==================================================
+
+Do not change:
+
+- call completion
+- message stages
+- voice-note logic
+- payments
+- chat messaging
+- existing availability picker
+- profile
+- Discover
+- Likes
+- Connections
+- Intent Wheel
+
+This task is only improving the meet-availability response flow.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact component changed
+2. exact condition used to detect “receiver has not shared availability”
+3. Accept behavior
+4. Choose another time behavior
+5. behavior when receiver already has availability
+6. realtime sync behavior
+7. files changed
+8. production commit
+9. live Vercel/Railway revision
+10. real two-user test:
+  - A shares, B sees Accept/Choose another time PASS/FAIL
+  - B taps Accept, both become agreed PASS/FAIL
+  - B already had availability, no incorrect Accept state PASS/FAIL
+  - mismatch flow still works PASS/FAIL

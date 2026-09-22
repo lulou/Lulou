@@ -1,0 +1,431 @@
+Apply ONE scoped production fix covering the current chat/call/meet-stage visual inconsistencies shown in the latest screenshots.
+
+Do NOT change unrelated functionality.
+
+The latest screenshots show several inconsistencies that all come from the same underlying problem: the communication controls, message colours, CTA colours, and paid-state styling are not using one coherent state system.
+
+Fix ALL of the following together.
+
+==================================================
+1. VOICENOTE COLOUR IS THE SOURCE OF TRUTH
+==================================================
+
+The outgoing voice-note bubble currently uses the correct deeper wine/burgundy colour.
+
+KEEP THAT EXACT COLOUR.
+
+Do NOT change the voice-note bubble colour.
+
+Instead, change the other relevant filled elements so they match the voice-note colour exactly.
+
+Update:
+
+- outgoing text message bubbles
+- “Plan a Date” primary button
+- equivalent filled primary CTA in this exact chat / call / meet flow
+- any matching selected/active filled action in this flow that is currently using a lighter pink/red
+
+Do NOT eyeball a similar colour.
+
+Find the exact token/value currently used by the outgoing voice-note bubble background and reuse that exact token/value.
+
+If separate tokens exist, consolidate them onto one shared semantic accent token where safe.
+
+==================================================
+2. OUTGOING TEXT BUBBLES MUST MATCH VOICENOTES
+==================================================
+
+Current issue:
+
+text messages use a different pink/red from the voice-note bubbles.
+
+Expected:
+
+OUTGOING TEXT
+=
+OUTGOING VOICENOTE
+
+same exact fill token/value.
+
+Do not change incoming message colours.
+
+==================================================
+3. “PLAN A DATE” MUST MATCH VOICENOTES
+==================================================
+
+The current “Plan a Date” button is a lighter/different red.
+
+Change the primary fill to the exact same wine/burgundy used by the outgoing voice-note bubbles.
+
+Preserve:
+- button size
+- icon
+- layout
+- interaction
+- typography
+
+Change only the colour system and any necessary pressed/hover derivatives.
+
+Keep “Keep Messaging” as the secondary neutral/outlined action.
+
+==================================================
+4. RESTORE THE TOP MIC ICON
+==================================================
+
+The latest screenshot shows the mic icon has disappeared from the top communication-control row.
+
+Restore it in the same top row where it previously existed.
+
+The top communication area should continue to represent the user’s communication journey even after stages are completed.
+
+Do NOT hide the mic simply because:
+- voice notes have already been unlocked/used
+- calls are completed
+- the user reached the meet stage
+- the journey advanced
+
+The icon should remain visible and change STATE instead of disappearing.
+
+==================================================
+5. MIC COMPLETED STATE
+==================================================
+
+At the completed/end-of-journey state shown in the screenshot:
+
+the mic should use the same wine/red COMPLETED/USED treatment as the call icon.
+
+Expected:
+
+Call:
+completed / used
+→ wine/red
+
+Mic:
+completed / used
+→ wine/red
+
+Do not make mic green at this stage.
+Do not hide it.
+
+Use the exact existing completed/used communication-state colour token already used by the call icon.
+
+==================================================
+6. VIDEO CAMERA IS CURRENTLY WRONG
+==================================================
+
+The video camera is green in the screenshot.
+
+That is incorrect.
+
+VIDEO CALLS ARE PAID-ONLY.
+
+A user who has NOT purchased video-call access must NOT see the camera in green.
+
+Green means:
+
+“this communication action is genuinely available to use right now.”
+
+If the user must purchase video access first, green is misleading.
+
+==================================================
+7. VIDEO STATE SYSTEM
+==================================================
+
+VIDEO NOT PURCHASED:
+
+- camera remains visible
+- muted taupe / warm grey / locked treatment
+- NOT green
+- label should clearly communicate locked/paid state using existing Lulou wording
+
+Examples:
+“Locked”
+or the existing paid-call label
+
+VIDEO PURCHASED + STAGE ELIGIBLE + AVAILABLE:
+
+- camera can become green
+- label can show “Video”
+- green means it can actually be used now
+
+VIDEO ALREADY USED / COMPLETED:
+
+- use wine/red completed/used state where appropriate
+
+VIDEO STAGE NOT YET AVAILABLE:
+
+- muted/locked
+- not green
+
+==================================================
+8. AUTHORITATIVE COMMUNICATION STATE RESOLVER
+==================================================
+
+Do NOT hardcode these states based only on the current screen.
+
+Use the existing authoritative communication entitlement/state resolver.
+
+For EACH communication control determine:
+
+- entitlement exists?
+- stage permits it?
+- already used/completed?
+- purchase required?
+- currently available?
+
+Map those states consistently.
+
+==================================================
+9. STATE COLOUR MEANING
+==================================================
+
+Use ONE clear state system throughout the communication row:
+
+GREEN
+=
+active and genuinely available right now
+
+WINE / RED
+=
+used / completed
+
+MUTED TAUPE / GREY
+=
+locked / unavailable / purchase required
+
+Do not use green simply because a stage has been reached.
+
+Do not use wine/red to mean locked.
+
+Do not hide controls that should remain part of the progression summary.
+
+==================================================
+10. EXPECTED CURRENT SCREEN
+==================================================
+
+For the end-of-journey state shown in the screenshot:
+
+Call
+→ wine/red completed
+
+Mic
+→ wine/red completed
+
+Video
+→ muted/locked IF not purchased
+
+Meet
+→ preserve the existing stage progression state
+
+This is the exact expected visual result.
+
+==================================================
+11. LOCKED VIDEO TAP BEHAVIOR
+==================================================
+
+If the user taps Video while it is unpaid/locked:
+
+use the existing video-call purchase flow/paywall.
+
+Do NOT:
+
+- activate video directly
+- silently fail
+- make it green before purchase
+- change pricing
+
+Preserve current payment logic.
+
+==================================================
+12. KEEP VOICENOTE FUNCTIONALITY UNTOUCHED
+==================================================
+
+Voice notes are currently working functionally.
+
+Do NOT change:
+
+- MediaRecorder
+- MIME handling
+- Blob construction
+- uploads
+- transcoding
+- storage
+- playback
+- retry
+- realtime delivery
+- message IDs
+- message quota logic
+- voice-note unlock logic
+
+This task is NOT another voice-note backend task.
+
+==================================================
+13. PRESERVE MIC RECORDING BEHAVIOR
+==================================================
+
+Do not alter the recently improved mic recording gesture unless needed only to restore its top control state.
+
+Keep:
+
+- reliable hold interaction
+- press expansion
+- pointer capture
+- release finalization
+- current working send pipeline
+
+Top mic control state and composer mic recording behavior are separate concerns.
+
+==================================================
+14. DO NOT BREAK MESSAGE QUOTAS
+==================================================
+
+Preserve the current rule:
+
+Every user-authored outbound message consumes one sender quota unit:
+
+- text = 1
+- voice note = 1
+
+Do not touch that logic.
+
+==================================================
+15. DO NOT BREAK UNREAD / PUSH BEHAVIOR
+==================================================
+
+Preserve:
+
+- voice notes count as unread messages
+- Connections badge behavior
+- exact-chat seen behavior
+- push notification behavior
+- notification deep links
+
+Do not modify those systems for this visual-state task.
+
+==================================================
+16. IOS / PREMIUM CONSISTENCY
+==================================================
+
+The final result should feel:
+
+- premium
+- cohesive
+- iOS-like
+- intentional
+- restrained
+
+The UI should no longer look like it is using several unrelated red/pink colour systems.
+
+The communication row should be immediately understandable:
+
+completed
+available
+locked
+
+without the user having to guess.
+
+==================================================
+17. CONTRAST / ACCESSIBILITY
+==================================================
+
+When changing text bubbles and Plan a Date to the deeper voice-note wine colour:
+
+verify:
+- white text remains readable
+- icons remain readable
+- pressed state remains clear
+- disabled state remains distinct
+- contrast is acceptable
+
+Do not reduce accessibility for visual consistency.
+
+==================================================
+18. DO NOT CHANGE LAYOUT
+==================================================
+
+Do not unnecessarily move:
+
+- header
+- profile avatar
+- Call time
+- communication control spacing
+- progression tracker
+- message list
+- Ready to meet panel
+- Plan a Date / Keep Messaging layout
+
+This is primarily a colour/state consistency fix.
+
+==================================================
+19. DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- call logic
+- video-call purchase rules
+- Stripe integration
+- stage progression
+- availability logic
+- Meet logic
+- voice-note pipeline
+- message counts
+- unread counts
+- push notifications
+- profile
+- Discover
+- Likes
+- Connections
+- Intent Wheel
+- bottom navigation
+
+==================================================
+20. REAL IPHONE VISUAL ACCEPTANCE
+==================================================
+
+Verify on the actual installed iPhone PWA:
+
+1. Voice-note colour is unchanged.
+2. Outgoing text bubble matches voice-note colour exactly.
+3. Plan a Date matches voice-note colour exactly.
+4. Top mic icon is restored.
+5. Completed mic is wine/red like completed Call.
+6. Unpaid Video is muted/locked and NOT green.
+7. Purchased + available Video becomes green.
+8. Header/control spacing is unchanged.
+9. No functional regressions.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact source colour token/value taken from voice-note bubble
+2. components changed to use that token
+3. confirmation outgoing text bubbles now match exactly
+4. confirmation Plan a Date now matches exactly
+5. exact reason top mic disappeared
+6. exact mic-state fix
+7. exact completed mic colour/token
+8. exact reason Video was incorrectly green
+9. authoritative Video entitlement/state rule used
+10. exact locked Video colour/token
+11. exact purchased-and-available Video colour/token
+12. locked Video tap behavior
+13. files changed
+14. production commit
+15. live Vercel/Railway revision
+16. real iPhone verification:
+  - voice-note colour unchanged PASS/FAIL
+  - outgoing text colour matched PASS/FAIL
+  - Plan a Date colour matched PASS/FAIL
+  - top mic restored PASS/FAIL
+  - completed mic wine/red PASS/FAIL
+  - unpaid Video muted/locked PASS/FAIL
+  - unpaid Video NOT green PASS/FAIL
+  - purchased available Video green PASS/FAIL
+  - layout unchanged PASS/FAIL
+  - no functional regression PASS/FAIL
+
+Do not mark complete unless the colour system is unified, the mic is restored in the correct completed state, and unpaid video can no longer appear green.
