@@ -19,6 +19,16 @@ describe("production regression guards", () => {
     expect(storage).toContain("...(_hasEmailVerifiedColumn ? [\"email_verified\"] : [])");
   });
 
+  it("normalizes every startup Supabase admin client to the project origin", () => {
+    const index = readFileSync("server/index.ts", "utf8");
+    expect(index).toContain("function getSupabaseProjectOrigin()");
+    expect(index).toContain("return new URL(process.env.VITE_SUPABASE_URL!).origin;");
+    expect(index).toContain("const supabaseUrl = getSupabaseProjectOrigin();");
+    expect(index).toContain("const _supabaseUrl = getSupabaseProjectOrigin();");
+    expect(index).not.toContain("createClient(process.env.VITE_SUPABASE_URL");
+    expect(index).not.toContain("_createClientProbe(process.env.VITE_SUPABASE_URL");
+  });
+
   it("uses one shared interaction exclusion policy for Discover and the Wheel", () => {
     const storage = readFileSync("server/storage.ts", "utf8");
     const wheelSection = storage.slice(storage.indexOf("async getPopularProfiles("));

@@ -6,6 +6,12 @@ import { WebhookHandlers } from "./webhookHandlers";
 import helmet from "helmet";
 import { generalLimiter, authLimiter } from "./limiters";
 
+// Supabase clients require the project origin, not a REST endpoint path.
+// Some deployments provide VITE_SUPABASE_URL with a trailing /rest/v1.
+function getSupabaseProjectOrigin(): string {
+  return new URL(process.env.VITE_SUPABASE_URL!).origin;
+}
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -753,7 +759,7 @@ async function initPushCleanup() {
       const { createClient } = await import("@supabase/supabase-js");
       const ws = (await import("ws")).default;
       const { setHasLatLngColumns } = await import("./storage");
-      const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+      const supabaseUrl = getSupabaseProjectOrigin();
       const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
       const adminSb = createClient(supabaseUrl, serviceKey, { realtime: { transport: ws as any } });
       const { error } = await adminSb.from("profiles").select("latitude, longitude").limit(1);
@@ -876,7 +882,7 @@ async function initPushCleanup() {
         setHasEmailVerifiedColumn,
       } = await import("./storage");
 
-      const _supabaseUrl = process.env.VITE_SUPABASE_URL!;
+      const _supabaseUrl = getSupabaseProjectOrigin();
       const _serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
       const _adminSb = _createClientProbe(_supabaseUrl, _serviceKey, { realtime: { transport: _ws as any } });
 
