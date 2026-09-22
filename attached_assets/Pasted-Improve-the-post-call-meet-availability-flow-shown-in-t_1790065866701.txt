@@ -1,0 +1,534 @@
+Improve the post-call “meet availability” flow shown in the attached production screenshot.
+
+The current behavior is still incomplete.
+
+The screenshot shows that one user has shared availability, but the receiving user is NOT being given a proper Accept button for the exact shared date/time.
+
+That needs fixing.
+
+The intended behavior is:
+
+User A shares availability
+→ User B sees User A’s exact availability
+→ if User B has NOT already shared their own availability, User B gets:
+  - Accept
+  - Choose another time
+
+If User B taps Accept:
+→ Lulou saves the exact same availability for User B
+→ both users now match
+→ both users transition into the agreed / ready-to-meet state
+→ both devices update immediately through realtime
+
+==================================================
+1. CURRENT BUG
+==================================================
+
+The latest production screenshot shows availability being displayed, for example:
+
+Leo’s availability:
+Wed, Sep 23 – Afternoon (2pm)
+
+or:
+
+Wed, Sep 23 – Morning (10am)
+
+but the receiving user is NOT getting the expected Accept button for the shared date/time.
+
+Instead, the screen can show a generic:
+
+“Ready to Meet”
+
+button/state even though the receiver has not actually accepted that exact time.
+
+This is wrong.
+
+Do not treat one-sided availability as mutually agreed availability.
+
+==================================================
+2. CORRECT ONE-SIDED AVAILABILITY STATE
+==================================================
+
+CASE:
+
+User A has shared availability.
+
+User B has NOT shared availability yet.
+
+User B should see:
+
+Leo’s availability
+
+Wed, Sep 23 – Afternoon (2pm)
+
+Then:
+
+[ Accept ]
+
+[ Choose another time ]
+
+The Accept action must be clearly tied to the exact shared date/time.
+
+Do NOT show the generic final “Ready to Meet” state yet.
+
+==================================================
+3. ACCEPT BUTTON
+==================================================
+
+If User B taps Accept:
+
+→ persist User B’s availability as the EXACT SAME canonical availability value as User A
+→ mark both users as matching/agreed
+→ transition both users into the existing agreed/ready-to-meet state
+→ sync immediately through realtime
+
+Do not implement Accept as a frontend-only state.
+
+It must persist authoritatively on the backend.
+
+==================================================
+4. CHOOSE ANOTHER TIME
+==================================================
+
+If User B taps:
+
+Choose another time
+
+→ open the existing availability picker
+→ allow B to choose another date/time
+→ save it normally
+→ compare both users’ availability
+→ show overlap/mismatch state according to existing logic
+
+Do not create a second availability picker.
+
+Reuse the existing one.
+
+==================================================
+5. ONLY SHOW ACCEPT IF RECEIVER HAS NOT RESPONDED
+==================================================
+
+This condition is critical.
+
+Show:
+
+Accept
+Choose another time
+
+ONLY when:
+
+- the other user has submitted availability
+- the current user has NOT yet submitted availability
+
+If the current user already submitted their own availability:
+
+do NOT show the one-sided Accept state.
+
+==================================================
+6. BOTH USERS ALREADY SHARED — SAME TIME
+==================================================
+
+If both users already have matching availability:
+
+show the agreed state.
+
+Example:
+
+Time agreed
+
+Wed, Sep 23 – Afternoon (2pm)
+
+Then continue into the existing Ready to Meet flow.
+
+Do not keep showing Accept after agreement already exists.
+
+==================================================
+7. BOTH USERS ALREADY SHARED — DIFFERENT TIMES
+==================================================
+
+If both users already submitted different availability:
+
+show BOTH clearly.
+
+Example:
+
+Your availability:
+Wed, Sep 23 – Morning (10am)
+
+Leo’s availability:
+Wed, Sep 23 – Afternoon (2pm)
+
+Then show the existing mismatch/update experience.
+
+Allow:
+
+Update availability
+
+Do not show a misleading “Ready to Meet” state.
+
+==================================================
+8. SCREENSHOT BUG — TWO TIMES DISPLAYED INCORRECTLY
+==================================================
+
+The attached screenshot currently appears to show two availability values next to:
+
+“Leo’s availability”
+
+for example:
+
+Wed, Sep 23 – Afternoon (2pm)
+
+and
+
+Wed, Sep 23 – Morning (10am)
+
+under the same heading.
+
+That is confusing.
+
+Each availability must be associated with the correct user.
+
+If both users have submitted:
+
+show:
+
+Your availability:
+<your time>
+
+Leo’s availability:
+<their time>
+
+Do NOT display two times under one user’s heading.
+
+==================================================
+9. DO NOT CALL IT AGREED UNTIL BOTH USERS AGREE
+==================================================
+
+The UI must distinguish:
+
+ONE USER SUBMITTED
+vs
+BOTH USERS SUBMITTED
+vs
+BOTH USERS MATCH
+vs
+BOTH USERS DIFFER
+
+Do not collapse these into the same “Ready to Meet” state.
+
+Use one authoritative state resolver.
+
+Suggested logical states:
+
+none_submitted
+self_only
+other_only
+both_match
+both_mismatch
+
+==================================================
+10. EXPECTED STATE BEHAVIOR
+==================================================
+
+NONE SUBMITTED
+
+Current user sees normal availability picker.
+
+--------------------------------------------------
+
+SELF ONLY
+
+Show:
+
+Your availability:
+<time>
+
+Waiting for <other user>
+
+Allow:
+Update availability
+
+--------------------------------------------------
+
+OTHER ONLY
+
+Show:
+
+<other user>’s availability:
+<time>
+
+Actions:
+
+Accept
+Choose another time
+
+--------------------------------------------------
+
+BOTH MATCH
+
+Show:
+
+Time agreed
+
+<time>
+
+Continue into existing Ready to Meet flow.
+
+--------------------------------------------------
+
+BOTH MISMATCH
+
+Show:
+
+Your availability:
+<time>
+
+<other user>’s availability:
+<time>
+
+Allow:
+Update availability
+
+==================================================
+11. REALTIME
+==================================================
+
+Availability state must update immediately.
+
+Examples:
+
+A submits time
+→ B sees Accept/Choose another time immediately
+
+B taps Accept
+→ A immediately sees matched/agreed state
+
+B chooses another time
+→ A immediately sees updated mismatch/comparison state
+
+No refresh.
+No waiting one minute.
+No polling dependency.
+
+==================================================
+12. SERVER MUST BE AUTHORITATIVE
+==================================================
+
+Do not rely only on client state.
+
+The backend should resolve:
+
+selfAvailability
+otherAvailability
+agreementState
+
+and return the correct state.
+
+Use the same normalized availability representation already used by Lulou.
+
+Avoid timezone/display-string comparisons.
+
+Compare canonical values.
+
+==================================================
+13. ACCEPT MUST COPY THE CANONICAL SLOT
+==================================================
+
+When the receiver accepts:
+
+do NOT rebuild the date/time from displayed text.
+
+Copy/use the canonical slot/value from the other participant’s persisted availability.
+
+This avoids:
+
+- timezone errors
+- formatting mismatches
+- Morning/Afternoon inconsistencies
+- accidental date drift
+
+==================================================
+14. RACE CONDITION PROTECTION
+==================================================
+
+If both users change/respond at nearly the same time:
+
+re-read authoritative availability before committing Accept.
+
+If the sender’s availability changed since the receiver opened the screen:
+
+do not accept a stale slot.
+
+Show the newly updated availability instead.
+
+==================================================
+15. PREMIUM UI
+==================================================
+
+Keep the interface compact and premium.
+
+For OTHER ONLY state:
+
+<name>’s availability
+
+Wed, Sep 23
+Afternoon · 2:00 PM
+
+[ Accept ]
+
+[ Choose another time ]
+
+Use:
+
+- Lulou wine primary action
+- neutral secondary action
+- warm ivory background
+- compact rounded controls
+- clear hierarchy
+- iOS-style spacing
+
+Avoid bulky forms.
+
+==================================================
+16. READY TO MEET BUTTON
+==================================================
+
+Do not show the final Ready to Meet CTA merely because ONE user has sent availability.
+
+Ready to Meet should only become appropriate when the existing product rules say both users are genuinely ready/agreed.
+
+The screenshot currently appears to expose it too early.
+
+Fix the state condition.
+
+==================================================
+17. DO NOT BREAK
+==================================================
+
+Do not change:
+
+- call completion
+- message quotas
+- voice-note sending
+- voice-note playback
+- voice-note UI
+- unread counts
+- push notifications
+- paid video calls
+- Stripe
+- chat message layout
+- Profile
+- Discover
+- Likes
+- Connections
+- Intent Wheel
+- bottom navigation
+
+This task is ONLY fixing the post-call meet-availability agreement flow.
+
+==================================================
+18. REAL TWO-USER TEST
+==================================================
+
+TEST 1 — OTHER ONLY
+
+A submits:
+
+Wed, Sep 23 – Afternoon (2pm)
+
+B has no availability.
+
+Expected on B:
+
+Leo’s availability:
+Wed, Sep 23 – Afternoon (2pm)
+
+Accept
+
+Choose another time
+
+PASS only if Accept is actually visible.
+
+--------------------------------------------------
+
+TEST 2 — ACCEPT
+
+B taps Accept.
+
+Expected:
+
+- B receives same canonical slot
+- both now match
+- both devices update immediately
+- final agreed/Ready to Meet state appears
+
+--------------------------------------------------
+
+TEST 3 — CHOOSE DIFFERENT
+
+Reset test state safely.
+
+A submits Afternoon 2pm.
+
+B chooses Morning 10am.
+
+Expected:
+
+Your availability:
+Morning 10am
+
+Leo’s availability:
+Afternoon 2pm
+
+No incorrect agreed state.
+
+--------------------------------------------------
+
+TEST 4 — RECEIVER ALREADY RESPONDED
+
+Both already have availability.
+
+Expected:
+
+do NOT show the initial Accept/Choose another time prompt.
+
+Show match/mismatch state instead.
+
+--------------------------------------------------
+
+TEST 5 — REALTIME
+
+Change availability on one device.
+
+Other device must update immediately.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact reason the Accept button was not appearing
+2. exact production component responsible
+3. exact `other_only` detection rule
+4. exact Accept implementation
+5. exact Choose another time implementation
+6. exact Ready to Meet gating rule
+7. fix for two different times appearing under one user’s heading
+8. canonical availability comparison method
+9. realtime sync behavior
+10. stale-accept/race protection
+11. files changed
+12. production commit
+13. live Vercel/Railway revision
+14. REAL TWO-USER RESULTS:
+  - other-only state shows Accept PASS/FAIL
+  - other-only state shows Choose another time PASS/FAIL
+  - Accept copies exact shared slot PASS/FAIL
+  - both users become agreed PASS/FAIL
+  - different times show correct mismatch PASS/FAIL
+  - each time is labelled to correct user PASS/FAIL
+  - Ready to Meet does not appear prematurely PASS/FAIL
+  - realtime update works PASS/FAIL
+
+Do not mark complete unless a receiver who has NOT submitted availability can clearly see and use an Accept button for the exact date/time the other user shared.
