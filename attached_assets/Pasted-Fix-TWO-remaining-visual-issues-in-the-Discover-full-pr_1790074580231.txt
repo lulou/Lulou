@@ -1,0 +1,219 @@
+Fix TWO remaining visual issues in the Discover full-profile experience shown in the latest production screenshots.
+
+Use the attached REAL screenshots as the source of truth.
+
+==================================================
+1. MISSED BOLD TYPOGRAPHY
+==================================================
+
+The previous typography pass did NOT cover all relevant profile text.
+
+In the first screenshot, the circled text inside:
+
+CONVERSATION STARTERS
+
+and
+
+ASK ME
+
+is still too light/thin.
+
+Examples shown:
+
+“Something most people don’t know about me…”
+
+“What’s something you want to do more of this year?”
+
+These should use the same stronger premium typography system already applied elsewhere.
+
+Do NOT make them heavy black/bold like a heading.
+
+They should be a confident semibold / medium-heavy body style.
+
+Suggested:
+font-weight approximately 550–600
+
+The intent is:
+- stronger
+- cleaner
+- more premium
+- easier to read
+- still elegant
+
+Apply this consistently to equivalent profile prompt/answer cards across Discover.
+
+Audit all similar text blocks so this typography class is not missed elsewhere.
+
+==================================================
+2. PRESERVE TYPOGRAPHY HIERARCHY
+==================================================
+
+Use:
+
+section heading
+→ stronger/bolder
+
+prompt/card text
+→ semibold/medium-heavy
+
+body/explanatory copy
+→ regular
+
+Do NOT globally bold every sentence in the app.
+
+==================================================
+3. TOP STICKY PROFILE HEADER IS SEE-THROUGH
+==================================================
+
+The second screenshot shows the sticky/collapsed profile header becoming translucent.
+
+You can see the underlying large profile name/content through the header behind:
+
+Aria
+Undo
+3-dot menu
+
+This looks broken and unpolished.
+
+The sticky header must have a SOLID opaque background.
+
+==================================================
+4. HEADER BACKGROUND
+==================================================
+
+Use the exact existing Lulou app/page background token.
+
+Do NOT invent a new white.
+
+The header should visually blend with the rest of Lulou but remain fully opaque.
+
+Expected:
+
+profile content scrolls underneath
+→ sticky header stays solid
+→ nothing beneath is visible through it
+
+No glass effect.
+No blur transparency.
+No opacity layer.
+
+==================================================
+5. REMOVE ACCIDENTAL TRANSPARENCY
+==================================================
+
+Audit the sticky header for:
+
+- opacity
+- rgba background with alpha
+- backdrop-filter
+- translucent Tailwind class
+- inherited transparency
+- pseudo-element opacity
+- z-index issue
+
+Remove the cause.
+
+Use a fully opaque background.
+
+==================================================
+6. Z-INDEX / STACKING
+==================================================
+
+Ensure sticky header sits above profile content.
+
+Correct stacking should be:
+
+sticky profile header
+above
+profile body/photos/cards
+
+Undo and 3-dot controls must remain tappable.
+
+Do not allow content to visually bleed through.
+
+==================================================
+7. KEEP EXISTING NAME SCROLL BEHAVIOR
+==================================================
+
+Do NOT change the existing Hinge-style name behavior.
+
+Preserve:
+
+top state
+→ name in expanded position
+
+scrolled state
+→ name centered in sticky header
+
+scroll back up
+→ expanded name returns
+
+Only fix the header surface.
+
+==================================================
+8. DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- Open / Close buttons
+- Undo functionality
+- 3-dot menu
+- profile scroll behavior
+- photo sizing
+- Discover card geometry
+- bottom nav
+- profile data
+- prompt content
+- message/call logic
+
+This is strictly:
+1. missed typography polish
+2. sticky-header opacity fix
+
+==================================================
+9. REAL IPHONE VISUAL CHECK
+==================================================
+
+Verify on real iPhone:
+
+TYPOGRAPHY:
+- Conversation Starter card text stronger
+- Ask Me card text stronger
+- still not excessively bold
+- all equivalent prompt cards consistent
+
+HEADER:
+- sticky header fully opaque
+- no profile content visible through it
+- Aria centered correctly while scrolled
+- Undo visible
+- 3-dot visible
+- no layout movement
+- scroll transition unchanged
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact typography class/token added or changed
+2. exact font weight used for prompt/card text
+3. all components/screens affected
+4. exact cause of sticky-header transparency
+5. exact opaque background token used
+6. z-index/stacking fix if required
+7. files changed
+8. production commit
+9. live Vercel revision
+10. real iPhone verification:
+  - Conversation Starter text stronger PASS/FAIL
+  - Ask Me text stronger PASS/FAIL
+  - equivalent prompt cards consistent PASS/FAIL
+  - sticky header fully opaque PASS/FAIL
+  - no content bleed-through PASS/FAIL
+  - centered name behavior unchanged PASS/FAIL
+  - Undo/menu still work PASS/FAIL
+
+Do not mark complete unless the missed prompt text is visibly stronger AND the sticky profile header is completely opaque with no underlying content showing through
