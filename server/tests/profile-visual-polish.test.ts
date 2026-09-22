@@ -8,6 +8,7 @@ describe("profile visual polish regressions", () => {
   const infoRow = read("client/src/components/profile-info-row.tsx");
   const discover = read("client/src/pages/discover.tsx");
   const profile = read("client/src/pages/profile.tsx");
+  const settings = read("client/src/pages/settings.tsx");
   const layout = read("client/src/components/app-layout.tsx");
 
   it("uses restrained premium weights for identity, metadata, and section hierarchy", () => {
@@ -32,6 +33,18 @@ describe("profile visual polish regressions", () => {
     expect(css).toContain(".communication-wine-fill");
     expect(css).toContain("background: hsl(var(--communication-wine))");
     expect(profile).toContain('className="communication-wine-fill shrink-0"');
+  });
+
+  it("uses the voice-note wine token for primary Profile and Settings controls", () => {
+    expect(css).toMatch(/\.settings-primary-switch\[data-state="checked"\]\s*\{[^}]*background:\s*hsl\(var\(--communication-wine\)\)/s);
+    expect(settings).toContain('className="settings-primary-switch"');
+    expect(profile).toContain('? "communication-wine-fill border-transparent shadow-sm"');
+    expect(profile).toContain('className="communication-wine-fill w-full"');
+    expect(profile).toContain('data-testid="button-save-starters"');
+    expect(profile).toContain('data-testid="button-save-questions"');
+    expect(settings).toContain('communication-wine-fill py-3 px-3 rounded-2xl');
+    expect(settings).not.toContain('rounded-2xl bg-primary text-primary-foreground text-sm font-semibold');
+    expect(css).toContain("--destructive: 0 60% 48%");
   });
 
   it("allows long metadata values to wrap without horizontal overflow", () => {

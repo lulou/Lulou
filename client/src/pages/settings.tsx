@@ -969,6 +969,7 @@ export default function SettingsPage() {
               <Switch
                 checked={showLastActive}
                 onCheckedChange={(v) => updateProfileSetting.mutate({ showLastActive: v })}
+                className="settings-primary-switch"
                 data-testid="switch-last-active"
               />
             }
@@ -1000,6 +1001,7 @@ export default function SettingsPage() {
               <Switch
                 checked={commentFilter}
                 onCheckedChange={(v) => updateProfileSetting.mutate({ commentFilter: v })}
+                className="settings-primary-switch"
                 data-testid="switch-comment-filter"
               />
             }
@@ -1017,6 +1019,7 @@ export default function SettingsPage() {
               <Switch
                 checked={aiStarters}
                 onCheckedChange={(v) => updateProfileSetting.mutate({ conversationStarterAi: v })}
+                className="settings-primary-switch"
                 data-testid="switch-ai-starters"
               />
             }
@@ -1032,6 +1035,7 @@ export default function SettingsPage() {
                 checked={audioTranscripts}
                 onCheckedChange={(v) => updateSetting.mutate({ audioTranscripts: v })}
                 disabled={settingsLoading}
+                className="settings-primary-switch"
                 data-testid="switch-audio-transcripts"
               />
             }
@@ -1142,6 +1146,7 @@ export default function SettingsPage() {
                     <Switch
                       checked={pushAccountPreference === true}
                       onCheckedChange={(v) => v ? pushSubscribe() : pushUnsubscribe()}
+                      className="settings-primary-switch"
                       data-testid="switch-push-notifications"
                     />
                   )
@@ -1175,6 +1180,7 @@ export default function SettingsPage() {
                     <Switch
                       checked={pushPrefs[key] !== false}
                       onCheckedChange={(v) => updatePushPref(key, v)}
+                      className="settings-primary-switch"
                       data-testid={`switch-notif-${key}`}
                     />
                   }
@@ -1409,7 +1415,7 @@ export default function SettingsPage() {
               onClick={handleCheckForUpdate}
               disabled={isUpdating}
               data-testid="button-check-for-update"
-              className={`${import.meta.env.DEV ? "flex-1" : "w-full"} py-3 px-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2`}
+              className={`${import.meta.env.DEV ? "flex-1" : "w-full"} communication-wine-fill py-3 px-3 rounded-2xl text-sm font-semibold hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2`}
             >
               {isUpdating ? (
                 <>

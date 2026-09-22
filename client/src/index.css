@@ -314,6 +314,10 @@ body.chat-open {
     background: hsl(var(--communication-wine));
     border-color: hsl(var(--communication-wine));
   }
+  .settings-primary-switch[data-state="checked"] {
+    background: hsl(var(--communication-wine));
+    border-color: hsl(var(--communication-wine));
+  }
   .communication-wine-fill:hover { background: hsl(350 35% 38%); }
   .communication-wine-fill:active { background: hsl(350 35% 34%); }
   .voice-note-incoming { color: hsl(23 18% 22%); background: hsl(38 34% 94%); border-color: hsl(28 22% 86%); box-shadow: 0 2px 9px hsl(25 22% 25% / .06); }

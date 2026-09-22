@@ -875,7 +875,7 @@ export default function ProfilePage() {
                     onClick={() => setSettingsForm(prev => ({ ...prev, locationRadius: radius }))}
                     className={`py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200 active:scale-95 ${
                       Number(settingsForm.locationRadius ?? profile.locationRadius ?? 25) === radius
-                        ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                        ? "communication-wine-fill border-transparent shadow-sm"
                         : "border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40 bg-background"
                     }`}
                     data-testid={`button-settings-distance-${radius}`}
@@ -968,7 +968,7 @@ export default function ProfilePage() {
           <Button
             onClick={() => saveSettings.mutate()}
             disabled={saveSettings.isPending}
-            className="w-full"
+            className="communication-wine-fill w-full"
             data-testid="button-save-settings"
           >
             {saveSettings.isPending ? t("saving_msg") : t("save_changes")}
@@ -1476,7 +1476,7 @@ export default function ProfilePage() {
           ) : (
             <div className="flex items-center gap-2">
               <Button size="sm" variant="ghost" onClick={() => setEditingStarters(false)} data-testid="button-cancel-starters">{t("cancel")}</Button>
-              <Button size="sm" onClick={() => saveStarters.mutate()} disabled={saveStarters.isPending || editStarters.length < 2} data-testid="button-save-starters">
+              <Button size="sm" onClick={() => saveStarters.mutate()} disabled={saveStarters.isPending || editStarters.length < 2} className="communication-wine-fill" data-testid="button-save-starters">
                 {saveStarters.isPending ? t("saving_ellipsis") : t("save")}
               </Button>
             </div>
@@ -1491,7 +1491,7 @@ export default function ProfilePage() {
                   <Badge
                     key={starter}
                     variant={selected ? "default" : "outline"}
-                    className={`cursor-pointer text-sm py-2 px-3 transition-all ${selected ? "bg-primary text-primary-foreground" : ""}`}
+                    className={`cursor-pointer text-sm py-2 px-3 transition-all ${selected ? "communication-wine-fill" : ""}`}
                     onClick={() => toggleStarter(starter)}
                     data-testid={`badge-edit-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
                   >
@@ -1547,7 +1547,7 @@ export default function ProfilePage() {
           ) : (
             <div className="flex items-center gap-2">
               <Button size="sm" variant="ghost" onClick={() => setEditingQuestions(false)} data-testid="button-cancel-questions">{t("cancel")}</Button>
-              <Button size="sm" onClick={() => saveQuestionsMut.mutate()} disabled={saveQuestionsMut.isPending || editQuestions.length < 2} data-testid="button-save-questions">
+              <Button size="sm" onClick={() => saveQuestionsMut.mutate()} disabled={saveQuestionsMut.isPending || editQuestions.length < 2} className="communication-wine-fill" data-testid="button-save-questions">
                 {saveQuestionsMut.isPending ? t("saving_ellipsis") : t("save")}
               </Button>
             </div>
