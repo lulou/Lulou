@@ -1528,8 +1528,9 @@ export class SupabaseStorage implements IStorage {
    *     or the Wheel causes the same profile to appear in two places at once and
    *     removes the signal value of the Likes page.
    *
-   * Only ACTIVE matches are excluded.  Removed matches (status = "removed")
-   * intentionally allow the other user to reappear in both surfaces.
+   * Every persisted match is excluded, including matches with status "removed".
+   * A removed connection is still a deliberate safety/removal decision and
+   * must not make either account eligible to see the other again.
    *
    * All three lookups run in parallel so this method adds ≈0 extra latency.
    */
@@ -1552,15 +1553,15 @@ export class SupabaseStorage implements IStorage {
       outboundQuery = (outboundQuery as any).in("type", interactionTypesToExclude);
     }
 
-    const [interactedResult, activeMatchesResult, inboundOpensResult, blocksResult] = await Promise.all([
+    const [interactedResult, matchesResult, inboundOpensResult, safetyActionsResult] = await Promise.all([
       // 1. Profiles the current user has already interacted with (type-filtered for Wheel,
       //    all types for Discover).
       outboundQuery,
-      // 2. Active match partners (regardless of which side created the match).
+      // 2. Match partners (regardless of status or which side created the
+      //    match). Removed matches remain excluded bilaterally.
       this.sb
         .from("matches")
         .select("user1_id, user2_id")
-        .eq("status", "active")
         .or(`user1_id.eq.${userId},user2_id.eq.${userId}`),
       // 3. Users who have sent an inbound open (like) to the current user.
       //    These appear on the Likes page and must NOT also appear in Discovery
@@ -1570,26 +1571,26 @@ export class SupabaseStorage implements IStorage {
         .select("from_user_id")
         .eq("to_user_id", userId)
         .eq("type", "open"),
-      // A block is directional in storage but reciprocal in visibility: neither
-      // member can be surfaced to the other in Discover or the Intention Wheel.
+      // Block/remove actions are directional in storage but reciprocal in
+      // visibility: neither member can be surfaced to the other.
       this.sb
         .from("interactions")
         .select("from_user_id, to_user_id")
-        .eq("type", "block")
+        .in("type", ["block", "remove"])
         .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`),
     ]);
 
     if (interactedResult.error) {
       console.error("[MATCH_FILTER] interactions fetch error:", interactedResult.error.message);
     }
-    if (activeMatchesResult.error) {
-      console.error("[MATCH_FILTER] active matches fetch error:", activeMatchesResult.error.message);
+    if (matchesResult.error) {
+      console.error("[MATCH_FILTER] matches fetch error:", matchesResult.error.message);
     }
     if (inboundOpensResult.error) {
       console.error("[MATCH_FILTER] inbound opens fetch error:", inboundOpensResult.error.message);
     }
-    if (blocksResult.error) {
-      console.error("[MATCH_FILTER] user block fetch error:", blocksResult.error.message);
+    if (safetyActionsResult.error) {
+      console.error("[MATCH_FILTER] block/remove fetch error:", safetyActionsResult.error.message);
     }
 
     // Outbound: profiles this user has already acted on.
@@ -1597,9 +1598,9 @@ export class SupabaseStorage implements IStorage {
       (interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)
     );
 
-    // Active match partners: extract the OTHER user regardless of user1/user2 column.
+    // Match partners: extract the OTHER user regardless of user1/user2 column.
     const activeMatchUserIds = new Set<string>();
-    for (const row of (activeMatchesResult.data || [])) {
+    for (const row of (matchesResult.data || [])) {
       const otherId = (row.user1_id === userId ? row.user2_id : row.user1_id) as string | null;
       if (otherId) activeMatchUserIds.add(otherId);
     }
@@ -1611,7 +1612,7 @@ export class SupabaseStorage implements IStorage {
     );
 
     const blockedUserIds = new Set<string>();
-    for (const row of (blocksResult.data || [])) {
+    for (const row of (safetyActionsResult.data || [])) {
       const otherId = row.from_user_id === userId ? row.to_user_id : row.from_user_id;
       if (otherId) blockedUserIds.add(otherId as string);
     }
@@ -3827,11 +3828,11 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]> {
-    // All four queries run in parallel: three exclusion lookups AND the main
+    // All five queries run in parallel: four exclusion lookups AND the main
     // incoming-opens query simultaneously.  Exclusion filtering is done in
     // JavaScript after all results arrive, removing one sequential Supabase
     // round-trip (~150–300 ms) versus the old sequential pattern:
-    //   [3 parallel exclusion queries] → opens query → profiles batch
+    //   [4 parallel exclusion queries] → opens query → profiles batch
     //
     // EXCLUSION RULE: only exclude senders that the recipient has already
     // "opened" (liked back) — those either matched already or will the
@@ -3840,15 +3841,18 @@ export class SupabaseStorage implements IStorage {
     // have since expressed interest and the recipient may want to reconsider.
     // Previously this query fetched ALL outgoing interactions regardless of
     // type, which caused every "close" to permanently hide that sender from
-    // the Likes page — even after the sender liked back.  Fixed: .eq("type","open").
-    const [myOpensResult, matchResult1, matchResult2, opensResult, blocksResult] = await Promise.all([
+    // the Likes page — even after the sender liked back. Fixed: .eq("type","open").
+    // Safety actions and every persisted match remain bilateral exclusions.
+    const [myOpensResult, matchResult1, matchResult2, opensResult, safetyActionsResult] = await Promise.all([
       this.sb
         .from("interactions")
         .select("to_user_id")
         .eq("from_user_id", userId)
         .eq("type", "open"),               // ← was missing; "close" no longer silences likes
-      this.sb.from("matches").select("user1_id").eq("user2_id", userId).eq("status", "active"),
-      this.sb.from("matches").select("user2_id").eq("user1_id", userId).eq("status", "active"),
+      // A removed match remains a bilateral removal decision and must not
+      // reappear as a Like. Do not limit this lookup to active matches.
+      this.sb.from("matches").select("user1_id").eq("user2_id", userId),
+      this.sb.from("matches").select("user2_id").eq("user1_id", userId),
       this.sb
         .from("interactions")
         .select("id, type, from_user_id, to_user_id, created_at")
@@ -3856,10 +3860,11 @@ export class SupabaseStorage implements IStorage {
         .eq("type", "open")
         .order("created_at", { ascending: false })
         .limit(100), // slightly above the final 50 to absorb JS-side exclusions
+      // Block/remove actions are reciprocal visibility exclusions.
       this.sb
         .from("interactions")
         .select("from_user_id, to_user_id")
-        .eq("type", "block")
+        .in("type", ["block", "remove"])
         .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`),
     ]);
 
@@ -3867,7 +3872,7 @@ export class SupabaseStorage implements IStorage {
       ...(myOpensResult.data || []).map((r: any) => r.to_user_id as string),
       ...(matchResult1.data || []).map((r: any) => r.user1_id as string),
       ...(matchResult2.data || []).map((r: any) => r.user2_id as string),
-      ...(blocksResult.data || []).map((r: any) =>
+      ...(safetyActionsResult.data || []).map((r: any) =>
         (r.from_user_id === userId ? r.to_user_id : r.from_user_id) as string
       ),
     ]);

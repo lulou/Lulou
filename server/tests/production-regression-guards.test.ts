@@ -27,6 +27,24 @@ describe("production regression guards", () => {
     expect(storage).toContain("A profile acted on in either surface is no longer a");
   });
 
+  it("keeps blocked, removed, and removed-match users out of Likes bilaterally", () => {
+    const storage = readFileSync("server/storage.ts", "utf8");
+    const likesSection = storage.slice(
+      storage.indexOf("async getIncomingOpens("),
+      storage.indexOf("async createWheelSpark("),
+    );
+    expect(likesSection).toContain(".in(\"type\", [\"block\", \"remove\"])");
+    expect(likesSection).toContain("// A removed match remains a bilateral removal decision");
+    expect(likesSection).not.toContain('.eq("status", "active")');
+
+    const eligibilitySection = storage.slice(
+      storage.indexOf("private async buildExcludedUserIds("),
+      storage.indexOf("async getDiscoverProfiles("),
+    );
+    expect(eligibilitySection).toContain(".in(\"type\", [\"block\", \"remove\"])");
+    expect(eligibilitySection).toContain("Removed matches remain excluded bilaterally");
+  });
+
   it("keeps incoming-call startup restoration behind backend and session guards", () => {
     const app = readFileSync("client/src/App.tsx", "utf8");
     const signaling = readFileSync("client/src/hooks/use-call-signaling.ts", "utf8");
