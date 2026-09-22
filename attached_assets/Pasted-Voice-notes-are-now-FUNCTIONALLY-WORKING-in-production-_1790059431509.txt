@@ -1,0 +1,498 @@
+Voice notes are now FUNCTIONALLY WORKING in production.
+
+Confirmed:
+
+- voice notes send successfully
+- recipient receives them
+- playback works correctly
+
+DO NOT TOUCH OR REWRITE THE WORKING VOICE-NOTE BACKEND / STORAGE / TRANSCODE / REALTIME / PLAYBACK PIPELINE.
+
+The remaining problem is VISUAL QUALITY and INTERACTION DESIGN.
+
+The current voice-note UI still looks too Android-like and not premium enough for Lulou.
+
+I want the experience to feel much closer to the quality level of premium iOS social/messaging apps such as Snapchat, Instagram, Hinge and iMessage — without copying any one app pixel-for-pixel.
+
+==================================================
+PRIMARY GOAL
+==================================================
+
+Keep the current working functionality exactly as it is.
+
+Redesign ONLY:
+
+- recording state
+- outgoing voice-note bubble
+- incoming voice-note bubble
+- waveform/progress treatment
+- play/pause control
+- duration typography
+- failed/unavailable state
+- composer transition into recording mode
+
+The end result should feel:
+
+- premium
+- iOS-native
+- elegant
+- compact
+- modern
+- smooth
+- intentional
+- consistent with Lulou's wine/blush/ivory palette
+
+NOT:
+
+- Android
+- Material Design
+- chunky
+- oversized
+- boxy
+- mechanical
+- developer-looking
+
+==================================================
+1. DO NOT BREAK THE WORKING PIPELINE
+==================================================
+
+Do NOT change:
+
+- MediaRecorder logic
+- MIME selection
+- Blob handling
+- uploads
+- transcoding
+- Supabase storage
+- message format
+- realtime delivery
+- playback URL resolution
+- retry logic
+- voice-note entitlement
+- call progression
+
+Treat the existing voice-note data/player API as frozen unless an absolutely necessary UI adapter is needed.
+
+==================================================
+2. REDESIGN SENT VOICE-NOTE BUBBLES
+==================================================
+
+Current bubbles are too large and too Android-like.
+
+Replace them with a compact premium layout:
+
+[ play/pause ]  [ waveform/progress ]  [ duration ]
+
+The bubble should feel similar in density and polish to a premium iOS chat product.
+
+Use:
+
+- compact vertical height
+- smooth continuous corner radius
+- subtle internal spacing
+- no giant circular controls
+- no excessive padding
+- no giant mic icon
+- no huge "Tap to reload" text
+
+==================================================
+3. OUTGOING VOICE NOTE
+==================================================
+
+Outgoing voice notes should use the existing approved Lulou wine message family.
+
+Use:
+
+- elegant muted wine fill
+- subtle contrast between played/unplayed waveform
+- white/ivory play icon
+- small readable duration
+- restrained shadow/border only if already consistent with chat
+
+Do NOT create another new brand colour.
+
+==================================================
+4. INCOMING VOICE NOTE
+==================================================
+
+Incoming voice notes should use:
+
+- warm ivory / soft neutral surface
+- wine accent for played progress
+- dark taupe/wine iconography
+- same geometry as outgoing bubble
+
+Incoming and outgoing notes should clearly belong to the same design system.
+
+==================================================
+5. PLAY / PAUSE CONTROL
+==================================================
+
+The play/pause control should be compact.
+
+Idle:
+- small circular play icon
+
+Playing:
+- same control changes to pause
+
+Do not use a huge coloured circle.
+
+Touch target may remain ~44px while visual icon stays smaller.
+
+==================================================
+6. PREMIUM WAVEFORM
+==================================================
+
+The waveform needs to look refined.
+
+Use:
+
+- thin rounded vertical bars
+- varied bar heights
+- tight but breathable spacing
+- smooth progression
+- subtle contrast
+
+Avoid:
+
+- square bars
+- dashed lines
+- chunky segments
+- equal-height mechanical bars
+- giant waveform spanning the entire bubble
+
+If current real waveform data is available, use it.
+
+If not, continue using deterministic waveform generation but make the rendering visually refined.
+
+==================================================
+7. PLAYBACK PROGRESS
+==================================================
+
+As the note plays:
+
+played portion:
+- approved Lulou accent / brighter contrast
+
+unplayed portion:
+- muted lower-contrast version
+
+Progress should move smoothly across the waveform.
+
+No giant progress bar underneath.
+
+==================================================
+8. DURATION
+==================================================
+
+Show duration elegantly, e.g.:
+
+0:05
+0:21
+1:03
+
+Use small iOS-like secondary typography.
+
+Keep it aligned cleanly to the waveform/play control.
+
+Do not make duration visually dominant.
+
+==================================================
+9. RECORDING STATE — COMPLETE REDESIGN
+==================================================
+
+The current recording mode shown in the previous screenshots is the biggest visual problem.
+
+Do NOT expand the composer into a huge recording panel.
+
+Recording should remain compact and feel like a native extension of the existing composer.
+
+Suggested structure:
+
+[ X / cancel ]   [ live waveform ]   [ 0:03 ]   [ send ]
+
+or an equally refined iOS-style arrangement.
+
+Requirements:
+
+- same overall visual family as normal composer
+- compact height
+- smooth transition
+- live timer
+- subtle live waveform/activity
+- clear cancel
+- clear send
+- no giant mic circle
+- no huge empty area
+- no Android-style dashed line
+
+==================================================
+10. TRANSITION INTO RECORDING
+==================================================
+
+When mic is tapped:
+
+normal composer should smoothly morph into recording state.
+
+Do NOT abruptly replace it with an unrelated giant component.
+
+Use subtle transitions:
+
+- fade
+- width/opacity transition
+- small scale changes
+
+Keep motion restrained.
+
+==================================================
+11. MICROPHONE VISUAL
+==================================================
+
+The mic should not dominate the entire recording UI.
+
+Use a small elegant mic glyph only where useful.
+
+No giant floating green microphone.
+
+No bright Android green treatment.
+
+Use Lulou palette.
+
+==================================================
+12. CANCEL BEHAVIOR
+==================================================
+
+Cancel should look like a clean iOS secondary action:
+
+- small X or text "Cancel"
+- subtle
+- easy to hit
+- not visually louder than Send
+
+Do not use a large black X floating in the middle.
+
+==================================================
+13. SEND / FINISH CONTROL
+==================================================
+
+The send/finish action should feel premium and obvious.
+
+Possible treatment:
+
+- compact circular arrow/send control
+- wine-filled or accent treatment consistent with existing Lulou UI
+
+Do not add a giant standalone button.
+
+==================================================
+14. ERROR STATE
+==================================================
+
+Voice notes are now working, so errors should be rare.
+
+If playback fails:
+
+show a compact inline state.
+
+Example:
+
+small retry icon + "Retry"
+
+If permanently unavailable:
+
+small muted:
+
+"Voice note unavailable"
+
+Do not turn the entire bubble into an error panel.
+
+==================================================
+15. ONE-PLAYER BEHAVIOR
+==================================================
+
+Preserve existing working playback arbitration:
+
+if voice note A is playing and user starts B:
+
+A pauses/stops
+B plays
+
+Do not change this logic.
+
+==================================================
+16. CHAT DENSITY
+==================================================
+
+Multiple voice notes in a row should look elegant and compact.
+
+The current screenshots show giant repeated blocks.
+
+Reduce bubble height and spacing so 3–4 consecutive voice notes feel like normal chat content rather than cards.
+
+==================================================
+17. IOS SPACING
+==================================================
+
+Use iOS-like spacing principles:
+
+- smaller internal gaps
+- consistent 8/12/16-style rhythm
+- compact vertical margins
+- touch-safe controls without oversized visuals
+
+Do not create large blank gaps.
+
+==================================================
+18. TYPOGRAPHY
+==================================================
+
+Use the app's existing iOS-appropriate typography.
+
+Duration and secondary states should be:
+
+- small
+- medium/regular weight
+- subtle
+
+Avoid monospaced/developer-style text unless currently intentional.
+
+==================================================
+19. COMPOSER / KEYBOARD
+==================================================
+
+Preserve existing working composer behavior.
+
+Do not break:
+
+- keyboard layout
+- message anchoring
+- return-to-send
+- textarea growth
+- icons inside composer
+- latest-message visibility
+- safe-area handling
+
+Voice-note recording should fit into this same composer architecture.
+
+==================================================
+20. IPHONE SAFE AREA
+==================================================
+
+Verify on actual iPhone installed PWA.
+
+Ensure recording UI:
+
+- does not collide with keyboard
+- does not sit behind home indicator
+- does not introduce double safe-area padding
+- does not push chat header
+
+==================================================
+21. VISUAL REFERENCE DIRECTION
+==================================================
+
+Use the quality level and design principles of:
+
+- Instagram DMs
+- Snapchat chat
+- Hinge messaging
+- iMessage voice messages
+
+but DO NOT make a literal copy.
+
+Extract the common premium characteristics:
+
+- compact
+- minimal
+- rounded
+- smooth
+- clear hierarchy
+- subtle animation
+- restrained colour
+- small high-quality controls
+
+Then express that through Lulou's own palette and identity.
+
+==================================================
+22. DO NOT TOUCH FUNCTIONAL CODE UNLESS REQUIRED
+==================================================
+
+This is now a UI/UX task.
+
+Before editing, identify:
+
+- voice-note bubble component
+- recording composer component/state
+- waveform renderer
+- play/pause visual layer
+
+Keep functional modules unchanged.
+
+If you must alter shared logic, explain why first.
+
+==================================================
+23. PRODUCTION VISUAL ACCEPTANCE
+==================================================
+
+After redesign, validate on real iPhone.
+
+Capture/inspect:
+
+1. normal composer
+2. recording at 0:03
+3. outgoing sent voice note
+4. incoming received voice note
+5. playing state
+6. paused state
+7. multiple consecutive notes
+8. error/unavailable state
+
+The result should visually belong beside the rest of Lulou.
+
+==================================================
+24. DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- voice-note send reliability
+- playback reliability
+- call system
+- message quotas
+- progression
+- entitlements
+- payments
+- Discover
+- Likes
+- Connections
+- Intent Wheel
+- Profile
+- bottom nav
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact voice-note UI components changed
+2. exact recording UI changes
+3. exact outgoing bubble changes
+4. exact incoming bubble changes
+5. waveform/progress changes
+6. play/pause visual changes
+7. error-state changes
+8. confirmation functional pipeline was left unchanged
+9. files changed
+10. production commit
+11. live Vercel revision
+12. real iPhone visual verification:
+  - recording UI premium iOS-style PASS/FAIL
+  - outgoing bubble premium iOS-style PASS/FAIL
+  - incoming bubble premium iOS-style PASS/FAIL
+  - playback state premium iOS-style PASS/FAIL
+  - consecutive notes compact PASS/FAIL
+  - keyboard/composer unaffected PASS/FAIL
+
+Do not mark this complete until the voice-note experience looks like a premium iOS social/messaging product rather than the Android-like UI currently in production.
