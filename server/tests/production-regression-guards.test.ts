@@ -11,6 +11,20 @@ describe("production regression guards", () => {
     expect(storage).toContain('guarded = guarded.or("is_paused.is.null,is_paused.eq.false")');
     expect(storage).toContain('guarded = guarded.eq("is_discoverable", true)');
     expect(storage).toContain('guarded = guarded.eq("email_verified", true)');
+    expect(storage).toContain("refreshAuthProfileSnapshot");
+    expect(storage).toContain("AUTH_PROFILE_SNAPSHOT_TTL_MS = 10 * 60_000");
+    expect(storage).toContain("_authProfileSnapshot !== null && !_authProfileSnapshot.has(profile.userId)");
+    expect(storage).toContain("if (!(await refreshAuthProfileSnapshot())) return [];");
+    expect(storage).toContain("...(_hasIsDiscoverableColumn ? [\"is_discoverable\"] : [])");
+    expect(storage).toContain("...(_hasEmailVerifiedColumn ? [\"email_verified\"] : [])");
+  });
+
+  it("uses one shared interaction exclusion policy for Discover and the Wheel", () => {
+    const storage = readFileSync("server/storage.ts", "utf8");
+    const wheelSection = storage.slice(storage.indexOf("async getPopularProfiles("));
+    expect(wheelSection).toContain("this.buildExcludedUserIds(userId)");
+    expect(wheelSection).not.toContain('this.buildExcludedUserIds(userId, ["wheel_connection"])');
+    expect(storage).toContain("A profile acted on in either surface is no longer a");
   });
 
   it("keeps incoming-call startup restoration behind backend and session guards", () => {

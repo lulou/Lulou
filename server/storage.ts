@@ -10,7 +10,7 @@ import {
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
 import { decideMeetAvailabilityAcceptance } from "@shared/meet-availability";
-import { supabase as defaultSupabase } from "./supabase";
+import { supabase as defaultSupabase, supabaseAdmin, hasServiceRoleKey } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db, pool as localPool } from "./db";
 import { eq, gt, sql, and, or, asc } from "drizzle-orm";
@@ -908,8 +908,52 @@ function applyProductionCandidateGuards(query: any): any {
   return guarded;
 }
 
+// Auth is the source of truth for whether a profile still belongs to a real
+// account. Keep the snapshot in-process so candidate requests do not make an
+// Auth-admin call; refresh periodically and fail closed before first success.
+const AUTH_PROFILE_SNAPSHOT_TTL_MS = 10 * 60_000;
+let _authProfileSnapshot: Set<string> | null = null;
+let _authProfileSnapshotExpiresAt = 0;
+let _authProfileSnapshotPromise: Promise<boolean> | null = null;
+
+async function refreshAuthProfileSnapshot(): Promise<boolean> {
+  const now = Date.now();
+  if (_authProfileSnapshot && _authProfileSnapshotExpiresAt > now) return true;
+  if (_authProfileSnapshotPromise) return _authProfileSnapshotPromise;
+
+  _authProfileSnapshotPromise = (async () => {
+    try {
+      if (!hasServiceRoleKey) {
+        console.warn("[PRODUCTION_ELIGIBILITY] service role unavailable; retaining prior auth snapshot");
+        return _authProfileSnapshot !== null;
+      }
+      const authIds = new Set<string>();
+      for (let page = 1; page <= 20; page++) {
+        const adminResult = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
+        if (adminResult.error) throw adminResult.error;
+        const users = adminResult.data.users ?? [];
+        users.forEach(user => authIds.add(user.id));
+        if (users.length < 1000) break;
+      }
+      _authProfileSnapshot = authIds;
+      _authProfileSnapshotExpiresAt = Date.now() + AUTH_PROFILE_SNAPSHOT_TTL_MS;
+      console.log(`[PRODUCTION_ELIGIBILITY] auth snapshot refreshed (${authIds.size} users)`);
+      return true;
+    } catch (error: any) {
+      console.warn("[PRODUCTION_ELIGIBILITY] auth snapshot refresh failed:", error?.message ?? error);
+      return _authProfileSnapshot !== null;
+    } finally {
+      _authProfileSnapshotPromise = null;
+    }
+  })();
+  return _authProfileSnapshotPromise;
+}
+
 function isKnownNonProductionProfile(profile: Pick<Profile, "userId">): boolean {
-  return profile.userId.startsWith("10000000-0000-4000-a000-0000000000");
+  return (
+    profile.userId.startsWith("10000000-0000-4000-a000-0000000000") ||
+    (_authProfileSnapshot !== null && !_authProfileSnapshot.has(profile.userId))
+  );
 }
 
 /**
@@ -1175,6 +1219,7 @@ function mapProfile(row: any): Profile {
     photoVerified: row.photo_verified,
     onboardingComplete: row.onboarding_complete,
     isPaused: row.is_paused ?? false,
+    isDiscoverable: row.is_discoverable ?? true,
     elevateType: row.elevate_type ?? null,
     elevateExpiresAt: row.elevate_expires_at ? new Date(row.elevate_expires_at) : null,
     lastActive: _hasLastActiveColumn && row.last_active ? new Date(row.last_active) : null,
@@ -1489,10 +1534,9 @@ export class SupabaseStorage implements IStorage {
    * All three lookups run in parallel so this method adds ≈0 extra latency.
    */
   /**
-   * @param interactionTypesToExclude  When provided, only outbound interactions of these
-   *   types count as "already acted on".  Omit (or pass undefined) to exclude ALL
-   *   interaction types (Discover behaviour).  Pass ["wheel_connection"] for the
-   *   Intention Wheel so that Discover open/close rows never block Wheel candidates.
+   * @param interactionTypesToExclude  Optional feature-specific override for callers
+   *   that intentionally need a narrower interaction policy. Discover and the
+   *   Intention Wheel both omit it so all outbound interaction types are excluded.
    */
   private async buildExcludedUserIds(userId: string, interactionTypesToExclude?: string[]): Promise<{
     excludedIds: Set<string>;
@@ -1632,6 +1676,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99, locationRadius: number = 0, userLat: number | null = null, userLng: number | null = null, userDatingIntent: string | null = null, userConnectionStyle: string | null = null): Promise<Profile[]> {
+    if (!(await refreshAuthProfileSnapshot())) return [];
     // Select all columns EXCEPT photos — base64 images in photos make rows huge (100s KB each).
     // Fetching photos for 100 profiles at once transfers 50–100 MB and causes a statement timeout.
     // Photos are fetched individually per-card by the client via GET /api/profiles/:userId.
@@ -1651,6 +1696,9 @@ export class SupabaseStorage implements IStorage {
       ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+      ...(_hasIsPausedColumn ? ["is_paused"] : []),
+      ...(_hasIsDiscoverableColumn ? ["is_discoverable"] : []),
+      ...(_hasEmailVerifiedColumn ? ["email_verified"] : []),
       ...(_hasLastActiveColumn ? ["last_active"] : []),
       ...(_hasShowLastActiveColumn ? ["show_last_active"] : []),
     ].join(", ");
@@ -2979,6 +3027,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null, ageMin: number = 18, ageMax: number = 99, userDatingIntent: string | null = null, userConnectionStyle: string | null = null, userSignals: string[] = []): Promise<Profile[]> {
+    if (!(await refreshAuthProfileSnapshot())) return [];
     // Photos excluded from this query — same reasoning as getDiscoverProfiles.
     // Intent page lazy-loads photos per wheel item via GET /api/profiles/:userId/photos.
     // lat/lng only included when DB migration is confirmed (same guard as POOL_COLS).
@@ -2996,6 +3045,9 @@ export class SupabaseStorage implements IStorage {
       ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+      ...(_hasIsPausedColumn ? ["is_paused"] : []),
+      ...(_hasIsDiscoverableColumn ? ["is_discoverable"] : []),
+      ...(_hasEmailVerifiedColumn ? ["email_verified"] : []),
       ...(_hasLastActiveColumn ? ["last_active"] : []),
     ].join(", ");
 
@@ -3033,14 +3085,13 @@ export class SupabaseStorage implements IStorage {
       return q;
     };
 
-    // Build exclusion set (wheel-acted + active matches) and fetch popularity data in parallel.
-    // IMPORTANT: pass ["wheel_connection"] so only profiles explicitly acted on through the
-    // Intention Wheel are excluded.  Discover open/close rows must NOT exclude Wheel candidates
-    // — the two surfaces are independent (see: wheel-discover-isolation).
+    // Build the same exclusion set used by Discover and fetch popularity data
+    // in parallel. A profile acted on in either surface is no longer a
+    // production discovery candidate for the other surface.
     const twPopT0 = Date.now();
     const emptyExclusion = { excludedIds: new Set<string>(), interactedIds: new Set<string>(), activeMatchUserIds: new Set<string>(), inboundOpenerIds: new Set<string>() };
     const [exclusionResult, popularRowsResult] = await Promise.all([
-      userId ? this.buildExcludedUserIds(userId, ["wheel_connection"]) : Promise.resolve(emptyExclusion),
+      userId ? this.buildExcludedUserIds(userId) : Promise.resolve(emptyExclusion),
       this.sb.from("interactions").select("to_user_id").eq("type", "open").limit(2000),
     ]);
     console.log(`[WHEEL] exclusions+popularity queries done in ${Date.now() - twPopT0} ms`);
@@ -3048,7 +3099,7 @@ export class SupabaseStorage implements IStorage {
     const { excludedIds, activeMatchUserIds, interactedIds, inboundOpenerIds } = exclusionResult;
     // Same 300-cap as Discovery: apply exclusion at DB level when set is small enough.
     const useDbExclusion = excludedIds.size <= 300;
-    console.log("[WHEEL_FILTER] exclusion breakdown (wheel-only history — Discover history excluded):", {
+    console.log("[WHEEL_FILTER] exclusion breakdown (shared discovery history):", {
       wheelActed: interactedIds.size,
       activeMatches: activeMatchUserIds.size,
       inboundLikers: inboundOpenerIds.size,
