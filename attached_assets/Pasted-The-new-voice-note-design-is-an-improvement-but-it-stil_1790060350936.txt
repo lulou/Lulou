@@ -1,0 +1,724 @@
+The new voice-note design is an improvement, but it still needs another refinement pass.
+
+Functionality is working, so DO NOT break the working voice-note send / receive / playback pipeline.
+
+The remaining problems are:
+
+1. The mic icon is still temperamental and does not reliably respond every single time.
+2. The recording interaction should feel more tactile and premium.
+3. When the user holds the mic icon to record, I want the mic icon to expand slightly while the press is active.
+4. The overall voice-note interaction can still feel more polished and iOS-native.
+5. Voice-note messages are NOT contributing correctly to unread/message counts.
+6. Voice-note messages are NOT triggering the same Lulou notification behavior as normal text messages.
+7. If the recipient is not in the exact chat, a newly received voice note should behave like a normal unread message:
+  - Connections badge increments
+  - relevant conversation unread count increments
+  - push notification is sent if push notifications are enabled
+8. If the recipient is already inside the exact open chat and the app is visible, do NOT create a redundant unread count or foreground push notification.
+
+==================================================
+1. MIC INTERACTION MUST BE 100% RELIABLE
+==================================================
+
+The mic button must respond correctly every time.
+
+Audit the exact live production interaction handling.
+
+Check for:
+
+- pointerdown not firing
+- pointerup missed
+- pointercancel mishandled
+- touch/mouse duplication
+- passive touch listeners
+- event propagation conflicts
+- drag threshold conflicts
+- composer rerender interrupting the gesture
+- stale refs
+- permission request race
+- multiple MediaRecorder attempts
+- state transition races
+- long-press firing twice
+- touch release outside button not stopping correctly
+
+Do not just increase the hit area and call it fixed.
+
+Find the real cause of the temperamental behavior.
+
+==================================================
+2. USE ONE AUTHORITATIVE PRESS GESTURE
+==================================================
+
+Use Pointer Events as the primary interaction:
+
+pointerdown
+pointermove if needed
+pointerup
+pointercancel
+
+Use pointer capture so the gesture stays owned by the mic button even if the finger moves slightly.
+
+On pointerdown:
+
+- capture pointer
+- begin press visual state immediately
+- begin recording according to existing logic
+
+On pointerup:
+
+- release pointer capture
+- finalize recording once
+
+On pointercancel:
+
+- cancel/cleanup safely
+
+Do not let touch + pointer handlers trigger the same recording twice.
+
+Only use a fallback for older iOS where genuinely necessary.
+
+==================================================
+3. EXPAND MIC ICON WHILE HOLDING
+==================================================
+
+When the user presses and holds the mic:
+
+the mic control should subtly expand.
+
+Desired behavior:
+
+idle:
+normal mic size
+
+press/hold:
+scale to approximately 1.08–1.12
+
+release:
+smoothly return to 1.0
+
+Use a short premium transition such as:
+
+120–180ms
+ease-out on press
+slightly softer return
+
+Do NOT make it bounce dramatically.
+Do NOT make it huge.
+Do NOT use a game-like pulse.
+
+It should feel like iOS touch feedback.
+
+==================================================
+4. ADD SUBTLE PRESSED-SURFACE FEEDBACK
+==================================================
+
+While recording is actively being held:
+
+- mic icon slightly enlarges
+- surrounding touch surface may gain a subtle Lulou wine/blush tint
+- optional very soft halo/ring around the mic
+
+Keep it elegant.
+
+No neon.
+No Android green.
+No giant glow.
+
+==================================================
+5. RECORDING START FEEDBACK MUST BE IMMEDIATE
+==================================================
+
+The user should know instantly that the hold registered.
+
+On pointerdown:
+
+within the same frame:
+- mic visually expands
+- active recording state begins visually
+- timer/waveform starts as soon as MediaRecorder actually starts
+
+Do not leave a dead-feeling delay while waiting on async permission if permission has already been granted.
+
+If permission is being requested for the first time:
+show a clear temporary pending state.
+
+==================================================
+6. MINIMUM PRESS / ACCIDENTAL TAP HANDLING
+==================================================
+
+Prevent accidental 50ms taps from creating broken micro-recordings.
+
+Use a sensible minimum-recording rule.
+
+For example:
+
+- if user releases almost instantly, cancel rather than send
+- once threshold is reached, treat as valid recording
+
+Do not make the threshold feel sluggish.
+
+==================================================
+7. DO NOT REQUIRE PERFECT FINGER POSITION
+==================================================
+
+Once recording has started:
+
+the user should not need to keep their finger pixel-perfectly centered over the mic.
+
+Pointer capture should allow slight movement without losing the gesture.
+
+This is especially important on iPhone.
+
+==================================================
+8. RELEASE MUST ALWAYS FINALIZE CLEANLY
+==================================================
+
+The most important reliability behavior:
+
+user presses
+→ recording starts
+
+user releases
+→ recording stops/finalizes exactly once
+
+No sticky mic.
+No recording continuing.
+No double-send.
+No failed state caused by two stop calls.
+
+Guard finalization with single-flight logic.
+
+==================================================
+9. CANCEL GESTURE
+==================================================
+
+If the current UI supports cancel while recording:
+
+make it intentional and reliable.
+
+Do not accidentally cancel because the finger moved a few pixels.
+
+Use a meaningful threshold if drag-to-cancel exists.
+
+If there is no drag-to-cancel:
+keep the explicit cancel control.
+
+==================================================
+10. PRESERVE WORKING VOICE-NOTE PIPELINE
+==================================================
+
+Do NOT change:
+
+- MediaRecorder MIME logic
+- Blob construction
+- upload
+- transcoding
+- storage
+- realtime media delivery
+- playback
+- retry
+- message IDs
+- entitlement
+
+This task is mic interaction reliability + visual polish + unread/message-count/notification integration.
+
+==================================================
+11. ACTIVE RECORDING VISUAL
+==================================================
+
+While holding:
+
+- mic slightly enlarged
+- compact recording waveform/activity
+- timer visible
+- controls remain inside the refined composer footprint
+- no giant panel
+
+The active state should feel alive but restrained.
+
+==================================================
+12. HAPTIC FEEDBACK IF AVAILABLE
+==================================================
+
+If running in a true native Capacitor environment and a supported haptic API already exists:
+
+use a very subtle haptic on recording start.
+
+For PWA/Safari:
+do not fake haptics or add unsupported behavior.
+
+==================================================
+13. ACCESSIBILITY
+==================================================
+
+Keep:
+
+- minimum ~44px touch target
+- clear aria-label
+- visible pressed/recording state
+- keyboard accessibility where applicable
+
+The visual icon can stay compact while the hit target remains touch-safe.
+
+==================================================
+14. VOICE NOTES MUST COUNT AS UNREAD MESSAGES
+==================================================
+
+A voice note is a real chat message and must participate in unread/message counts exactly like a normal text message.
+
+Current bug:
+voice-note messages are arriving, but the recipient is not getting the expected unread/message count.
+
+Fix this.
+
+Expected behavior:
+
+If User A sends one voice note to User B while User B is NOT inside that exact open chat:
+
+→ User B conversation unread count +1
+→ Connections bottom-nav badge +1
+→ Active Chats unread indicator/count updates immediately
+→ latest-message preview updates appropriately
+
+If User A sends another voice note:
+
+→ +1 again
+
+Counts are by unread MESSAGE, not merely unread conversation.
+
+Example:
+
+Chat with A:
+3 unread text messages
+2 unread voice notes
+
+Connections badge should include all 5 unread messages from that chat.
+
+Aggregate across multiple chats.
+
+==================================================
+15. USE THE SAME AUTHORITATIVE UNREAD PIPELINE AS TEXT
+==================================================
+
+Do NOT create a separate fake voice-note counter.
+
+Voice notes should flow through the SAME authoritative unread/message-count mechanism as normal messages.
+
+Audit whether current unread logic filters by:
+
+message type
+text content
+voice-note prefix
+attachments/media
+system messages
+
+A voice-note message from another user should qualify as unread exactly like a normal user-authored text message.
+
+==================================================
+16. EXACT CHAT OPEN = IMMEDIATELY SEEN
+==================================================
+
+If User B is:
+
+- inside the exact chat with User A
+- app is visible/foreground
+- message is rendered/received live
+
+then incoming voice note should be marked seen immediately.
+
+Expected:
+
+- no lingering unread count
+- no Connections badge increment that remains
+- no redundant foreground notification
+
+This must match normal text-message behavior.
+
+==================================================
+17. CONNECTIONS BADGE MUST UPDATE IN REALTIME
+==================================================
+
+Do not wait for:
+
+- polling
+- page refresh
+- reopening Connections
+- app relaunch
+
+When a voice note arrives outside the exact open chat:
+
+realtime event
+→ unread store/cache increments
+→ Connections nav badge updates immediately
+
+Then reconcile against authoritative server state in background.
+
+==================================================
+18. CONVERSATION PREVIEW
+==================================================
+
+Voice notes should also update the conversation preview correctly.
+
+Instead of exposing technical message content such as:
+
+__VOICE__:...
+
+show something polished like:
+
+“Voice message”
+
+or:
+
+“🎙 Voice message”
+
+Use existing Lulou copy/style conventions.
+
+Do not leak storage URLs or voice-note prefixes into UI.
+
+==================================================
+19. PUSH NOTIFICATIONS FOR VOICE NOTES
+==================================================
+
+User has push notifications enabled.
+
+A newly received voice note should trigger the same push-notification system as a normal incoming message when appropriate.
+
+Expected:
+
+If recipient is:
+- app backgrounded
+- app closed/offline where push is available
+- not actively viewing that exact chat
+
+send a Lulou notification.
+
+Notification should identify Lulou and the sender appropriately.
+
+Example:
+
+Lulou
+Ceebs sent you a voice message
+
+Do NOT expose storage URLs.
+
+Do NOT use generic:
+
+“Notification”
+
+if the existing notification system can identify the app/message type.
+
+==================================================
+20. FOREGROUND NOTIFICATION RULE
+==================================================
+
+Preserve the existing desired behavior:
+
+If user is actively using Lulou in the foreground, especially inside the exact chat:
+
+DO NOT show a redundant browser/system notification.
+
+Primary foreground signal is:
+
+- realtime chat update
+- Connections unread badge when outside the exact chat
+
+Background/offline push can remain.
+
+==================================================
+21. PUSH NOTIFICATION IDENTITY
+==================================================
+
+Audit why voice notes are not producing the expected Lulou notification.
+
+Check:
+
+- push event generation
+- message-type filtering
+- service worker notification handler
+- notification title
+- body
+- icon/badge
+- deep-link data
+- sender ID
+- match/chat ID
+
+Voice notes must not be skipped because their content starts with a media marker/prefix.
+
+==================================================
+22. NOTIFICATION DEEP LINK
+==================================================
+
+Tapping a voice-note push notification should take the user to the correct Lulou conversation.
+
+Use the same chat/match routing as normal message notifications.
+
+Do not create a separate voice-note route.
+
+==================================================
+23. MESSAGE COUNT / NOTIFICATION IDEMPOTENCY
+==================================================
+
+One voice note must produce:
+
+- one message row
+- one unread increment if applicable
+- one push notification if applicable
+
+Retries/realtime duplicates must NOT cause:
+
+- +2 unread
+- two push notifications
+- duplicate preview updates
+
+Use the existing stable message ID / clientRequestId for dedupe.
+
+==================================================
+24. READ / SEEN BEHAVIOR
+==================================================
+
+When the recipient opens the exact chat:
+
+all currently visible/eligible unread messages in that chat, including voice notes, should be marked seen according to the existing message-read behavior.
+
+Connections total should decrement accordingly.
+
+Opening Connections alone should NOT mark voice notes as read.
+
+Only entering/reading the exact conversation should.
+
+==================================================
+25. PRESERVE NORMAL TEXT NOTIFICATIONS
+==================================================
+
+Do NOT break current working text-message:
+
+- unread counts
+- nav badge
+- realtime preview
+- push notifications
+- read clearing
+
+Voice notes must join this exact infrastructure.
+
+==================================================
+26. SAFE DIAGNOSTICS
+==================================================
+
+Add temporary safe diagnostics for one voice-note message:
+
+voice_note_message_inserted
+voice_note_realtime_received
+voice_note_unread_incremented
+voice_note_seen_immediately
+voice_note_push_eligible
+voice_note_push_sent
+voice_note_push_suppressed_foreground
+voice_note_notification_clicked
+
+Also record:
+
+messageId
+matchId
+senderId/recipientId in safe internal logs
+
+Do NOT log:
+- audio contents
+- auth tokens
+- storage credentials
+- private text content
+
+==================================================
+27. REAL IPHONE MIC TEST
+==================================================
+
+Test the exact mic interaction repeatedly on the installed iPhone PWA.
+
+Run at least:
+
+20 consecutive attempts.
+
+For each:
+
+press and hold
+→ visual expands
+→ recording starts
+
+release
+→ recording stops
+→ send/finalization succeeds
+
+Required:
+
+20/20 successful gesture registrations.
+
+Also test:
+
+- quick tap
+- 1 second hold
+- 5 second hold
+- slight finger movement
+- release outside mic bounds
+- rapid repeated attempts
+
+No sticky state.
+
+==================================================
+28. REAL TWO-DEVICE UNREAD TEST
+==================================================
+
+Use:
+
+A = iPhone
+B = laptop
+
+TEST 1:
+B stays outside A's chat.
+
+A sends one voice note.
+
+Expected on B:
+- voice note arrives
+- conversation unread +1
+- Connections badge +1
+- preview shows Voice message
+- push notification appears if B is backgrounded and push is enabled
+
+TEST 2:
+A sends second voice note.
+
+Expected:
+- unread +1 again
+- Connections badge reflects total unread messages
+
+TEST 3:
+B enters exact chat.
+
+Expected:
+- voice-note unread count clears according to existing read behavior
+- Connections badge decrements correctly
+
+TEST 4:
+B stays inside exact chat, app foreground visible.
+
+A sends voice note.
+
+Expected:
+- voice note appears immediately
+- immediately treated as seen
+- no lingering unread count
+- no redundant foreground system notification
+
+==================================================
+29. REAL PUSH TEST
+==================================================
+
+Test voice-note push with recipient:
+
+- app foreground but outside exact chat
+- app backgrounded
+- installed PWA closed if platform push supports it
+
+Expected:
+
+Foreground:
+use in-app unread badge, avoid redundant system notification according to existing policy.
+
+Background:
+Lulou push notification appears.
+
+Tap notification:
+opens correct conversation.
+
+==================================================
+30. VISUAL ACCEPTANCE
+==================================================
+
+Verify:
+
+idle mic:
+compact and elegant
+
+pressed mic:
+slightly larger
+
+recording mic:
+clearly active
+
+release:
+smooth return
+
+The interaction should feel closer to premium iOS apps like Instagram / Snapchat / Hinge / iMessage in tactile quality, but remain visually Lulou.
+
+==================================================
+31. DO NOT CHANGE
+==================================================
+
+Do not change:
+
+- voice-note recording format
+- transcode logic
+- storage
+- playback reliability
+- voice-note entitlement
+- call system
+- stage progression
+- payments
+- Discover
+- Likes
+- Intent Wheel
+- Profile
+
+Only modify unread/notification infrastructure where needed to make voice-note messages behave identically to normal chat messages.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact cause of temperamental mic behavior
+2. exact pointer/touch fix
+3. whether pointer capture is used
+4. exact mic scale while pressed
+5. exact animation duration/easing
+6. accidental quick-tap handling
+7. release/finalization protection
+
+8. exact reason voice notes were excluded from unread/message counts
+9. exact unread-count fix
+10. confirmation voice notes now aggregate into Connections badge by MESSAGE count
+11. exact read/seen behavior for voice notes
+
+12. exact reason voice notes were excluded from push notifications
+13. exact push-notification fix
+14. notification title/body used for a voice note
+15. foreground notification suppression behavior
+16. notification deep-link behavior
+17. duplicate/unread/push idempotency protection
+
+18. files changed
+19. production commit
+20. live Vercel/Railway revision
+
+21. REAL iPhone mic test:
+- 20/20 mic presses registered PASS/FAIL
+- 20/20 releases finalized PASS/FAIL
+- slight finger movement PASS/FAIL
+- release outside bounds PASS/FAIL
+- no sticky recording PASS/FAIL
+- pressed mic expansion visually verified PASS/FAIL
+
+22. REAL two-device messaging test:
+- voice note increments unread +1 PASS/FAIL
+- second voice note increments again PASS/FAIL
+- Connections badge reflects total unread messages PASS/FAIL
+- voice-note preview updates PASS/FAIL
+- exact chat marks voice note seen PASS/FAIL
+- foreground exact-chat sends no redundant push PASS/FAIL
+- background voice-note push appears PASS/FAIL
+- notification says Lulou / sender voice message correctly PASS/FAIL
+- notification opens correct chat PASS/FAIL
+- no duplicate unread counts PASS/FAIL
+- no duplicate push notifications PASS/FAIL
+
+Do not mark complete unless the mic is dependable every time AND a voice note behaves exactly like a normal message for unread counts, Connections badges, and Lulou push notifications.
