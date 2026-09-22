@@ -1,0 +1,540 @@
+Add a premium completion moment when BOTH users have successfully exchanged phone numbers, AND fix the locked video-call purchase interaction because it is STILL not showing the price or taking the user to checkout.
+
+Use the attached production screenshot and the current live app behavior as the source of truth.
+
+There are TWO separate issues in this task:
+
+1. Final “journey complete” experience after both numbers are exchanged.
+2. Locked video-call icon must show the paid price and route the user into the existing payment flow when tapped.
+
+Do not treat either issue as complete unless both work in production.
+
+==================================================
+PART 1 — FINAL JOURNEY COMPLETE EXPERIENCE
+==================================================
+
+Right now the screen shows:
+
+“Number shared”
+“You’ve both exchanged numbers!”
+
+That is good, but this is actually the END of the Lulou in-app journey for this match.
+
+I want a proper completion moment to appear once BOTH users have exchanged numbers.
+
+==================================================
+TRIGGER CONDITION
+==================================================
+
+Show this ONLY when:
+
+- User A has shared their number
+- User B has shared their number
+- both numbers are authoritatively persisted
+- this match has genuinely reached the completed final stage
+
+Do NOT trigger if only one user shared a number.
+
+Do NOT trigger on a failed/partial save.
+
+==================================================
+COMPLETION EXPERIENCE
+==================================================
+
+Once both numbers are exchanged:
+
+show a premium completion modal/sheet/card.
+
+Suggested copy:
+
+Congratulations
+
+Your journey together on Lulou is complete.
+
+You’ve matched, connected, talked, and chosen to take things beyond the app.
+
+Now go make it real.
+
+Primary CTA:
+
+Continue
+
+Keep the tone warm, refined and confident.
+
+Do NOT make it cheesy or game-like.
+
+==================================================
+VISUAL STYLE
+==================================================
+
+Use Lulou’s premium design language:
+
+- warm ivory background
+- wine/burgundy accent
+- subtle heart/check icon
+- elegant typography
+- restrained animation
+- iOS-style rounded sheet/card
+- soft fade/scale entrance
+
+No confetti explosion.
+No neon.
+No gamified badges.
+
+==================================================
+WHEN IT APPEARS
+==================================================
+
+The completion moment should appear immediately after the second number is successfully exchanged.
+
+Flow:
+
+first user shares number
+→ normal waiting/shared-number state
+
+second user shares number
+→ server confirms both numbers exist
+→ completion event/state
+→ congratulations experience appears
+
+==================================================
+ONE-TIME ACKNOWLEDGEMENT
+==================================================
+
+Do not show the congratulations popup repeatedly every time the user reopens the chat.
+
+Store a per-user acknowledgement for this match.
+
+If not acknowledged:
+→ show completion moment
+
+If acknowledged:
+→ show the completed state normally without reopening the modal every time
+
+==================================================
+AFTER USER TAPS CONTINUE
+==================================================
+
+Close the completion modal and reveal the final completed state.
+
+The chat can remain accessible according to existing product rules, but visually mark that the Lulou journey is complete.
+
+==================================================
+FINAL COMPLETED STATE
+==================================================
+
+After acknowledgement, show something refined like:
+
+Journey complete
+
+You’ve exchanged numbers and taken your connection beyond Lulou.
+
+Keep the matching date/time details underneath if they are still useful.
+
+Do NOT remove message history.
+
+==================================================
+PROGRESSION TRACKER
+==================================================
+
+At this point the progression tracker should clearly reflect completion.
+
+If Meet is the final step:
+
+Match
+→ Chat
+→ 1st Call
+→ Meet
+
+then Meet should move into the completed state.
+
+Use the existing completed wine/red treatment.
+
+Do not invent another colour.
+
+==================================================
+PART 2 — VIDEO CALL ICON PURCHASE FLOW IS STILL BROKEN
+==================================================
+
+The locked video-call icon is STILL not behaving correctly.
+
+Current production problem:
+
+- video is purchase-only
+- icon is visible as locked
+- but tapping it does NOT show the price
+- tapping it does NOT explain that video calls are paid-only
+- tapping it does NOT route the user into the existing payment flow
+
+This must now be fixed properly.
+
+==================================================
+LOCKED VIDEO TAP BEHAVIOR
+==================================================
+
+When the user taps the locked video camera icon:
+
+open a premium purchase explanation immediately.
+
+Do NOT silently do nothing.
+
+Do NOT leave the icon dead.
+
+Do NOT make the user guess what “Unlock” means.
+
+==================================================
+VIDEO PURCHASE SHEET
+==================================================
+
+Show a compact premium Lulou sheet/modal.
+
+Suggested structure:
+
+Video calls
+
+Take your connection face-to-face.
+
+Video calls are available as a paid extra once you reach the eligible stage.
+
+Video Call Starter Pack
+1 video-call credit
+$6.99 AUD
+
+Primary CTA:
+
+Unlock Video Call — $6.99
+
+Secondary CTA:
+
+Not now
+
+Use AUD consistently.
+
+Do NOT invent another price.
+
+==================================================
+PRICE REQUIREMENT
+==================================================
+
+Use the agreed Video Call Starter Pack price:
+
+$6.99 AUD
+
+Includes:
+
+1 video-call credit
+
+Do not alter the Stripe product amount.
+
+Do not substitute another pack.
+
+==================================================
+DESIGN DIRECTION
+==================================================
+
+The purchase sheet should feel premium and iOS-native.
+
+Use:
+
+- warm ivory background
+- Lulou wine accent
+- compact video-camera icon
+- rounded sheet/card
+- clean hierarchy
+- restrained animation
+- small clear pricing block
+
+Do NOT use:
+
+- Android-style Material dialog
+- bright green purchase button
+- giant card
+- aggressive upsell
+- neon styling
+
+==================================================
+CHECKOUT BUTTON MUST ACTUALLY WORK
+==================================================
+
+This is critical.
+
+When the user taps:
+
+Unlock Video Call — $6.99
+
+the app must actually route into the EXISTING video-call purchase flow.
+
+Trace the exact production chain:
+
+locked video icon
+→ purchase sheet
+→ primary CTA
+→ purchase service
+→ backend checkout route
+→ Stripe Checkout session
+→ redirect to Stripe
+
+Do not create another parallel payment implementation.
+
+Use the existing purchase infrastructure.
+
+==================================================
+IF CHECKOUT DOES NOT OPEN
+==================================================
+
+Find the FIRST failing point.
+
+Audit:
+
+- icon onClick
+- modal action handler
+- purchase item key
+- product/SKU mapping
+- checkout API request
+- HTTP status
+- Stripe session creation
+- returned checkout URL
+- iPhone PWA redirect
+- browser navigation
+- Stripe account restriction response
+
+Do not swallow errors.
+
+If checkout cannot open, show the user the real safe reason.
+
+==================================================
+STRIPE ACCOUNT CURRENTLY UNDER REVIEW
+==================================================
+
+Preserve the current production payment safety behavior.
+
+If Stripe still rejects live charges because the account is paused/in review:
+
+the user should get a clear message that checkout is temporarily unavailable.
+
+Do NOT falsely mark the video as purchased.
+
+Do NOT grant the entitlement.
+
+Do NOT make the icon green.
+
+==================================================
+PAYMENT SUCCESS
+==================================================
+
+Only after authoritative payment confirmation:
+
+- grant exactly 1 video-call credit
+- refresh entitlements
+- camera becomes green only if:
+ - video credit exists
+ - stage allows video
+ - credit is unused
+
+Green means:
+
+“Video call can actually be used right now.”
+
+==================================================
+PAYMENT CANCEL / FAILURE
+==================================================
+
+If user cancels:
+
+- return safely to Lulou
+- no credit granted
+- icon remains locked
+
+If payment fails:
+
+- show existing safe error behavior
+- no entitlement
+- icon remains locked
+
+==================================================
+VIDEO CREDIT CONSUMPTION
+==================================================
+
+Preserve existing paid-call rules.
+
+Do NOT consume the credit:
+
+- when sheet opens
+- when checkout opens
+- when payment completes
+- when user taps Video
+- when call rings
+- when call is declined
+- when call is missed
+- when WebRTC fails
+
+Only consume according to the existing authoritative paid-video-call rule already used by Lulou.
+
+Do not alter that rule in this task.
+
+==================================================
+AFTER CREDIT IS USED
+==================================================
+
+If no video credits remain:
+
+camera returns to muted/locked state.
+
+Tapping it again should reopen the purchase sheet.
+
+==================================================
+VIDEO STATE SYSTEM
+==================================================
+
+Use the existing authoritative communication entitlement resolver.
+
+State mapping:
+
+GREEN
+=
+purchased and actually available now
+
+WINE/RED
+=
+used/completed
+
+MUTED TAUPE/GREY
+=
+locked / purchase required
+
+Do not make video green because stage was reached.
+
+Do not leave it dead when locked.
+
+==================================================
+DO NOT BREAK
+==================================================
+
+Do not change:
+
+- number-sharing logic
+- availability logic
+- voice notes
+- calls
+- message quotas
+- unread counts
+- push notifications
+- Stripe product pricing
+- existing checkout architecture
+- chat history
+- Profile
+- Discover
+- Likes
+- Connections
+- Intent Wheel
+
+This task is only:
+1. final journey-complete experience
+2. fixing the locked-video purchase interaction
+
+==================================================
+REAL TWO-USER / PURCHASE TEST
+==================================================
+
+TEST 1 — ONE NUMBER ONLY
+
+Only User A shares number.
+
+Expected:
+- no congratulations popup
+
+TEST 2 — BOTH NUMBERS
+
+User B shares number.
+
+Expected:
+- both persisted
+- congratulations appears
+- Continue works
+- completion persists after reload
+
+TEST 3 — LOCKED VIDEO
+
+User with no video credit taps locked video icon.
+
+Expected:
+- purchase sheet opens
+- $6.99 AUD visible
+- 1 video-call credit visible
+- primary CTA visible
+
+TEST 4 — CHECKOUT
+
+Tap:
+Unlock Video Call — $6.99
+
+Expected:
+- existing checkout route is called
+- Stripe Checkout opens if account currently allows charges
+
+If Stripe account is still paused:
+- clear temporary unavailable message
+- no entitlement granted
+- icon remains locked
+
+TEST 5 — SUCCESSFUL PAYMENT WHEN AVAILABLE
+
+After successful confirmed payment:
+- exactly 1 video credit granted
+- camera becomes green if eligible
+
+TEST 6 — CANCEL
+
+Cancel checkout.
+
+Expected:
+- return to Lulou
+- no credit
+- camera remains locked
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact trigger condition used for both numbers exchanged
+2. exact completion-state persistence
+3. exact acknowledgement persistence
+4. exact completion modal/sheet component
+5. exact completion copy implemented
+6. progression tracker change
+
+7. exact reason locked video tap was not showing price
+8. exact reason locked video was not reaching checkout
+9. exact component handling the locked video icon
+10. exact purchase sheet component
+11. confirmation price shown is $6.99 AUD
+12. exact purchase item/SKU used
+13. checkout route used
+14. Stripe response if checkout is currently blocked
+15. entitlement grant behavior
+16. camera state after purchase/cancel/failure
+17. files changed
+18. production commit
+19. live Vercel/Railway revision
+
+20. REAL TEST RESULTS:
+- one-sided number share does not trigger completion PASS/FAIL
+- second number triggers completion PASS/FAIL
+- Continue works PASS/FAIL
+- completion persists PASS/FAIL
+- locked video tap opens purchase sheet PASS/FAIL
+- $6.99 AUD shown PASS/FAIL
+- 1 video-call credit shown PASS/FAIL
+- checkout CTA triggers purchase flow PASS/FAIL
+- Stripe Checkout actually opens when permitted PASS/FAIL
+- paused Stripe state handled safely PASS/FAIL
+- cancelled checkout leaves video locked PASS/FAIL
+- successful purchase grants credit PASS/FAIL
+- eligible purchased video turns green PASS/FAIL
+
+Do not mark complete unless BOTH:
+1. the journey-complete experience works after both numbers are exchanged
+AND
+2. the locked video icon actually shows the $6.99 AUD purchase information and triggers the existing checkout flow when tapped.
