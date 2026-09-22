@@ -593,6 +593,17 @@ export const firstCallPromptSeen = pgTable("first_call_prompt_seen", {
   pk: primaryKey({ columns: [table.matchId, table.userId] }),
 }));
 
+// ── Journey-completion acknowledgement ────────────────────────────────────────
+// One row per user and match, written only after both number-exchange flags are
+// authoritatively persisted. Prevents the final completion sheet repeating.
+export const journeyCompletionAcknowledgements = pgTable("journey_completion_acknowledgements", {
+  matchId: text("match_id").notNull(),
+  userId:  text("user_id").notNull(),
+  acknowledgedAt: timestamp("acknowledged_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.matchId, table.userId] }),
+}));
+
 // ── Connection DNA ─────────────────────────────────────────────────────────────
 
 /** Raw quiz answers — one row per user per question. */

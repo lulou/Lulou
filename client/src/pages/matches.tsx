@@ -51,6 +51,7 @@ import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 import { resolveCommunicationEntitlements, type CallGate } from "@shared/communication-entitlements";
 import { resolveMeetAvailability } from "@shared/meet-availability";
 import { MeetAvailabilityStatePanel } from "@/components/meet-availability-state";
+import { JourneyCompletionExperience } from "@/components/journey-completion-experience";
 import {
   CommunicationControl,
   getCommunicationIconStyle,
@@ -380,8 +381,10 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
       const res = await apiRequest("POST", `/api/matches/${matchId}/exchange-number`, {});
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["/api/matches", matchId], (old: any) => old ? { ...old, ...updated } : updated);
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "journey-completion"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({ title: t("number_shared_title") });
       setShowPhoneInput(false);
@@ -460,6 +463,20 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
     );
   }
 
+  if (myNumberExchanged && theirNumberExchanged) {
+    return (
+      <div className="p-4 border-t">
+        <JourneyCompletionExperience
+          matchId={matchId}
+          matchingSlots={matchingSlots}
+          labelForSlot={labelForSlot}
+          idSuffix={matchId}
+          t={t}
+        />
+      </div>
+    );
+  }
+
   if (myNumberExchanged) {
     return (
       <div className="p-4 border-t">
@@ -467,7 +484,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
           <Heart className="w-5 h-5 text-primary mx-auto" />
           <p className="font-medium text-sm">{t("number_shared_title")}</p>
           <p className="text-xs text-muted-foreground">
-            {theirNumberExchanged ? t("both_exchanged_numbers") : t("waiting_for_their_number")}
+            {t("waiting_for_their_number")}
           </p>
           {matchingSlots.length > 0 && (
             <div className="space-y-1 pt-1">
@@ -3561,7 +3578,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const feature = isVideo ? "video" : "phone";
     const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
     if (gate.state === "locked") {
-      if (isVideo && gate.purchaseRequired) {
+      if (isVideo) {
         setPurchasePromptFeature("video");
         return;
       }

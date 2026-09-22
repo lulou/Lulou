@@ -13,6 +13,7 @@ interface PackOption {
   detail: string;
   price: string;
   best?: boolean;
+  cta?: string;
 }
 
 const PHONE_PACKS: PackOption[] = [
@@ -22,7 +23,7 @@ const PHONE_PACKS: PackOption[] = [
 ];
 
 const VIDEO_PACKS: PackOption[] = [
-  { id: "video-starter",        name: "Video Starter",    detail: "1 video call credit",    price: "$6.99" },
+  { id: "video-starter",        name: "Video Call Starter Pack", detail: "1 video-call credit", price: "$6.99 AUD", cta: "Unlock Video Call — $6.99" },
   { id: "chemistry-pack",       name: "Chemistry",        detail: "3 phone + 1 video call", price: "$16.99" },
   { id: "deep-connection-pack", name: "Deep Connection",  detail: "5 phone + 3 video calls", price: "$27.99", best: true },
 ];
@@ -50,10 +51,10 @@ const FEATURE_META: Record<PurchaseFeature, {
   },
   video: {
     Icon: Video,
-    color: "rgb(99,102,241)",
-    title: "Video Call Credits",
-    subtitle: "Start a 10-minute video call with any match immediately.",
-    packs: VIDEO_PACKS,
+    color: "hsl(var(--primary))",
+    title: "Video calls",
+    subtitle: "Take your connection face-to-face. Video calls are available as a paid extra once you reach the eligible stage.",
+    packs: [VIDEO_PACKS[0]],
   },
   mic: {
     Icon: Mic,
@@ -122,7 +123,9 @@ export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptP
               {meta.packs.map(pack => (
                 <div
                   key={pack.id}
-                  className="relative flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3"
+                  className={`relative flex gap-3 rounded-xl border bg-card px-4 py-3 ${
+                    pack.cta ? "flex-col items-stretch" : "items-center justify-between"
+                  }`}
                   style={pack.best ? { borderColor: `${meta.color}50`, background: `${meta.color}06` } : undefined}
                   data-testid={`pack-option-${pack.id}`}
                 >
@@ -140,7 +143,7 @@ export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptP
                   </div>
                   <Button
                     size="sm"
-                    className="shrink-0 min-w-[80px]"
+                    className={`shrink-0 ${pack.cta ? "communication-wine-fill w-full" : "min-w-[80px]"}`}
                     style={pack.best ? { background: meta.color, color: "#fff", border: "none" } : undefined}
                     variant={pack.best ? "default" : "outline"}
                     disabled={loading === pack.id}
@@ -155,7 +158,7 @@ export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptP
                     ) : (
                       <span className="flex items-center gap-1.5">
                         <Sparkles className="w-3 h-3" />
-                        {pack.price}
+                        {pack.cta ?? pack.price}
                       </span>
                     )}
                   </Button>

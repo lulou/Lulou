@@ -260,6 +260,26 @@ export function useRealtimeMessages(
             : null,
         });
       })
+      .on("broadcast", { event: "number-exchange" }, ({ payload }) => {
+        if (!payload) return;
+        queryClient.setQueryData<MatchDetailLike>(["/api/matches", matchId], (old) =>
+          old ? {
+            ...old,
+            numberExchanged1: payload.numberExchanged1 === true,
+            numberExchanged2: payload.numberExchanged2 === true,
+          } : old
+        );
+        if (payload.journeyComplete === true) {
+          queryClient.invalidateQueries({
+            queryKey: ["/api/matches", matchId, "journey-completion"],
+          });
+        }
+        queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
+        console.log("[JOURNEY_COMPLETION] number exchange received", {
+          matchId: matchId.slice(0, 8),
+          complete: payload.journeyComplete === true,
+        });
+      })
       .on("broadcast", { event: "voice-note-unlock" }, () => {
         // Retroactive/legacy path — fired by the entitlement endpoint when it
         // detects callStage > 0 on a cold cache hit. Reuse the same callback.

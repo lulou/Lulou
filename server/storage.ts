@@ -2213,6 +2213,8 @@ export class SupabaseStorage implements IStorage {
     callAvail1At: string | null; callAvail2At: string | null;
     agreedCallAt: string | null;
     availabilityRevision: number;
+    numberExchanged1: boolean;
+    numberExchanged2: boolean;
   } | null> {
     // NOTE: call_avail_1 / call_avail_2 (legacy TEXT columns) were never applied
     // to Supabase — only to Neon.  Selecting them causes a PostgREST column-not-found
@@ -2220,7 +2222,7 @@ export class SupabaseStorage implements IStorage {
     // (call_avail_1_at / call_avail_2_at) which DO exist in Supabase.
     const { data, error } = await this.sb
       .from("matches")
-      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1_at, call_avail_2_at, agreed_call_at, availability_revision")
+      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1_at, call_avail_2_at, agreed_call_at, availability_revision, number_exchanged_1, number_exchanged_2")
       .eq("id", matchId)
       .eq("status", "active")
       .maybeSingle();
@@ -2238,6 +2240,8 @@ export class SupabaseStorage implements IStorage {
       callAvail2At: data.call_avail_2_at ?? null,
       agreedCallAt: data.agreed_call_at ?? null,
       availabilityRevision: Number(data.availability_revision ?? 0),
+      numberExchanged1: data.number_exchanged_1 === true,
+      numberExchanged2: data.number_exchanged_2 === true,
     };
   }
 

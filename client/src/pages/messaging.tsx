@@ -29,6 +29,7 @@ import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { resolveCommunicationEntitlements, type CallGate } from "@shared/communication-entitlements";
 import { resolveMeetAvailability } from "@shared/meet-availability";
 import { MeetAvailabilityStatePanel } from "@/components/meet-availability-state";
+import { JourneyCompletionExperience } from "@/components/journey-completion-experience";
 import {
   CommunicationControl,
   getCommunicationIconStyle,
@@ -80,7 +81,6 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
   const { toast } = useToast();
   const { t } = useLanguageContext();
   const queryClient = useQueryClient();
-  const [, navigate] = useLocation();
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [showPhoneInput, setShowPhoneInput] = useState(false);
@@ -144,8 +144,10 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
       const res = await apiRequest("POST", `/api/matches/${matchId}/exchange-number`, {});
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["/api/matches", matchId], (old: any) => old ? { ...old, ...updated } : updated);
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "journey-completion"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({ title: t("number_shared_title"), description: t("number_sent_to_desc").replace("{name}", matchDetail.profile.firstName) });
       setShowPhoneInput(false);
@@ -258,6 +260,19 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
     );
   }
 
+  if (myNumberExchanged && theirNumberExchanged) {
+    return (
+      <div className="p-4 border-t">
+        <JourneyCompletionExperience
+          matchId={matchId}
+          matchingSlots={matchingSlots}
+          labelForSlot={labelForSlot}
+          t={t}
+        />
+      </div>
+    );
+  }
+
   if (myNumberExchanged) {
     return (
       <div className="p-4 border-t space-y-3">
@@ -265,9 +280,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
           <Heart className="w-6 h-6 text-primary mx-auto" />
           <p className="font-medium text-sm">{t("number_shared_title")}</p>
           <p className="text-xs text-muted-foreground">
-            {theirNumberExchanged
-              ? t("both_exchanged_numbers")
-              : t("number_sent_waiting").replace("{name}", matchDetail.profile.firstName)}
+            {t("number_sent_waiting").replace("{name}", matchDetail.profile.firstName)}
           </p>
           {matchingSlots.length > 0 && (
             <div className="space-y-1 pt-2">
@@ -279,16 +292,6 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
                 })}
               </div>
             </div>
-          )}
-          {theirNumberExchanged && (
-            <Button
-              className="w-full mt-2 communication-wine-fill"
-              onClick={() => navigate(`/date-plan/${matchId}`)}
-              data-testid="button-plan-date"
-            >
-              <Heart className="w-4 h-4 me-2" />
-              Plan Your Date in Lulou
-            </Button>
           )}
         </Card>
       </div>
@@ -1484,7 +1487,7 @@ export default function Messaging() {
     const feature = isVideo ? "video" : "phone";
     const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
     if (gate.state === "locked") {
-      if (isVideo && gate.purchaseRequired) {
+      if (isVideo) {
         setPurchasePromptFeature("video");
         return;
       }
@@ -1666,7 +1669,9 @@ export default function Messaging() {
       )
     : null;
   const postCallStatusLabel = headerMeetAvailability?.state === "both_match"
-    ? t("status_ready_to_meet")
+    ? matchDetail?.numberExchanged1 === true && matchDetail?.numberExchanged2 === true
+      ? t("journey_completion_title")
+      : t("status_ready_to_meet")
     : headerMeetAvailability?.state === "other_only"
       ? t("their_availability_lbl").replace("{name}", shellProfile?.firstName ?? "")
       : headerMeetAvailability?.state === "self_only"

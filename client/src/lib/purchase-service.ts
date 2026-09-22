@@ -60,6 +60,8 @@ export interface StartPurchaseOpts {
 
 let checkoutInFlight = false;
 const CHECKOUT_FAILURE_MESSAGE = "Checkout couldn’t start. Please try again.";
+const CHECKOUT_TEMPORARILY_UNAVAILABLE =
+  "Checkout is temporarily unavailable while card payments are under review. No charge or credit was created.";
 
 function getStripeCheckoutUrl(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -141,7 +143,11 @@ export async function startPurchase(opts: StartPurchaseOpts): Promise<void> {
         : parsed?.message ?? `HTTP ${res.status}: ${bodyPreview.slice(0, 120)}`;
       console.error(`[PURCHASE] ERROR ${errMsg}`);
       _emit({ error: errMsg });
-      opts.onError?.(CHECKOUT_FAILURE_MESSAGE);
+      opts.onError?.(
+        parsed?.code === "stripe_live_charges_disabled" || res.status === 503
+          ? CHECKOUT_TEMPORARILY_UNAVAILABLE
+          : CHECKOUT_FAILURE_MESSAGE,
+      );
     }
   } catch (err: any) {
     const errMsg = err?.message ?? "Network error";

@@ -29,7 +29,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { matches, messages, userBenefits, callCredits, callTerminalSettlements, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, profilePhotoReactions, profilePromptReplies, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen, userSettings } from "@shared/schema";
+import { matches, messages, userBenefits, callCredits, callTerminalSettlements, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, profilePhotoReactions, profilePromptReplies, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen, journeyCompletionAcknowledgements, userSettings } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
@@ -7043,10 +7043,73 @@ export async function registerRoutes(
         content: `__PHONE__:${profile.phoneNumber}`,
       });
 
-      res.json(match);
+      const journeyComplete =
+        Number(match.callStage ?? 0) >= 4 &&
+        match.numberExchanged1 === true &&
+        match.numberExchanged2 === true;
+      await broadcastViaHttpApi(`chat:${matchId}`, "number-exchange", {
+        matchId,
+        numberExchanged1: match.numberExchanged1 === true,
+        numberExchanged2: match.numberExchanged2 === true,
+        journeyComplete,
+        changedBy: userId,
+        serverBroadcastAt: Date.now(),
+      });
+
+      res.json({ ...match, journeyComplete });
     } catch (error) {
       console.error("Error exchanging number:", error);
       res.status(500).json({ message: "Failed to exchange number" });
+    }
+  });
+
+  app.get("/api/matches/:matchId/journey-completion", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const match = await getStorage(req).getMatchMeta(matchId, userId);
+      if (!match) return res.status(404).json({ message: "Match not found" });
+      const complete =
+        Number(match.callStage ?? 0) >= 4 &&
+        match.numberExchanged1 === true &&
+        match.numberExchanged2 === true;
+      if (!complete) return res.json({ complete: false, acknowledged: false });
+
+      const [acknowledgement] = await db
+        .select({ matchId: journeyCompletionAcknowledgements.matchId })
+        .from(journeyCompletionAcknowledgements)
+        .where(and(
+          eq(journeyCompletionAcknowledgements.matchId, matchId),
+          eq(journeyCompletionAcknowledgements.userId, userId),
+        ))
+        .limit(1);
+      return res.json({ complete: true, acknowledged: !!acknowledgement });
+    } catch (error) {
+      console.error("Error loading journey completion:", error);
+      return res.status(500).json({ message: "Failed to load journey completion" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/journey-completion/acknowledge", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const match = await getStorage(req).getMatchMeta(matchId, userId);
+      if (!match) return res.status(404).json({ message: "Match not found" });
+      if (
+        Number(match.callStage ?? 0) < 4 ||
+        match.numberExchanged1 !== true ||
+        match.numberExchanged2 !== true
+      ) {
+        return res.status(409).json({ message: "Journey is not complete" });
+      }
+      await db.insert(journeyCompletionAcknowledgements)
+        .values({ matchId, userId })
+        .onConflictDoNothing();
+      return res.json({ complete: true, acknowledged: true });
+    } catch (error) {
+      console.error("Error acknowledging journey completion:", error);
+      return res.status(500).json({ message: "Failed to acknowledge journey completion" });
     }
   });
 
