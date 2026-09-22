@@ -9,6 +9,7 @@ import "./index.css";
 function showFatalError(title: string, detail: string): void {
   const el = document.getElementById("root");
   if (!el) return;
+  document.getElementById("lulou-boot-shell")?.remove();
   el.innerHTML = [
     '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;',
     'background:#faf8f5;padding:24px;font-family:system-ui,sans-serif;">',

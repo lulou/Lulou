@@ -53,7 +53,9 @@ function safeCallbackErrorMessage(message: string): string {
   return RESTORATION_ERROR_MESSAGE;
 }
 
-export default function AuthCallbackPage() {
+export default function AuthCallbackPage({ onPresentationResolved }: {
+  onPresentationResolved?: () => void;
+} = {}) {
   const [, setLocation] = useLocation();
   const [status, setStatus]       = useState<Status>("loading");
   const [errorMsg, setErrorMsg]   = useState<string | null>(null);
@@ -123,6 +125,7 @@ export default function AuthCallbackPage() {
 
       console.log(`${CB_TAG} ✓ SUCCEED`, { reason, elapsed: ms(), linkType: rawType, emailConfirmedAt });
       setStatus("success");
+      if (isSignupVerification) onPresentationResolved?.();
 
       // Clean the hash / code param from the URL bar for security.
       window.history.replaceState(null, "", window.location.pathname);
@@ -148,6 +151,7 @@ export default function AuthCallbackPage() {
       }
       setStatus("error");
       setErrorMsg(safeCallbackErrorMessage(msg));
+      onPresentationResolved?.();
     }
 
     // ── 1. Supabase error params (?error=... appended for invalid links) ──────
@@ -308,7 +312,7 @@ export default function AuthCallbackPage() {
       subscription.unsubscribe();
       clearTimeout(timeout);
     };
-  }, [setLocation]);
+  }, [onPresentationResolved, setLocation]);
 
   // ── Messaging by link type ─────────────────────────────────────────────────
   const isSignup   = linkType === "signup" || linkType === "email";

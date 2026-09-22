@@ -70,6 +70,8 @@ import { resolvePersistedOnboardingStep } from "@shared/onboarding-compatibility
 import { Loader2, Mail, CheckCircle, AlertCircle } from "lucide-react";
 import { supabase, supabaseConfigError } from "@/lib/supabase";
 import { sendVerificationResend } from "@/lib/auth-helpers";
+import StartupLaunch, { removeStartupLaunch } from "@/components/startup-launch";
+import { withRequestTimeout } from "@/lib/request-timeout";
 
 // ── Global debug store ───────────────────────────────────────────────────────
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
@@ -142,6 +144,7 @@ class AppRootErrorBoundary extends Component<{ children: ReactNode }, RootEBStat
     return { hasError: true, error };
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
+    removeStartupLaunch();
     console.error("[ROOT_ERROR_BOUNDARY] Unhandled render error:", error.message, info.componentStack?.slice(0, 500));
   }
   render() {
@@ -1960,22 +1963,28 @@ function persistConfirmedOnboardingCompletion(userId: string, completed: boolean
 }
 
 async function fetchOnboardingState<T>(path: string): Promise<T> {
-  try {
-    const response = await apiRequest("GET", path);
-    return response.json() as Promise<T>;
-  } catch (error) {
-    if ((error as Error & { status?: number })?.status !== 401) throw error;
-    const refreshed = await refreshAuthToken();
-    console.warn("[ONBOARDING_RESOLVER] auth retry", {
-      authenticated: refreshed,
-      endpoint: path,
-      retryAttempted: true,
-      context: "status-fetch",
-    });
-    if (!refreshed) throw error;
-    const response = await apiRequest("GET", path);
-    return response.json() as Promise<T>;
-  }
+  return withRequestTimeout(
+    async signal => {
+      try {
+        const response = await apiRequest("GET", path, undefined, { signal });
+        return await response.json() as T;
+      } catch (error) {
+        if ((error as Error & { status?: number })?.status !== 401) throw error;
+        const refreshed = await refreshAuthToken();
+        console.warn("[ONBOARDING_RESOLVER] auth retry", {
+          authenticated: refreshed,
+          endpoint: path,
+          retryAttempted: true,
+          context: "status-fetch",
+        });
+        if (!refreshed) throw error;
+        const response = await apiRequest("GET", path, undefined, { signal });
+        return await response.json() as T;
+      }
+    },
+    15_000,
+    `Onboarding state request (${path})`,
+  );
 }
 
 // ── Email verification gate ──────────────────────────────────────────────────
@@ -2372,7 +2381,7 @@ function PasswordRecoveryGate({ onDone }: { onDone: () => void }) {
   );
 }
 
-function AppContent() {
+function AppContent({ onStartupResolved }: { onStartupResolved: () => void }) {
   const [location, navigate] = useLocation();
 
   // ── Unauthenticated test route ────────────────────────────────────────────
@@ -2908,6 +2917,41 @@ function AppContent() {
     finalGateDecision,
     phase: phaseLabel,
   });
+
+  // Dismiss the launch surface only after the same gates below have selected a
+  // real destination. This prevents a login/onboarding flash for established
+  // users while preserving the existing recovery screens when a boot fails.
+  const onboardingRouteResolved =
+    !effectiveProfileExists ||
+    persistedOnboardingStep !== null ||
+    mayUseCompletedFallback ||
+    (
+      !settingsIsPending &&
+      !dnaIsPending &&
+      onboardingStatusUnavailable
+    );
+  const startupRouteResolved =
+    authLoadingTimedOut ||
+    !!sessionBootstrapFailed ||
+    (
+      !authLoading &&
+      (
+        !user ||
+        !!passwordRecovery ||
+        !user.email_confirmed_at ||
+        (
+          serverEmailGate !== "checking" &&
+          (
+            spinnerTimedOut ||
+            fetchFailed ||
+            (!isSpinning && onboardingRouteResolved)
+          )
+        )
+      )
+    );
+  useEffect(() => {
+    if (startupRouteResolved) onStartupResolved();
+  }, [startupRouteResolved, onStartupResolved]);
 
   // ── Auth callback route ────────────────────────────────────────────────────
   // Must sit BEFORE every auth gate (authLoading, !user, email gates) because
@@ -3446,6 +3490,22 @@ console.log("[PERF] APP_BUNDLE_EXECUTED", { ms: Math.round(_appStartMs) });
 
 function App() {
   const [rootLocation] = useLocation();
+  const [startupResolved, setStartupResolved] = useState(false);
+  const [startupExiting, setStartupExiting] = useState(false);
+  const resolveStartup = useCallback(() => {
+    setStartupExiting(true);
+    window.setTimeout(() => setStartupResolved(true), 230);
+  }, []);
+
+  // Public utility routes bypass AppContent's auth resolver. They are already
+  // the resolved destination, so do not leave the launch surface over them.
+  useEffect(() => {
+    const publicRoute =
+      rootLocation === "/drag-test" ||
+      ["/privacy", "/terms", "/community-guidelines", "/safe-dating",
+        "/data-deletion", "/cookie-policy", "/billing-terms"].includes(rootLocation);
+    if (publicRoute || !!supabaseConfigError) resolveStartup();
+  }, [rootLocation, resolveStartup]);
 
   // Register Service Worker for push notifications (once, at root level).
   useEffect(() => {
@@ -3518,7 +3578,12 @@ function App() {
   // vars not set), show a clear actionable error instead of a blank page.
   if (supabaseConfigError) {
     console.error("[APP_CONFIG_ERROR]", supabaseConfigError);
-    return <SupabaseConfigErrorScreen />;
+    return (
+      <>
+        <SupabaseConfigErrorScreen />
+        {!startupResolved && <StartupLaunch exiting={startupExiting} />}
+      </>
+    );
   }
 
   // Keep callback restoration isolated from AuthProvider/AppContent. Mounting
@@ -3527,7 +3592,8 @@ function App() {
   if (rootLocation === "/auth/callback") {
     return (
       <AppRootErrorBoundary>
-        <AuthCallbackPage />
+        <AuthCallbackPage onPresentationResolved={resolveStartup} />
+        {!startupResolved && <StartupLaunch exiting={startupExiting} />}
       </AppRootErrorBoundary>
     );
   }
@@ -3544,13 +3610,14 @@ function App() {
               <SettingsHydrationProvider>
                 <TooltipProvider>
                   <Toaster />
-                  <AppContent />
+                  <AppContent onStartupResolved={resolveStartup} />
                 </TooltipProvider>
               </SettingsHydrationProvider>
             </AuthProvider>
           </UnitsProvider>
         </LanguageProvider>
       </QueryClientProvider>
+      {!startupResolved && <StartupLaunch exiting={startupExiting} />}
     </AppRootErrorBoundary>
   );
 }
