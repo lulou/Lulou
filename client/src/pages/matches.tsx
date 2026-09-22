@@ -35,10 +35,10 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, Mic, Loader2, Pause, Play, BadgeCheck, RotateCcw, AlertCircle } from "lucide-react";
 import { ProfileInfoRow } from "@/components/profile-info-row";
+import { LastActiveStatus } from "@/components/last-active-status";
 import { LANGUAGE_NAME_TO_CODE } from "@/lib/i18n";
 import { translateSignal, translateGreenFlag, translateIntent, translateStyle, translateStarterItem } from "@/lib/profile-i18n";
 import { scanContent } from "@/lib/content-filter";
-import { formatLastActive } from "@/lib/last-active";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { PostCallMilestone } from "@/components/post-call-milestone";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
@@ -1243,6 +1243,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
             {profile.photoVerified && (
               <BadgeCheck className="w-5 h-5 text-white drop-shadow" data-testid="icon-profile-panel-verified" />
             )}
+            <LastActiveStatus lastActive={profile.lastActive} showLastActive={profile.showLastActive ?? true} testId="text-profile-panel-last-active" />
           </div>
         }
       >
@@ -3936,13 +3937,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <BadgeCheck className="w-4 h-4 text-primary shrink-0" data-testid={`icon-verified-${match.id}`} />
               )}
             </div>
-            {(() => {
-              const myShowLastActive = localStorage.getItem("settings_show_last_active") !== "false";
-              const lbl = formatLastActive(match.profile.lastActive, (match.profile.showLastActive ?? true) && myShowLastActive);
-              return lbl ? (
-                <p className="text-[10px] text-muted-foreground leading-none mt-0.5" data-testid={`text-last-active-${match.id}`}>{lbl}</p>
-              ) : null;
-            })()}
+            <LastActiveStatus lastActive={match.profile.lastActive} showLastActive={match.profile.showLastActive ?? true} testId={`text-last-active-${match.id}`} />
             <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 mt-0.5 text-[10px] font-semibold transition-all"
               style={showProfilePanel ? {

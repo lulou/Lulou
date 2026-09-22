@@ -23,6 +23,7 @@ import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2, ChevronDown, More
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { ProfileInfoRow } from "@/components/profile-info-row";
+import { LastActiveStatus } from "@/components/last-active-status";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { useCandidateFeedRefresh } from "@/hooks/use-candidate-feed-refresh";
@@ -1317,6 +1318,7 @@ export default function Discover() {
               <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-verified-badge" />
             )}
           </div>
+          <LastActiveStatus lastActive={displayProfile.lastActive} showLastActive={displayProfile.showLastActive ?? true} testId="text-discover-last-active" />
           <ProfileInfoRow
             age={displayProfile.age}
             location={displayProfile.location}

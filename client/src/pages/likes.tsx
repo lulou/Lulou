@@ -21,6 +21,7 @@ import {
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ProfileInfoRow } from "@/components/profile-info-row";
+import { LastActiveStatus } from "@/components/last-active-status";
 import { ElevateStatusCard } from "@/components/elevate-status-card";
 import { decodedPhotos, EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Interaction } from "@shared/schema";
@@ -243,6 +244,7 @@ function ProfileModal({
                   <span className="text-white/80 text-sm">{profile.location}</span>
                 </div>
               )}
+              <LastActiveStatus lastActive={profile.lastActive} showLastActive={profile.showLastActive ?? true} testId="text-likes-last-active" />
             </div>
             {profile.photoVerified && (
               <Badge

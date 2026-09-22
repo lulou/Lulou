@@ -33,6 +33,7 @@ export type TranslationKey = keyof typeof TRANSLATIONS["en"];
 
 export const TRANSLATIONS = {
   en: {
+    active_today:  "Active today",
     // Navigation
     discover:     "Discover",
     intent:       "Intent",

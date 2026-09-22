@@ -17,7 +17,7 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { ArrowLeft, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, BadgeCheck, Sparkles, RefreshCw } from "lucide-react";
 import { requestMicStream, prewarmMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { scanContent } from "@/lib/content-filter";
-import { formatLastActive } from "@/lib/last-active";
+import { LastActiveStatus } from "@/components/last-active-status";
 import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
 import { PostCallMilestone } from "@/components/post-call-milestone";
 import { PhotoCarousel } from "@/components/photo-carousel";
@@ -1770,13 +1770,7 @@ export default function Messaging() {
                 <BadgeCheck className="w-4 h-4 text-primary shrink-0" data-testid="icon-chat-verified" />
               )}
             </div>
-            {(() => {
-              const myShowLastActive = localStorage.getItem("settings_show_last_active") !== "false";
-              const lastActiveLbl = formatLastActive(profile.lastActive, (profile.showLastActive ?? true) && myShowLastActive);
-              return lastActiveLbl ? (
-                <p className="text-[10px] text-muted-foreground leading-none mt-0.5" data-testid="text-last-active">{lastActiveLbl}</p>
-              ) : null;
-            })()}
+            <LastActiveStatus lastActive={profile.lastActive} showLastActive={profile.showLastActive ?? true} />
           </div>
 
           <Badge variant="outline" className="text-xs flex-shrink-0" data-testid="badge-messages-remaining">

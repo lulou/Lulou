@@ -1222,8 +1222,12 @@ function mapProfile(row: any): Profile {
     isDiscoverable: row.is_discoverable ?? true,
     elevateType: row.elevate_type ?? null,
     elevateExpiresAt: row.elevate_expires_at ? new Date(row.elevate_expires_at) : null,
-    lastActive: _hasLastActiveColumn && row.last_active ? new Date(row.last_active) : null,
+    // Keep the opt-in flag so clients can render consistently, but never send
+    // the timestamp for a profile that has opted out.
     showLastActive: _hasShowLastActiveColumn ? (row.show_last_active ?? true) : true,
+    lastActive: _hasLastActiveColumn && (row.show_last_active ?? true) && row.last_active
+      ? new Date(row.last_active)
+      : null,
     commentFilter: _hasCommentFilterColumn ? (row.comment_filter ?? true) : true,
     conversationStarterAi: _hasConversationStarterAiColumn ? (row.conversation_starter_ai ?? true) : true,
     createdAt: row.created_at ? new Date(row.created_at) : null,
