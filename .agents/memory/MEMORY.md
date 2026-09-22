@@ -61,3 +61,4 @@
 - [Call-history idempotency](call-history-idempotency.md) — derive a deterministic message UUID from callSessionId so one attempt can create only one history event.
 - [Push foreground presence](push-foreground-presence.md) — suppress message pushes from explicit visible-app presence, never from authentication heartbeats.
 - [Atomic message quota](atomic-message-quota.md) — user-message creation, stage-limit enforcement, and sender quota consumption must commit together; pre-limit HTTP guards break final-message retries.
+- [Post-call meet availability](post-call-meet-availability.md) — keep post-call meet slots separate from first-call scheduling; Accept copies the persisted counterpart value with stale-write protection.
