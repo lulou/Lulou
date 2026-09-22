@@ -2138,6 +2138,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       requestId: number;
       clickedAt: number;
       diagId: string;
+      acceptTheirTime?: boolean;
     }) => {
       const request = availabilityPersistChainRef.current.then(async () => {
         const controller = new AbortController();
@@ -2151,12 +2152,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             elapsedMs: Date.now() - selection.clickedAt,
             outcome: "started",
           });
-          const r = await apiRequest(
-            "POST",
-            `/api/matches/${match.id}/call/set-availability`,
-            { availableAt: selection.availableAt, availabilityDiagId: selection.diagId },
-            { signal: controller.signal },
-          );
+          const r = selection.acceptTheirTime
+            ? await apiRequest(
+                "POST",
+                `/api/matches/${match.id}/call/accept-availability`,
+                { expectedAvailableAt: selection.availableAt },
+                { signal: controller.signal },
+              )
+            : await apiRequest(
+                "POST",
+                `/api/matches/${match.id}/call/set-availability`,
+                { availableAt: selection.availableAt, availabilityDiagId: selection.diagId },
+                { signal: controller.signal },
+              );
           reportCallAvailabilityDiagnostic({
             event: "availability_api_response",
             diagId: selection.diagId,
@@ -3496,18 +3504,46 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     : false;
 
   // ── Call stage state machine ─────────────────────────────────────────────
+  // RESPOND_TO_AVAILABILITY: the other user chose a time and this user has not.
   // CALL_SCHEDULED:      both agreed a time, not yet in early-start window.
   // AVAILABILITY_EXPIRED: agreed time has passed the 30-min grace window.
   // AVAILABILITY_MISMATCH: both chose times but differ by > 10 min.
   // READY_TO_CALL:       agreed time arrived (or within 5-min early-start window).
   const callStageState =
-    !firstCallPromptSeen  ? 'CALL_STAGE_UNLOCKED'       as const :
+    !myCallAvailAt && !!theirCallAvailAt
+                          ? 'RESPOND_TO_AVAILABILITY'     as const :
+    !firstCallPromptSeen  ? 'CALL_STAGE_UNLOCKED'        as const :
     !myCallAvailAt        ? 'CHOOSING_AVAILABILITY'      as const :
     !theirCallAvailAt     ? 'WAITING_FOR_OTHER_USER'     as const :
     !agreedCallAt         ? 'AVAILABILITY_MISMATCH'      as const :
     agreedCallExpired     ? 'AVAILABILITY_EXPIRED'       as const :
     !agreedCallReady      ? 'CALL_SCHEDULED'             as const :
                             'READY_TO_CALL'              as const;
+
+  const acceptTheirAvailability = () => {
+    if (!theirCallAvailAt || setCallAvailMutation.isPending) return;
+    const clickedAt = Date.now();
+    const diagId = createCallAvailabilityDiagId();
+    const previousKey = selectedAvailability;
+    reportCallAvailabilityDiagnostic({
+      event: "availability_clicked",
+      diagId,
+      role: "sender",
+      clientAt: clickedAt,
+      elapsedMs: 0,
+      outcome: "started",
+    });
+    setSelectedAvailability("accepted_their_time");
+    setCallAvailMutation.mutate({
+      availableAt: theirCallAvailAt,
+      key: "accepted_their_time",
+      previousKey,
+      requestId: ++availabilityRequestIdRef.current,
+      clickedAt,
+      diagId,
+      acceptTheirTime: true,
+    });
+  };
 
   const communicationEntitlements = resolveCommunicationEntitlements({
     callStage,
@@ -4559,6 +4595,50 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   >
                     {t("end_match_btn")}
                   </button>
+                </div>
+              </div>
+            ) : callStageState === 'RESPOND_TO_AVAILABILITY' && !showAvailPicker ? (
+              /* ── Step 2a: Their time is ready for this user to respond ── */
+              <div className="p-4 border-t" data-testid={`call-avail-response-${match.id}`}>
+                <div className="rounded-2xl border border-primary/15 bg-card/80 p-4 shadow-sm space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                      <Clock className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        {t("their_availability_title")}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-foreground">
+                        {match.profile.firstName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatAvailLabel(theirCallAvailAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    className="min-h-11 w-full rounded-xl"
+                    onClick={acceptTheirAvailability}
+                    disabled={setCallAvailMutation.isPending}
+                    data-testid={`button-accept-their-availability-${match.id}`}
+                  >
+                    {setCallAvailMutation.isPending ? t("accepting_label") : t("accept")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-11 w-full rounded-xl"
+                    onClick={() => {
+                      setShowSpecificTimePicker(false);
+                      setSpecificTimePending("");
+                      setShowAvailPicker(true);
+                    }}
+                    disabled={setCallAvailMutation.isPending}
+                    data-testid={`button-choose-another-availability-${match.id}`}
+                  >
+                    {t("choose_another_time")}
+                  </Button>
                 </div>
               </div>
             ) : callStageState === 'CHOOSING_AVAILABILITY' || showAvailPicker ? (

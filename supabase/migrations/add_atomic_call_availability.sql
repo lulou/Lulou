@@ -109,7 +109,74 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.accept_call_availability_atomic(
+  p_match_id TEXT,
+  p_user_id TEXT,
+  p_expected_other_at TIMESTAMPTZ
+)
+RETURNS SETOF public.matches
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_match public.matches%ROWTYPE;
+  v_other_at TIMESTAMPTZ;
+BEGIN
+  IF auth.uid() IS NULL OR p_user_id IS DISTINCT FROM auth.uid()::TEXT THEN
+    RETURN;
+  END IF;
+
+  SELECT *
+    INTO v_match
+    FROM public.matches
+   WHERE id = p_match_id
+     AND status = 'active'
+   FOR UPDATE;
+
+  IF NOT FOUND OR COALESCE(v_match.call_stage, 0) <> 0 THEN
+    RETURN;
+  END IF;
+
+  IF v_match.user1_id::TEXT = p_user_id THEN
+    IF v_match.call_avail_1_at IS NOT NULL THEN
+      RETURN;
+    END IF;
+    v_other_at := v_match.call_avail_2_at;
+  ELSIF v_match.user2_id::TEXT = p_user_id THEN
+    IF v_match.call_avail_2_at IS NOT NULL THEN
+      RETURN;
+    END IF;
+    v_other_at := v_match.call_avail_1_at;
+  ELSE
+    RETURN;
+  END IF;
+
+  IF v_other_at IS NULL OR v_other_at IS DISTINCT FROM p_expected_other_at THEN
+    RAISE EXCEPTION 'AVAILABILITY_CHANGED';
+  END IF;
+
+  UPDATE public.matches
+     SET call_avail_1_at = CASE
+           WHEN user1_id::TEXT = p_user_id THEN v_other_at
+           ELSE call_avail_1_at
+         END,
+         call_avail_2_at = CASE
+           WHEN user2_id::TEXT = p_user_id THEN v_other_at
+           ELSE call_avail_2_at
+         END,
+         agreed_call_at = v_other_at,
+         availability_revision = availability_revision + 1
+   WHERE id = p_match_id
+   RETURNING * INTO v_match;
+
+  RETURN NEXT v_match;
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.set_call_availability_atomic(TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.expire_call_availability_atomic(TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.accept_call_availability_atomic(TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.set_call_availability_atomic(TEXT, TEXT, TIMESTAMPTZ) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.expire_call_availability_atomic(TEXT, TEXT, TIMESTAMPTZ) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.accept_call_availability_atomic(TEXT, TEXT, TIMESTAMPTZ) TO authenticated;

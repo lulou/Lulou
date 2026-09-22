@@ -863,6 +863,8 @@ export const TRANSLATIONS = {
     verify_email_otp_err:         "Invalid or expired code. Please try again.",
     // Scheduling / call coordination
     their_availability_lbl:       "{name}'s availability:",
+    their_availability_title:     "Their availability",
+    choose_another_time:          "Choose another time",
     sched_now:                    "now",
     sched_in_min:                 "in {n} min",
     sched_confirmed_note:         "{time} — Start button appears 5 min before",

@@ -30,8 +30,9 @@ describe("call availability selection regressions", () => {
   });
 
   it("selects Available now locally before persisting its absolute timestamp", () => {
+    const pickerStart = matchesPage.indexOf("{availOptions.map(opt => (");
     const optionHandler = matchesPage.slice(
-      matchesPage.indexOf("const previousKey = selectedAvailability"),
+      matchesPage.indexOf("const previousKey = selectedAvailability", pickerStart),
       matchesPage.indexOf("aria-pressed={selectedAvailability === opt.key}"),
     );
 
@@ -51,6 +52,30 @@ describe("call availability selection regressions", () => {
     );
 
     expect(mutationSuccess).toContain("setShowAvailPicker(false)");
+  });
+
+  it("offers accept or another time only when the receiver has not shared availability", () => {
+    expect(matchesPage).toContain("!myCallAvailAt && !!theirCallAvailAt");
+    expect(matchesPage).toContain("'RESPOND_TO_AVAILABILITY'");
+    expect(matchesPage).toContain("callStageState === 'RESPOND_TO_AVAILABILITY' && !showAvailPicker");
+    expect(matchesPage).toContain("button-accept-their-availability-");
+    expect(matchesPage).toContain("button-choose-another-availability-");
+  });
+
+  it("accepts the exact canonical counterpart timestamp through the existing atomic mutation", () => {
+    const acceptHandler = matchesPage.slice(
+      matchesPage.indexOf("const acceptTheirAvailability ="),
+      matchesPage.indexOf("const communicationEntitlements"),
+    );
+    expect(acceptHandler).toContain("availableAt: theirCallAvailAt");
+    expect(acceptHandler).toContain("setCallAvailMutation.mutate({");
+    expect(acceptHandler).toContain("acceptTheirTime: true");
+    expect(acceptHandler).toContain("requestId: ++availabilityRequestIdRef.current");
+    expect(availabilityMutation).toContain("/call/accept-availability");
+    expect(routes).toContain("await storage.acceptCallAvailability(matchId, userId, expectedAvailableAt)");
+    expect(storage).toContain('this.sb.rpc("accept_call_availability_atomic"');
+    expect(atomicAvailabilityMigration).toContain("FOR UPDATE");
+    expect(atomicAvailabilityMigration).toContain("v_other_at IS DISTINCT FROM p_expected_other_at");
   });
 
   it("never starts a call from an availability save", () => {

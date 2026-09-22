@@ -829,6 +829,7 @@ export interface IStorage {
   getSpinRequest(id: string): Promise<SpinRequest | undefined>;
   setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined>;
   setCallAvailability(matchId: string, userId: string, availableAt: string | null): Promise<Match | undefined>;
+  acceptCallAvailability(matchId: string, userId: string, expectedOtherAt: string): Promise<Match | undefined>;
   clearAgreedCallAt(matchId: string, userId: string, expectedAgreedCallAt: string): Promise<Match | undefined>;
   exchangeNumber(matchId: string, userId: string): Promise<Match | undefined>;
   removeMatch(matchId: string, userId: string): Promise<boolean>;
@@ -3607,6 +3608,17 @@ export class SupabaseStorage implements IStorage {
       p_available_at: availableAt,
     });
     if (error) throw new Error(`setCallAvailability atomic RPC error: ${error.message}`);
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ? mapMatch(row) : undefined;
+  }
+
+  async acceptCallAvailability(matchId: string, userId: string, expectedOtherAt: string): Promise<Match | undefined> {
+    const { data, error } = await this.sb.rpc("accept_call_availability_atomic", {
+      p_match_id: matchId,
+      p_user_id: userId,
+      p_expected_other_at: expectedOtherAt,
+    });
+    if (error) throw new Error(`acceptCallAvailability atomic RPC error: ${error.message}`);
     const row = Array.isArray(data) ? data[0] : data;
     return row ? mapMatch(row) : undefined;
   }

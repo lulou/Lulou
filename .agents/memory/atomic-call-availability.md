@@ -8,3 +8,5 @@ First-call availability selection must atomically update the acting user's times
 **Why:** Separate timestamp/agreement writes expose stale agreements during concurrent changes, and process-local timestamps or counters cannot reliably order delayed responses across requests, instances, or restarts.
 
 **How to apply:** Any future availability mutation belongs in the authenticated, row-locked database operation. Do not reintroduce client-only ordering or a read/compute/write sequence in application code.
+
+Accepting a counterpart's proposed time must read that counterpart timestamp under the same row lock, require the receiver side to still be unset, and compare it with the proposal the user saw. If it changed, return a conflict instead of accepting a stale client snapshot.

@@ -5136,6 +5136,58 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/matches/:matchId/call/accept-availability", isAuthenticated, async (req: any, res) => {
+    const availabilityWriteStartedAt = Date.now();
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { expectedAvailableAt } = req.body;
+      const expectedMs = typeof expectedAvailableAt === "string"
+        ? new Date(expectedAvailableAt).getTime()
+        : NaN;
+      if (!Number.isFinite(expectedMs)) {
+        return res.status(400).json({ message: "expectedAvailableAt must be a valid ISO timestamp" });
+      }
+
+      const updated = await storage.acceptCallAvailability(matchId, userId, expectedAvailableAt);
+      if (!updated) {
+        return res.status(409).json({ message: "Availability already answered or no longer available" });
+      }
+
+      void db.insert(firstCallPromptSeen).values({ matchId, userId }).onConflictDoNothing()
+        .catch((error: unknown) => console.error("[CALL_AVAIL] accept prompt-seen write failed", {
+          matchId: matchId.slice(0, 8),
+          error: (error as Error)?.message,
+        }));
+
+      const serverBroadcastAt = Date.now();
+      await broadcastCallEvent(matchId, {
+        type: "call:availability",
+        matchId,
+        userId,
+        callAvail1At: updated.callAvail1At,
+        callAvail2At: updated.callAvail2At,
+        agreedCallAt: updated.agreedCallAt,
+        availabilityVersion: updated.availabilityRevision,
+        serverBroadcastAt,
+      });
+
+      console.log("[CALL_AVAIL] ACCEPT", {
+        matchId: matchId.slice(0, 8),
+        userId: userId.slice(0, 8),
+        availability_write_ms: Date.now() - availabilityWriteStartedAt,
+      });
+      res.json({ ...updated, availabilityVersion: updated.availabilityRevision });
+    } catch (err: any) {
+      if (err?.message?.includes("AVAILABILITY_CHANGED")) {
+        return res.status(409).json({ message: "Availability changed. Review the new time and try again." });
+      }
+      console.error("[CALL_AVAIL] ACCEPT ERROR", err);
+      res.status(500).json({ message: err.message || "Failed to accept availability" });
+    }
+  });
+
   app.post("/api/matches/:matchId/call/cancel", isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
     const matchId = req.params.matchId;
