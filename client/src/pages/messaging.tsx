@@ -677,6 +677,7 @@ export default function Messaging() {
   // Permission state — drives the hint pill and denied card.
   const [micPermState, setMicPermState] = useState<MicPermState>(() => getMicPermState());
   const [pendingVoiceNotes, setPendingVoiceNotes] = useState<PendingVoiceNote[]>([]);
+  const [micPressed, setMicPressed] = useState(false);
   const pendingVoiceNotesRef = useRef<PendingVoiceNote[]>([]);
   useEffect(() => { pendingVoiceNotesRef.current = pendingVoiceNotes; }, [pendingVoiceNotes]);
   useEffect(() => () => {
@@ -703,6 +704,7 @@ export default function Messaging() {
     if (discardChunks) audioChunksRef.current = [];
     isRecordingRef.current = false;
     stopRequestedRef.current = false;
+    setMicPressed(false);
     setVoicePhase("idle");
     setRecordingTime(0);
     console.log("[VOICE_NOTE_PIPELINE] capture_reset", { reason });
@@ -752,7 +754,7 @@ export default function Messaging() {
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        if (mediaRecorderRef.current !== recorder) return;
+        if (mediaRecorderRef.current !== recorder || recordingGeneration !== recordingGenerationRef.current) return;
         setVoicePhase("processing");
         const capturedMimeType = audioChunksRef.current.find(chunk => chunk.type)?.type || actualMimeType || (isIOS ? "audio/mp4" : "audio/webm");
         const blob = new Blob(audioChunksRef.current, { type: capturedMimeType });
@@ -775,6 +777,7 @@ export default function Messaging() {
         micStreamRef.current = null;
         isRecordingRef.current = false;
         stopRequestedRef.current = false;
+        setMicPressed(false);
         audioChunksRef.current = [];
         // iOS can emit a non-empty fragment when a timesliced recorder is stopped.
         // A single stop-time blob is the only reliable ISO-BMFF initialization path.
@@ -800,6 +803,7 @@ export default function Messaging() {
       };
       recorder.onerror = event => {
         if (mediaRecorderRef.current !== recorder) return;
+        setMicPressed(false);
         console.error("[VOICE_NOTE_PIPELINE] voice_note_recording_failed", {
           generation: recordingGeneration,
           error: (event as any)?.error?.name ?? "MediaRecorderError",
@@ -811,6 +815,7 @@ export default function Messaging() {
       // Do not timeslice on iPhone: fragmented callbacks can produce a `moof`-only
       // file without the ftyp/init segment. Collect chunks and finalize once on stop.
       recorder.start();
+      recordingStartMsRef.current = Date.now();
       if (recorder.state !== "recording") {
         throw new Error("MediaRecorder did not enter the recording state");
       }
@@ -828,6 +833,7 @@ export default function Messaging() {
       }, 1000);
       if (stopRequestedRef.current) stopRecording();
     } catch (err: any) {
+      setMicPressed(false);
       resetVoiceCapture("recording-start-failed");
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
@@ -867,9 +873,11 @@ export default function Messaging() {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
+    setMicPressed(false);
   };
 
   const cancelRecording = () => {
+    setMicPressed(false);
     stopRequestedRef.current = true;
     resetVoiceCapture("recording-cancelled");
   };
@@ -1796,21 +1804,6 @@ export default function Messaging() {
                       : videoCredits > 0 ? "Use 1" : "Unlock"}
               />
             )}
-            <CommunicationControl
-              onClick={() => {
-                if (communicationEntitlements.voiceNote.state === "locked") {
-                  showVoiceNoteGate();
-                  return;
-                }
-                if (voicePhase === "idle") startRecording();
-                else if (voicePhase === "recording") stopRecording();
-              }}
-              state={voicePhase === "recording" ? "recording" : communicationEntitlements.voiceNote.state}
-              testId="button-mic-tray"
-              ariaLabel="Voice notes"
-              icon={<Mic />}
-              label={voicePhase === "recording" ? "Stop" : "Mic"}
-            />
           </div>
         )}
 
@@ -2189,32 +2182,41 @@ export default function Messaging() {
                   <button
                     onPointerDown={e => {
                       e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
                       if (!voiceNotesUnlocked) {
                         showVoiceNoteGate();
                         return;
                       }
-                      if (!isRecordingRef.current && voicePhase === "idle") startRecording();
+                      if (isRecordingRef.current || voicePhase !== "idle") return;
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      setMicPressed(true);
+                      startRecording();
                     }}
                     onPointerUp={e => {
                       e.preventDefault();
-                      e.currentTarget.releasePointerCapture?.(e.pointerId);
-                      if (stopRequestedRef.current) return;
                       if (mediaRecorderRef.current?.state === "recording") {
                         stopRecording();
                       } else if (isRecordingRef.current) {
+                         // Let the async start path observe the stop exactly once.
                         stopRequestedRef.current = true;
-                        resetVoiceCapture("released-before-recorder-start");
                       }
+                       setMicPressed(false);
+                       e.currentTarget.releasePointerCapture?.(e.pointerId);
                     }}
                     onPointerCancel={e => {
                       e.preventDefault();
-                      e.currentTarget.releasePointerCapture?.(e.pointerId);
                       if (isRecordingRef.current) cancelRecording();
+                       setMicPressed(false);
+                       e.currentTarget.releasePointerCapture?.(e.pointerId);
                     }}
+                     onLostPointerCapture={() => {
+                       setMicPressed(false);
+                       if (isRecordingRef.current && !stopRequestedRef.current) cancelRecording();
+                     }}
                     onContextMenu={e => e.preventDefault()}
                     onMouseDown={e => e.preventDefault()}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground select-none transition-transform active:scale-90 hover:bg-foreground/[0.06]"
+                     className={`voice-mic-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground select-none hover:bg-foreground/[0.06]${micPressed ? " is-pressed" : ""}`}
+                     aria-pressed={micPressed}
+                     aria-label={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to send voice note" : "Hold to record voice note"}
                     style={{
                       touchAction: "none",
                       WebkitUserSelect: "none",

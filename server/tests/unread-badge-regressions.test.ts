@@ -8,13 +8,16 @@ const unreadHook = readFileSync("client/src/hooks/use-unread-counts.ts", "utf8")
 const matches = readFileSync("client/src/pages/matches.tsx", "utf8");
 const messaging = readFileSync("client/src/pages/messaging.tsx", "utf8");
 const realtimeMessages = readFileSync("client/src/hooks/use-realtime-messages.ts", "utf8");
+const pushService = readFileSync("server/pushService.ts", "utf8");
 
 describe("authoritative unread badges", () => {
   it("persists exactly one unread item for the recipient of every successful message", () => {
     expect(routes).toContain(
       "const recipientId = match.user1Id === userId ? match.user2Id : match.user1Id",
     );
-    expect(routes.match(/incrementMatchBadge\(recipientId, matchId\)/g)).toHaveLength(1);
+    // Normal text and voice-note routes both use the same authoritative
+    // per-message badge primitive. Voice retries are gated before this path.
+    expect(routes.match(/incrementMatchBadge\(recipientId, matchId\)/g)).toHaveLength(2);
     expect(routes).toContain("await broadcastMessage(matchId");
     expect(routes.indexOf("incrementMatchBadge(recipientId, matchId)")).toBeLessThan(
       routes.indexOf("await broadcastMessage(matchId"),
@@ -22,6 +25,38 @@ describe("authoritative unread badges", () => {
     expect(routes).toContain('broadcastViaHttpApi(`unread:${recipientId}`, "unread-count-changed"');
     expect(routes).toContain("delta: 1");
     expect(appLayout).toContain("typeof payload.total !== \"number\" && typeof payload.delta !== \"number\"");
+  });
+
+  it("gives first-insert voice notes the text message unread/push delivery contract", () => {
+    const voiceRoute = routes.slice(routes.indexOf('app.post("/api/voice-notes/send/:matchId"'));
+    const insert = voiceRoute.indexOf("let shouldBroadcast = true");
+    const effects = voiceRoute.slice(insert);
+    expect(effects).toContain('if (shouldBroadcast) {');
+    expect(effects).toContain('event: "voice_note_message_inserted"');
+    expect(effects).toContain('delta: 1');
+    expect(effects).toContain("incrementMatchBadge(recipientId, matchId)");
+    expect(effects).toContain('event: "voice_note_unread_incremented"');
+    expect(effects).toContain('event: "voice_note_realtime_received"');
+    expect(effects).toContain('event: "voice_note_push_eligible"');
+    expect(effects).toContain('event: "voice_note_push_sent"');
+    expect(effects).toContain("buildPush.voiceMessage(senderName, matchId, badgeTotal)");
+    expect(pushService).toContain('title: "Lulou"');
+    expect(pushService).toContain("sent you a voice message");
+    expect(effects).toContain("serverInsertedAt");
+    expect(effects.indexOf("delta: 1")).toBeLessThan(effects.indexOf("incrementMatchBadge(recipientId, matchId)"));
+    expect(effects.indexOf("incrementMatchBadge(recipientId, matchId)")).toBeLessThan(effects.indexOf("await broadcastMessage(matchId"));
+  });
+
+  it("does not duplicate voice unread, realtime, or push effects for idempotent retries", () => {
+    const voiceRoute = routes.slice(routes.indexOf('app.post("/api/voice-notes/send/:matchId"'));
+    const retryGate = voiceRoute.indexOf("shouldBroadcast = false");
+    const effects = voiceRoute.slice(voiceRoute.indexOf("if (shouldBroadcast) {", retryGate));
+    expect(retryGate).toBeGreaterThan(-1);
+    expect(effects).toContain("incrementMatchBadge(recipientId, matchId)");
+    expect(effects).toContain("isUserActiveInChat(recipientId, matchId)");
+    expect(effects).toContain("isUserActiveInApp(recipientId)");
+    expect(pushService).toContain("FROM app_foreground_sessions");
+    expect(appLayout).toContain('apiRequest("DELETE", "/api/app/foreground")');
   });
 
   it("resolves the Connections badge from the persisted sum across all matches", () => {

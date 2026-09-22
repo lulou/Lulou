@@ -9,6 +9,7 @@ import { decodedPhotos } from "@/lib/image-utils";
 import { getAppLayoutScrollPolicy } from "@/lib/app-layout-scroll-policy";
 import { useLanguageContext } from "@/contexts/language-context";
 import { supabase } from "@/lib/supabase";
+import { apiRequest } from "@/lib/queryClient";
 
 interface IncomingOpen {
   id: string;
@@ -101,6 +102,34 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Gate background polling on tab visibility — stops network + GC pressure
   // when the user has the app open in a background tab.
   const isTabActive = useTabActive();
+
+  // Keep push suppression tied to proven foreground visibility rather than the
+  // authentication heartbeat, which can remain fresh briefly after iOS hides
+  // the installed PWA.
+  useEffect(() => {
+    if (!user?.id) return;
+    const markVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      apiRequest("POST", "/api/app/foreground").catch(() => {});
+    };
+    const markHidden = () => {
+      apiRequest("DELETE", "/api/app/foreground").catch(() => {});
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") markVisible();
+      else markHidden();
+    };
+    markVisible();
+    const heartbeatId = window.setInterval(markVisible, 20_000);
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", markHidden);
+    return () => {
+      window.clearInterval(heartbeatId);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", markHidden);
+      markHidden();
+    };
+  }, [user?.id]);
 
   // Keep the shell's route interpretation aligned with PersistentTabs, which
   // renders Discover at "/" during an installed PWA's first load.

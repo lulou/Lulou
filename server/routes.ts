@@ -2568,6 +2568,34 @@ export async function registerRoutes(
     }
   });
 
+  // Foreground presence is separate from authentication/session activity.
+  // The installed PWA clears this row as soon as iOS hides or closes it, so a
+  // backgrounded recipient remains eligible for normal message pushes.
+  app.post("/api/app/foreground", isAuthenticated, async (req: any, res) => {
+    try {
+      const { pool } = await import("./db");
+      await pool.query(
+        `INSERT INTO app_foreground_sessions (user_id, last_seen_at)
+         VALUES ($1, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET last_seen_at = NOW()`,
+        [req.user.id],
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to set foreground presence" });
+    }
+  });
+
+  app.delete("/api/app/foreground", isAuthenticated, async (req: any, res) => {
+    try {
+      const { pool } = await import("./db");
+      await pool.query("DELETE FROM app_foreground_sessions WHERE user_id = $1", [req.user.id]);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to clear foreground presence" });
+    }
+  });
+
   // Debug: inspect current user's push subscriptions
   app.get("/api/push/my-subscriptions", isAuthenticated, async (req: any, res) => {
     try {
@@ -6204,9 +6232,55 @@ export async function registerRoutes(
         return res.status(500).json({ message: "Failed to save voice note. Please try again." });
         }
       }
-      // Keep the established broadcast path; postgres_changes remains the
-      // fallback for clients that do not receive the server broadcast.
+      // A voice note is a real message for unread delivery, even though its
+      // protocol content is excluded from progression/message quotas. Keep all
+      // post-insert effects behind shouldBroadcast: the deterministic message
+      // id makes a retry safe without a second badge, realtime event, preview,
+      // or push notification.
       if (shouldBroadcast) {
+        const serverInsertedAt = Date.now();
+        const recipientId = otherUserId;
+        console.log("[VOICE_NOTE_DIAGNOSTIC]", {
+          event: "voice_note_message_inserted",
+          messageId: message.id,
+          matchId,
+          senderId: userId,
+          recipientId,
+        });
+
+        // Publish the fast delta immediately after the committed insert. The
+        // persisted total below remains authoritative and repairs any missed
+        // delta on reconnect.
+        broadcastViaHttpApi(`unread:${recipientId}`, "unread-count-changed", {
+          delta: 1,
+          matchId,
+          messageId: message.id,
+          serverInsertedAt,
+        }).catch(() => {});
+
+        let unreadTotal: number | null = null;
+        try {
+          unreadTotal = await incrementMatchBadge(recipientId, matchId);
+          console.log("[VOICE_NOTE_DIAGNOSTIC]", {
+            event: "voice_note_unread_incremented",
+            messageId: message.id,
+            matchId,
+            recipientId,
+          });
+          await broadcastViaHttpApi(`unread:${recipientId}`, "unread-count-changed", {
+            total: unreadTotal,
+            matchId,
+            messageId: message.id,
+          });
+        } catch (unreadErr: any) {
+          console.error("[UNREAD] voice note persist/broadcast failed", {
+            messageId: message.id,
+            matchId,
+            recipientId,
+            error: unreadErr?.message,
+          });
+        }
+
         await broadcastMessage(matchId, {
           id: message.id,
           matchId: message.matchId,
@@ -6214,9 +6288,79 @@ export async function registerRoutes(
           content: message.content,
           reaction: message.reaction ?? null,
           createdAt: message.createdAt ?? null,
+          serverInsertedAt,
         }).catch((broadcastErr: any) => {
           console.error(`[VOICE_NOTE] realtime broadcast failed error=${broadcastErr?.message ?? "unknown"}`);
         });
+        console.log("[VOICE_NOTE_DIAGNOSTIC]", {
+          event: "voice_note_realtime_received",
+          messageId: message.id,
+          matchId,
+          recipientId,
+        });
+
+        // Match normal text-message notification policy. The message is
+        // already delivered in-app, so active recipients do not receive a
+        // redundant system notification. Voice protocol content is never
+        // passed as a lock-screen preview.
+        (async () => {
+          try {
+            if (recipientId === userId || isSeedUser(recipientId)) return;
+            const [activeInSameChat, activeInApp] = await Promise.all([
+              isUserActiveInChat(recipientId, matchId),
+              isUserActiveInApp(recipientId),
+            ]);
+            if (activeInSameChat) {
+              console.log("[VOICE_NOTE_DIAGNOSTIC]", {
+                event: "voice_note_push_suppressed_foreground",
+                reason: "active_same_chat",
+                messageId: message.id,
+                matchId,
+                recipientId,
+              });
+              return;
+            }
+            if (activeInApp) {
+              console.log("[VOICE_NOTE_DIAGNOSTIC]", {
+                event: "voice_note_push_suppressed_foreground",
+                reason: "active_in_app",
+                messageId: message.id,
+                matchId,
+                recipientId,
+              });
+              return;
+            }
+
+            console.log("[VOICE_NOTE_DIAGNOSTIC]", {
+              event: "voice_note_push_eligible",
+              messageId: message.id,
+              matchId,
+              recipientId,
+            });
+            const senderProfile = await adminStorage.getProfileMeta(userId);
+            const senderName = senderProfile?.firstName || "Someone";
+            const badgeTotal = unreadTotal ?? await getTotalBadge(recipientId);
+            await sendPushToUser(
+              recipientId,
+              buildPush.voiceMessage(senderName, matchId, badgeTotal),
+              "new_message",
+              { senderId: userId },
+            );
+            console.log("[VOICE_NOTE_DIAGNOSTIC]", {
+              event: "voice_note_push_sent",
+              messageId: message.id,
+              matchId,
+              recipientId,
+            });
+          } catch (pushErr: any) {
+            console.error("[VOICE_NOTE] push delivery failed", {
+              messageId: message.id,
+              matchId,
+              recipientId,
+              error: pushErr?.message,
+            });
+          }
+        })();
       }
       const totalMs = Date.now() - tReceive;
       console.log(`[VOICE_NOTE_SPEED] db inserted — insertMs=${Date.now() - tInsert}ms totalMs=${totalMs}ms`);

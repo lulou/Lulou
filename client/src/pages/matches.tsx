@@ -2805,6 +2805,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const pointerStartXRef = useRef(0);
   const cancelPendingRef = useRef(false);
   const [cancelPending, setCancelPending] = useState(false);
+  const [micPressed, setMicPressed] = useState(false);
 
   const stopWaveform = () => {
     if (waveformRafRef.current) { cancelAnimationFrame(waveformRafRef.current); waveformRafRef.current = null; }
@@ -2838,6 +2839,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     if (discardChunks) audioChunksRef.current = [];
     isRecordingRef.current = false;
     stopRequestedRef.current = false;
+    setMicPressed(false);
     cancelPendingRef.current = false;
     setCancelPending(false);
     setVoicePhase("idle");
@@ -2900,6 +2902,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         addDbg(`chunk ${audioChunksRef.current.length} size=${e.data.size}B`);
       };
       recorder.onstop = () => {
+        if (mediaRecorderRef.current !== recorder || recordingGeneration !== recordingGenerationRef.current) return;
         const tStop = performance.now();
         const durationMs = Math.round(tStop - recStartPerfMs);
         debugLiveRef.current.blobDurationMs = durationMs;
@@ -2912,6 +2915,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         micStreamRef.current = null;
         isRecordingRef.current = false;
         stopRequestedRef.current = false;
+        setMicPressed(false);
         audioChunksRef.current = [];
         console.log(`[VOICE_NOTE_SEND] blob size=${blob.size}B type="${blob.type}" durationMs=${Math.round(performance.now() - tStop)}`);
         debugLiveRef.current.blobSize = blob.size;
@@ -2942,12 +2946,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       };
       recorder.onerror = () => {
         if (mediaRecorderRef.current !== recorder) return;
+        setMicPressed(false);
         console.error("[VOICE_NOTE_SEND] MediaRecorder error");
         addDbg("FAIL MediaRecorder error");
         resetVoiceCapture("recorder-error");
         toast({ title: "Recording failed. Please try again.", variant: "destructive" });
       };
+      // Publish the recorder before start: iOS can deliver pointerup while
+      // start() and the analyser setup are still in flight.
+      mediaRecorderRef.current = recorder;
       recorder.start();
+      recordingStartMsRef.current = Date.now();
       // ── Live waveform analyser (optional — fails silently on restrictive browsers) ──
       try {
         const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -2976,14 +2985,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           waveformRafRef.current = requestAnimationFrame(tick);
         }
       } catch { /* analyser is non-critical — pulse dot is the fallback */ }
-      mediaRecorderRef.current = recorder;
       if (recorder.state !== "recording") {
         throw new Error("MediaRecorder did not enter the recording state");
       }
       setVoicePhase("recording");
       setRecordingTime(0);
-      // Light haptic feedback when recording starts (no-op on unsupported browsers)
-      try { navigator.vibrate(25); } catch {}
       recordingTimerRef.current = setInterval(() => {
         setRecordingTime(t => {
           if (t >= 59) { stopRecording(); return 60; }
@@ -2993,6 +2999,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // If the user released before setup completed, stop/cancel immediately.
       if (stopRequestedRef.current) stopRecording();
     } catch (err: any) {
+      setMicPressed(false);
       resetVoiceCapture("recording-start-failed");
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
@@ -3020,8 +3027,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     // If the recorder isn't ready yet, the check in startRecording handles it.
     if (!isRecordingRef.current) return;
     const elapsed = Date.now() - recordingStartMsRef.current;
-    if (elapsed < 500) {
-      // Too short (< 0.5 s per spec) — cancel silently; no toast for accidental touches.
+    if (elapsed < 300) {
+      // Too short (< 0.3 s) — cancel silently; no accidental micro-note.
       cancelRecording();
       return;
     }
@@ -3036,8 +3043,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       mediaRecorderRef.current.stop();
     }
     isRecordingRef.current = false;
-    // Light haptic feedback when recording ends
-    try { navigator.vibrate(15); } catch {}
+    setMicPressed(false);
     cancelPendingRef.current = false;
     setCancelPending(false);
     setVoicePhase("processing");
@@ -3045,9 +3051,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   };
 
   const cancelRecording = () => {
+    setMicPressed(false);
     resetVoiceCapture("recording-cancelled");
-    // Distinct haptic pattern for cancel (so user knows it was cancelled, not sent)
-    try { navigator.vibrate([20, 30, 20]); } catch {}
     cancelPendingRef.current = false;
   };
 
@@ -3958,21 +3963,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 label={(videoCredits ?? 0) > 0 ? "Use 1" : "Unlock"}
               />
             )}
-            <CommunicationControl
-              onClick={() => {
-                if (communicationEntitlements.voiceNote.state === "locked") {
-                  showVoiceNoteGate();
-                  return;
-                }
-                if (voicePhase === "recording") stopRecording();
-                else if (voicePhase === "idle") startRecording();
-              }}
-              state={voicePhase === "recording" ? "recording" : communicationEntitlements.voiceNote.state}
-              testId={`button-mic-tray-${match.id}`}
-              ariaLabel="Voice notes"
-              icon={<Mic />}
-              label={voicePhase === "recording" ? "Stop" : "Mic"}
-            />
           </div>
       {expanded && !inputFocused && <SparkProgressBar sparkStep={sparkStep} />}
       {expanded && !inputFocused && postCallProgressReady && eitherKeep && (
@@ -5063,7 +5053,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         return;
                       }
                       if (isRecordingRef.current || voicePhase !== "idle") return;
-                      e.currentTarget.setPointerCapture(e.pointerId);
                       // Reset slide-cancel state for this new recording gesture
                       pointerStartXRef.current = e.clientX;
                       cancelPendingRef.current = false;
@@ -5107,6 +5096,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         debugLiveRef.current.lastPointerEvent = `DOWN @ ${new Date().toISOString().slice(11,23)}`;
                         addDbg(`ptrDOWN — before: ${txt} minH=${Math.round(r.height)}px locked`);
                       }
+                       e.currentTarget.setPointerCapture(e.pointerId);
+                       setMicPressed(true);
                       startRecording();
                     }}
                     onPointerMove={e => {
@@ -5121,7 +5112,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     }}
                     onPointerUp={e => {
                       e.preventDefault();
-                      e.currentTarget.releasePointerCapture?.(e.pointerId);
                       debugLiveRef.current.lastPointerEvent = `UP @ ${new Date().toISOString().slice(11,23)}`;
                       addDbg(`ptrUP — isRecording=${isRecordingRef.current} cancelPending=${cancelPendingRef.current}`);
                       stopRequestedRef.current = true;
@@ -5133,24 +5123,31 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                           stopRecording();
                         }
                       }
+                       setMicPressed(false);
+                       e.currentTarget.releasePointerCapture?.(e.pointerId);
                     }}
                     onPointerCancel={e => {
                       e.preventDefault();
-                      e.currentTarget.releasePointerCapture?.(e.pointerId);
                       debugLiveRef.current.lastPointerEvent = `CANCEL @ ${new Date().toISOString().slice(11,23)}`;
                       addDbg(`ptrCANCEL — isRecording=${isRecordingRef.current}`);
                       stopRequestedRef.current = true;
                       if (isRecordingRef.current) cancelRecording();
+                       setMicPressed(false);
+                       e.currentTarget.releasePointerCapture?.(e.pointerId);
                     }}
+                     onLostPointerCapture={() => {
+                       setMicPressed(false);
+                       if (isRecordingRef.current && !stopRequestedRef.current) cancelRecording();
+                     }}
                     onContextMenu={e => e.preventDefault()}
                     onMouseDown={e => e.preventDefault()}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground select-none transition-transform active:scale-90 hover:bg-foreground/[0.06]"
+                     className={`voice-mic-button flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground select-none hover:bg-foreground/[0.06]${micPressed ? " is-pressed" : ""}`}
+                     aria-pressed={micPressed}
+                     aria-label={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to send voice note" : "Hold to record voice note"}
                     style={{
                       touchAction: "none",
                       WebkitUserSelect: "none" as React.CSSProperties["WebkitUserSelect"],
                       WebkitTouchCallout: "none" as any,
-                       transform: voicePhase === "recording" ? "scale(1.04)" : "scale(1)",
-                      transition: "transform 200ms ease",
                     }}
                     data-testid={`button-mic-input-${match.id}`}
                     title={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to send" : "Hold to record"}

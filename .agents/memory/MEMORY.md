@@ -59,3 +59,4 @@
 - [Cross-database call settlement](cross-db-call-settlement.md) — reserve paid credits before call creation; terminal outcomes use a per-session outbox and block newer calls until settlement completes.
 - [Call ringtone ownership](call-ringtone-ownership.md) — ringing belongs to the authoritative call session, not an overlay mount; navigation must preserve a live global ring.
 - [Call-history idempotency](call-history-idempotency.md) — derive a deterministic message UUID from callSessionId so one attempt can create only one history event.
+- [Push foreground presence](push-foreground-presence.md) — suppress message pushes from explicit visible-app presence, never from authentication heartbeats.

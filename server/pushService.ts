@@ -157,7 +157,7 @@ function categoryToColumn(cat: NotifCategory): string {
   return map[cat];
 }
 
-// ── Check if user is active in app (to suppress message notifications) ────────
+// ── Check if user is visibly active in app (to suppress message pushes) ───────
 
 export async function isUserActiveInApp(userId: string): Promise<boolean> {
   try {
@@ -165,7 +165,7 @@ export async function isUserActiveInApp(userId: string): Promise<boolean> {
     const result = await pool.query(
       `SELECT last_seen_at,
               EXTRACT(EPOCH FROM (NOW() - last_seen_at))::double precision AS age_seconds
-       FROM active_sessions
+       FROM app_foreground_sessions
        WHERE user_id = $1
        ORDER BY last_seen_at DESC
        LIMIT 1`,
@@ -177,7 +177,7 @@ export async function isUserActiveInApp(userId: string): Promise<boolean> {
     }
     const row = result.rows[0];
     const ageSecs = Math.abs(Number(row.age_seconds));
-    const isActive = ageSecs < 90;
+    const isActive = ageSecs < 45;
     console.log(`[PUSH_AUDIT] isUserActiveInApp userId=${userId.slice(0,8)} last_seen=${row.last_seen_at} ageSecs=${Number.isFinite(ageSecs) ? ageSecs.toFixed(1) : "invalid"} → active=${isActive}`);
     return isActive;
   } catch (err: any) {
@@ -396,6 +396,14 @@ export const buildPush = {
   newMessage: (senderName: string, matchId: string, preview?: string, badgeCount = 1): PushPayload => ({
     title: senderName,
     body:  preview ? preview.slice(0, 80) : "Sent you a message",
+    data:  { url: `/messages/${matchId}`, type: "new_message", tag: `msg_${matchId}` },
+    ttl:   3600,
+    ...(badgeCount > 0 ? { badgeCount } : {}),
+  }),
+
+  voiceMessage: (senderName: string, matchId: string, badgeCount = 1): PushPayload => ({
+    title: "Lulou",
+    body:  `${senderName} sent you a voice message`,
     data:  { url: `/messages/${matchId}`, type: "new_message", tag: `msg_${matchId}` },
     ttl:   3600,
     ...(badgeCount > 0 ? { badgeCount } : {}),

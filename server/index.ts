@@ -365,6 +365,11 @@ async function initLocalDb() {
         last_seen_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS app_foreground_sessions (
+        user_id      TEXT PRIMARY KEY,
+        last_seen_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS refund_records (
         id               VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id          VARCHAR NOT NULL,
