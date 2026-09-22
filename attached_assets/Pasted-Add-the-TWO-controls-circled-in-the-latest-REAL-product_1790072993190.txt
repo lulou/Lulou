@@ -1,0 +1,129 @@
+Add the TWO controls circled in the latest REAL production screenshot to the same premium visual-polish pass:
+
+1. Top-right Logout icon
+2. Discover Undo icon
+
+Do NOT change their functionality or placement.
+
+==================================================
+LOGOUT ICON
+==================================================
+
+The Logout icon in the top-right Lulou header currently looks too thin/light.
+
+Keep:
+- same action
+- same position
+- same touch target
+- same logout behavior
+
+Change only the visual treatment.
+
+Make it:
+- slightly thicker stroke
+- darker/stronger taupe/wine-neutral tone
+- visually consistent with premium iOS toolbar icons
+- crisp at iPhone resolution
+
+Do NOT:
+- make it oversized
+- make it filled/heavy
+- add a background circle
+- change its meaning
+
+The icon should feel intentional rather than faint.
+
+==================================================
+UNDO ICON
+==================================================
+
+The Discover Undo control is also currently too faint.
+
+Keep:
+- same circular button
+- same placement
+- same Undo functionality
+- same touch target
+
+But make the Undo symbol itself:
+- slightly thicker
+- easier to see
+- visually stronger
+- consistent with the 3-dot control beside it
+
+If Undo is AVAILABLE:
+- use a clear premium neutral/wine-toned icon
+- do not leave it washed out
+
+If Undo is genuinely DISABLED:
+- muted state is fine
+- but it should still be recognisable
+
+Do not make an enabled Undo control look disabled.
+
+==================================================
+ICON SYSTEM
+==================================================
+
+Audit similar small toolbar/action icons across Lulou.
+
+Use a consistent visual standard:
+
+- approximately 1.75–2px stroke where appropriate
+- rounded line caps/joins
+- consistent optical sizing
+- premium muted taupe/wine tones
+- clear enabled vs disabled distinction
+
+Do NOT globally change every icon without checking context.
+
+Focus on equivalent navigation/action icons.
+
+==================================================
+IOS DESIGN GOAL
+==================================================
+
+These controls should feel like polished iOS toolbar controls:
+
+- crisp
+- restrained
+- easy to identify
+- not overly thin
+- not Android/Material
+- not chunky
+
+==================================================
+DO NOT BREAK
+==================================================
+
+Do not change:
+- logout logic
+- Undo entitlement/purchase logic
+- Discover profile scrolling
+- Open / Close
+- 3-dot menu
+- header layout
+- spacing
+- touch targets
+
+This is visual polish only.
+
+==================================================
+VERIFY ON REAL IPHONE
+==================================================
+
+Confirm:
+
+- Logout icon is visibly stronger but still elegant
+- Undo icon is clearly visible when enabled
+- disabled Undo remains visibly disabled
+- 3-dot menu alignment is unchanged
+- no icon overlaps
+- no header layout movement
+
+Add these checks to the existing final report:
+
+- Logout icon premium/stronger PASS/FAIL
+- Undo icon premium/stronger PASS/FAIL
+- enabled/disabled Undo states visually distinct PASS/FAIL
+- header alignment unchanged PASS/FAIL
