@@ -1489,6 +1489,106 @@ export async function registerRoutes(
     });
   });
 
+  // Temporary privacy-safe telemetry for the production Video Unlock control.
+  // It accepts no account, match, message, token, or payment data.
+  const _videoUnlockDiagHits = new Map<string, { windowStart: number; count: number }>();
+  const _recentVideoUnlockDiagnostics: Array<Record<string, unknown> & { serverAt: number }> = [];
+  const videoUnlockDiagSchema = z.object({
+    event: z.enum([
+      "video_unlock_pointerdown",
+      "video_unlock_click",
+      "video_unlock_handler_entered",
+      "video_unlock_state",
+      "video_unlock_prompt_requested",
+      "video_unlock_prompt_state_changed",
+      "video_unlock_prompt_rendered",
+    ]),
+    diagId: z.string().regex(/^[a-zA-Z0-9-]{8,40}$/),
+    source: z.enum(["matches_tray", "matches_composer", "messaging_tray", "messaging_composer"]),
+    route: z.string().max(120),
+    clientAt: z.number().int().min(0).max(9_999_999_999_999),
+    videoState: z.enum(["locked", "available", "used_paid", "recording"]).optional(),
+    purchaseRequired: z.boolean().optional(),
+    promptOpen: z.boolean().optional(),
+    targetTestId: z.string().max(100).nullable().optional(),
+    hitTestId: z.string().max(100).nullable().optional(),
+    controlRect: z.object({
+      top: z.number().int().min(-100_000).max(100_000),
+      left: z.number().int().min(-100_000).max(100_000),
+      width: z.number().int().min(0).max(100_000),
+      height: z.number().int().min(0).max(100_000),
+    }).optional(),
+    controlStyle: z.object({
+      zIndex: z.string().max(40),
+      pointerEvents: z.string().max(40),
+      touchAction: z.string().max(80),
+      position: z.string().max(40),
+      display: z.string().max(40),
+      visibility: z.string().max(40),
+      opacity: z.string().max(40),
+    }).optional(),
+    sheet: z.object({
+      mounted: z.boolean(),
+      visible: z.boolean(),
+      zIndex: z.string().max(40).nullable(),
+      pointerEvents: z.string().max(40).nullable(),
+      top: z.number().int().min(-100_000).max(100_000).nullable(),
+      height: z.number().int().min(0).max(100_000).nullable(),
+    }).optional(),
+    standalone: z.boolean().optional(),
+    isIOS: z.boolean().optional(),
+  }).strict();
+
+  app.post(
+    "/api/diagnostics/video-unlock",
+    express.text({ type: "text/plain", limit: "3kb" }),
+    (req, res) => {
+      const ip = String(req.headers["x-forwarded-for"] ?? req.ip ?? "unknown").split(",")[0].trim();
+      const now = Date.now();
+      const hit = _videoUnlockDiagHits.get(ip);
+      const current = !hit || now - hit.windowStart > 10 * 60_000
+        ? { windowStart: now, count: 0 }
+        : hit;
+      if (current.count >= 60) {
+        return res.status(429).json({ accepted: false, reason: "rate_limited" });
+      }
+      let parsedBody: unknown;
+      try {
+        parsedBody = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+      } catch {
+        return res.status(400).json({ accepted: false, reason: "invalid_json" });
+      }
+      const payload = videoUnlockDiagSchema.safeParse(parsedBody);
+      if (!payload.success) {
+        return res.status(400).json({ accepted: false, reason: "invalid_payload" });
+      }
+      current.count += 1;
+      _videoUnlockDiagHits.set(ip, current);
+      const entry = {
+        serverAt: now,
+        receiverCommit: SERVER_COMMIT_HASH,
+        ...payload.data,
+      };
+      _recentVideoUnlockDiagnostics.push(entry);
+      const cutoff = now - 10 * 60_000;
+      while (
+        _recentVideoUnlockDiagnostics.length > 100
+        || (_recentVideoUnlockDiagnostics[0]?.serverAt ?? Infinity) < cutoff
+      ) {
+        _recentVideoUnlockDiagnostics.shift();
+      }
+      console.log("[VIDEO_UNLOCK_DIAG]", JSON.stringify(entry));
+      return res.status(202).json({ accepted: true });
+    },
+  );
+
+  app.get("/api/diagnostics/video-unlock/recent", (_req, res) => {
+    const cutoff = Date.now() - 10 * 60_000;
+    return res.json({
+      events: _recentVideoUnlockDiagnostics.filter((event) => event.serverAt >= cutoff),
+    });
+  });
+
 
   // ── Email verification OTP endpoints ────────────────────────────────────
   // These endpoints intentionally bypass isAuthenticated because unverified

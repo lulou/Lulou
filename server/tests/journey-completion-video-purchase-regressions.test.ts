@@ -44,9 +44,13 @@ describe("journey completion and locked video regressions", () => {
   });
 
   it("opens the video purchase prompt for every locked video state", () => {
-    const unconditionalBranch = /if \(gate\.state === "locked"\) \{\s+if \(isVideo\) \{\s+setPurchasePromptFeature\("video"\)/;
+    const unconditionalBranch = /if \(gate\.state === "locked"\) \{\s+if \(isVideo\) \{\s+openVideoPurchasePrompt\(/;
     expect(messaging).toMatch(unconditionalBranch);
     expect(matches).toMatch(unconditionalBranch);
+    expect(messaging).toContain('setPurchasePromptFeature("video")');
+    expect(matches).toContain('setPurchasePromptFeature("video")');
+    expect(purchasePrompt).toContain('overlayClassName="z-[10020]"');
+    expect(purchasePrompt).toContain('className="z-[10021]');
   });
 
   it("shows only the canonical $6.99 AUD one-credit starter pack", () => {

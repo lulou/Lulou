@@ -4,6 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Phone, Video, Mic, Check, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { startPurchase } from "@/lib/purchase-service";
+import {
+  reportVideoUnlockPromptRendered,
+  reportVideoUnlockPromptStateChanged,
+  type VideoUnlockSource,
+} from "@/lib/video-unlock-diagnostics";
 
 export type PurchaseFeature = "phone" | "video" | "mic";
 
@@ -69,9 +74,10 @@ interface PurchasePromptProps {
   feature: PurchaseFeature | null;
   onClose: () => void;
   returnPath?: string;
+  diagnosticSource?: VideoUnlockSource | null;
 }
 
-export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptProps) {
+export function PurchasePrompt({ feature, onClose, returnPath, diagnosticSource }: PurchasePromptProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -85,6 +91,13 @@ export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptP
     window.addEventListener("pageshow", handlePageShow);
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
+
+  useEffect(() => {
+    if (!diagnosticSource) return;
+    const isVideoOpen = feature === "video";
+    reportVideoUnlockPromptStateChanged(diagnosticSource, isVideoOpen);
+    if (isVideoOpen) reportVideoUnlockPromptRendered(diagnosticSource);
+  }, [diagnosticSource, feature]);
 
   const startCheckout = (itemId: string) => {
     setLoading(itemId);
@@ -105,7 +118,9 @@ export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptP
     <Sheet open={!!feature} onOpenChange={open => { if (!open) onClose(); }}>
       <SheetContent
         side="bottom"
-        className="rounded-t-2xl px-5 pb-8 pt-5 max-w-lg mx-auto"
+        overlayClassName="z-[10020]"
+        className="z-[10021] rounded-t-2xl px-5 pb-8 pt-5 max-w-lg mx-auto"
+        style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom))" }}
         data-testid="purchase-prompt-sheet"
       >
         {meta && (

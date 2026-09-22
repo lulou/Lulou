@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, PointerEventHandler, ReactNode } from "react";
 
 export type CommunicationControlState = "locked" | "available" | "used_paid" | "recording";
 
@@ -13,6 +13,7 @@ type CommunicationControlProps = {
   testId: string;
   ariaLabel: string;
   busy?: boolean;
+  onPointerDown?: PointerEventHandler<HTMLButtonElement>;
 };
 
 export const COMMUNICATION_STATE_STYLES: Record<CommunicationControlState, CSSProperties> = {
@@ -50,10 +51,12 @@ export function CommunicationControl({
   testId,
   ariaLabel,
   busy = false,
+  onPointerDown,
 }: CommunicationControlProps) {
   return (
     <button
       type="button"
+      onPointerDown={onPointerDown}
       onClick={onClick}
       aria-label={ariaLabel}
       aria-busy={busy}

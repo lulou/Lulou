@@ -59,6 +59,13 @@ import {
   type CommunicationControlState,
 } from "@/components/communication-control";
 import { VoiceNote } from "@/components/voice-note";
+import {
+  reportVideoUnlockClick,
+  reportVideoUnlockHandler,
+  reportVideoUnlockPointerDown,
+  reportVideoUnlockPromptRequested,
+  type VideoUnlockSource,
+} from "@/lib/video-unlock-diagnostics";
 
 const MAX_MESSAGES_PER_USER = 15;
 // Stage 1 (post-first-call) quota per spec: 12 messages each way.
@@ -2721,6 +2728,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   // Purchase prompt state
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
+  const videoUnlockDiagnosticSourceRef = useRef<VideoUnlockSource | null>(null);
 
   // Voice-note unlock popup — shown once per user per match when unlock first detected.
   // Server is source of truth (popupSeen); localStorage is a fast local cache to
@@ -3574,12 +3582,21 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     toast({ description: "Voice notes unlock after your first call." });
   };
 
-  const handleCallAction = (isVideo: boolean) => {
+  const openVideoPurchasePrompt = (source: VideoUnlockSource, gate: CallGate) => {
+    videoUnlockDiagnosticSourceRef.current = source;
+    reportVideoUnlockPromptRequested(source, gate.state, gate.purchaseRequired === true);
+    setPurchasePromptFeature("video");
+  };
+
+  const handleCallAction = (isVideo: boolean, source?: VideoUnlockSource) => {
     const feature = isVideo ? "video" : "phone";
     const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
+    if (isVideo && source) {
+      reportVideoUnlockHandler(source, gate.state, gate.purchaseRequired === true);
+    }
     if (gate.state === "locked") {
       if (isVideo) {
-        setPurchasePromptFeature("video");
+        openVideoPurchasePrompt(source ?? "matches_tray", gate);
         return;
       }
       showCommunicationGate(feature, gate);
@@ -3590,7 +3607,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       if (gate.state === "available") {
         startPaidCall.mutate({ isVideo: true });
       } else {
-        setPurchasePromptFeature("video");
+        openVideoPurchasePrompt(source ?? "matches_tray", gate);
       }
       return;
     }
@@ -3630,7 +3647,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       title: `${isVideo ? "Video" : "Audio"} call used`,
       description: `Your included ${isVideo ? "video" : "audio"} call has been used. Unlock another call to keep talking.`,
     });
-    setPurchasePromptFeature(feature);
+    if (isVideo) {
+      openVideoPurchasePrompt(source ?? "matches_tray", gate);
+    } else {
+      setPurchasePromptFeature(feature);
+    }
   };
 
   // Auto-show AI starters when chat first opens and has no real user messages yet.
@@ -4010,7 +4031,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               label={allCallsDone && voiceNotesUnlocked ? "Used" : communicationEntitlements.voiceNote.state === "locked" ? "Locked" : "Voice"}
             />
             <CommunicationControl
-              onClick={() => handleCallAction(true)}
+              onPointerDown={event => reportVideoUnlockPointerDown("matches_tray", event)}
+              onClick={() => {
+                reportVideoUnlockClick("matches_tray");
+                handleCallAction(true, "matches_tray");
+              }}
               busy={startPaidCall.isPending}
               state={communicationEntitlements.video.state}
               testId={`button-video-tray-${match.id}`}
@@ -5318,7 +5343,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <button
                     tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}
-                    onClick={() => handleCallAction(true)}
+                    onPointerDown={event => reportVideoUnlockPointerDown("matches_composer", event)}
+                    onClick={() => {
+                      reportVideoUnlockClick("matches_composer");
+                      handleCallAction(true, "matches_composer");
+                    }}
                     aria-busy={startCall.isPending || startPaidCall.isPending}
                     aria-disabled={communicationEntitlements.video.state === "locked"}
                      style={getCommunicationIconStyle(communicationEntitlements.video.state)}
@@ -5459,6 +5488,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         feature={purchasePromptFeature}
         onClose={() => setPurchasePromptFeature(null)}
         returnPath={window.location.pathname}
+        diagnosticSource={videoUnlockDiagnosticSourceRef.current}
       />
 
       {voiceNotePopupOpen && (

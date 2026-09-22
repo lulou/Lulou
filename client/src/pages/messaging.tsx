@@ -37,6 +37,13 @@ import {
   type CommunicationControlState,
 } from "@/components/communication-control";
 import { VoiceNote } from "@/components/voice-note";
+import {
+  reportVideoUnlockClick,
+  reportVideoUnlockHandler,
+  reportVideoUnlockPointerDown,
+  reportVideoUnlockPromptRequested,
+  type VideoUnlockSource,
+} from "@/lib/video-unlock-diagnostics";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -500,6 +507,7 @@ export default function Messaging() {
 
   // Purchase prompt state
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
+  const videoUnlockDiagnosticSourceRef = useRef<VideoUnlockSource | null>(null);
 
   // Voice-note unlock popup — shown once per user per match after the first call
   // completes. Server-persisted (voiceNotePopupSeen table) so it never repeats.
@@ -1483,12 +1491,21 @@ export default function Messaging() {
     toast({ title: "Voice notes locked", description: "Voice notes unlock after your first call." });
   };
 
-  const handleCallAction = (isVideo: boolean) => {
+  const openVideoPurchasePrompt = (source: VideoUnlockSource, gate: CallGate) => {
+    videoUnlockDiagnosticSourceRef.current = source;
+    reportVideoUnlockPromptRequested(source, gate.state, gate.purchaseRequired === true);
+    setPurchasePromptFeature("video");
+  };
+
+  const handleCallAction = (isVideo: boolean, source?: VideoUnlockSource) => {
     const feature = isVideo ? "video" : "phone";
     const gate = isVideo ? communicationEntitlements.video : communicationEntitlements.audio;
+    if (isVideo && source) {
+      reportVideoUnlockHandler(source, gate.state, gate.purchaseRequired === true);
+    }
     if (gate.state === "locked") {
       if (isVideo) {
-        setPurchasePromptFeature("video");
+        openVideoPurchasePrompt(source ?? "messaging_tray", gate);
         return;
       }
       return showCommunicationGate(feature, gate);
@@ -1498,7 +1515,7 @@ export default function Messaging() {
       if (gate.state === "available") {
         startPaidCall.mutate({ isVideo: true });
       } else {
-        setPurchasePromptFeature("video");
+        openVideoPurchasePrompt(source ?? "messaging_tray", gate);
       }
       return;
     }
@@ -1518,7 +1535,11 @@ export default function Messaging() {
       title: `${isVideo ? "Video" : "Audio"} call used`,
       description: `Your included ${isVideo ? "video" : "audio"} call has been used. Unlock another call to keep talking.`,
     });
-    setPurchasePromptFeature(feature);
+    if (isVideo) {
+      openVideoPurchasePrompt(source ?? "messaging_tray", gate);
+    } else {
+      setPurchasePromptFeature(feature);
+    }
   };
 
   // Guard the call CTA card when a call is live (ringing or active).
@@ -1815,7 +1836,11 @@ export default function Messaging() {
             label={allCallsDone && voiceNotesUnlocked ? "Used" : communicationEntitlements.voiceNote.state === "locked" ? "Locked" : "Voice"}
           />
           <CommunicationControl
-            onClick={() => handleCallAction(true)}
+            onPointerDown={event => reportVideoUnlockPointerDown("messaging_tray", event)}
+            onClick={() => {
+              reportVideoUnlockClick("messaging_tray");
+              handleCallAction(true, "messaging_tray");
+            }}
             busy={startPaidCall.isPending}
             state={communicationEntitlements.video.state}
             testId="button-video-tray"
@@ -2300,7 +2325,11 @@ export default function Messaging() {
                   {/* Video call shortcut */}
                   {!allCallsDone && voicePhase === "idle" && (
                     <button
-                      onClick={() => handleCallAction(true)}
+                      onPointerDown={event => reportVideoUnlockPointerDown("messaging_composer", event)}
+                      onClick={() => {
+                        reportVideoUnlockClick("messaging_composer");
+                        handleCallAction(true, "messaging_composer");
+                      }}
                       aria-busy={startPaidCall.isPending}
                       aria-disabled={communicationEntitlements.video.state === "locked"}
                        style={getCommunicationIconStyle(communicationEntitlements.video.state)}
@@ -2475,6 +2504,7 @@ export default function Messaging() {
         feature={purchasePromptFeature}
         onClose={() => setPurchasePromptFeature(null)}
         returnPath={window.location.pathname}
+        diagnosticSource={videoUnlockDiagnosticSourceRef.current}
       />
 
       {/* ── Voice-note post-call celebration ── */}
