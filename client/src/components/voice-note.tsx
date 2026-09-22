@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Loader2, Pause, Play, RotateCcw, Mic } from "lucide-react";
+import { ChevronDown, Loader2, Pause, Play, RotateCcw } from "lucide-react";
 
 type VoiceStatus = "sending" | "failed" | undefined;
 
@@ -135,14 +135,13 @@ export function VoiceNote({
         </button>
         <div className="voice-note-track">
           <div className="voice-note-wave" aria-hidden="true">
-            {bars.map((height, index) => <span key={index} style={{ height: `${height}px`, opacity: index / bars.length <= progress ? 1 : 0.38 }} />)}
+            {bars.map((height, index) => <span key={index} className={index / bars.length <= progress ? "is-played" : ""} style={{ height: `${height}px` }} />)}
           </div>
           <div className="voice-note-meta">
-            <span>{unavailable ? "Voice note unavailable" : status === "failed" ? "Tap to retry" : error ? "Tap to reload" : status === "sending" ? "Sending" : duration > 0 ? formatDuration(playing ? currentTime : duration) : recordedDuration ? formatDuration(recordedDuration) : "Processing"}</span>
+            <span>{unavailable ? "Voice note unavailable" : status === "failed" ? "Retry" : error ? "Retry" : status === "sending" ? "Sending" : duration > 0 ? formatDuration(playing ? currentTime : duration) : recordedDuration ? formatDuration(recordedDuration) : "Processing"}</span>
             {(status === "sending" || (!duration && !recordedDuration && !error)) && <Loader2 className="h-3 w-3 animate-spin" />}
           </div>
         </div>
-        <Mic className="voice-note-mark h-3.5 w-3.5" />
       </div>
       {transcriptEnabled && transcript && (
         <button type="button" className="voice-note-transcript-toggle" onClick={() => setShowTranscript(value => !value)}>

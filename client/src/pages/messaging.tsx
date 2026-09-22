@@ -2143,9 +2143,14 @@ export default function Messaging() {
                 {/* ── Borderless typing area inside the unified composer ── */}
                 <div className="relative">
                   {voicePhase === "recording" ? (
-                    <div className="flex min-h-[44px] items-center gap-2 rounded-xl bg-red-50/40 px-2 dark:bg-red-950/20 select-none">
-                      <div className="h-2 w-2 shrink-0 rounded-full bg-red-500 animate-pulse" />
-                      <span className="text-sm text-muted-foreground font-mono tabular-nums">
+                    <div className="voice-recording-morph" data-testid="recording-state">
+                      <span className="voice-recording-live-dot" />
+                      <div className="voice-recording-wave" aria-hidden="true">
+                        {[5, 10, 16, 8, 13, 18, 10, 15, 7, 12, 17, 9, 14, 6, 11, 16].map((height, index) => (
+                          <span key={index} style={{ height: `${height}px`, animationDelay: `${index * 24}ms` }} />
+                        ))}
+                      </div>
+                      <span className="voice-recording-time">
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
                     </div>

@@ -5009,7 +5009,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       Colors use Lulou primary rose (hsl 350 45% 52%) throughout. */}
                   {voicePhase === "recording" && (
                     <div
-                      className="absolute inset-0 flex items-center gap-2 rounded-[1rem] px-3 select-none pointer-events-none"
+                      className={`voice-recording-morph absolute inset-0 select-none pointer-events-none${cancelPending ? " is-canceling" : ""}`}
                       style={{
                         background: "hsl(350 45% 52% / 0.05)",
                       }}
@@ -5017,24 +5017,21 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       {cancelPending ? (
                         /* Slide-cancel mode: show cancel confirmation text */
                         <span
-                          className="flex-1 text-sm font-medium"
+                           className="voice-recording-cancel-label"
                           style={{ color: "hsl(350 45% 48%)" }}
                         >
                           ← Release to cancel
                         </span>
                       ) : (
                         /* Normal recording: waveform bars (heights via direct DOM refs) */
-                        <div className="flex items-end gap-[2px] h-[22px] flex-1">
+                        <div className="voice-recording-wave flex-1">
                           {Array.from({ length: 20 }, (_, i) => (
                             <div
                               key={i}
                               ref={el => { if (el) waveformBarEls.current[i] = el; }}
                               style={{
-                                flex: 1,
-                                height: "3px",
-                                borderRadius: 1.5,
-                                background: "hsl(350 45% 52%)",
-                                transition: "height 0.06s ease",
+                                 flex: 1,
+                                 height: "3px",
                                 willChange: "height",
                               }}
                             />
@@ -5042,17 +5039,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         </div>
                       )}
                       {/* Recording indicator dot + timer */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span
-                          className="w-1.5 h-1.5 rounded-full animate-pulse"
-                          style={{ background: "hsl(350 45% 52%)" }}
-                        />
-                        <span
-                          className="text-sm font-mono tabular-nums font-semibold"
-                          style={{ color: "hsl(350 45% 48%)" }}
-                        >
+                       <div className="voice-recording-time-wrap">
+                         <span className="voice-recording-live-dot" />
+                         <span className="voice-recording-time">
                           {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
-                        </span>
+                         </span>
                       </div>
                     </div>
                   )}
@@ -5158,7 +5149,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       touchAction: "none",
                       WebkitUserSelect: "none" as React.CSSProperties["WebkitUserSelect"],
                       WebkitTouchCallout: "none" as any,
-                      transform: voicePhase === "recording" ? "scale(1.35)" : "scale(1)",
+                       transform: voicePhase === "recording" ? "scale(1.04)" : "scale(1)",
                       transition: "transform 200ms ease",
                     }}
                     data-testid={`button-mic-input-${match.id}`}
@@ -5181,11 +5172,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                        }}
                     />
                   </button>
-                  {/* Pulsing halo ring around mic while recording — Lulou rose, no layout impact */}
+                   {/* Quiet recording accent — no layout impact */}
                   {voicePhase === "recording" && (
                     <span
-                      className="absolute bottom-3 left-3 h-[18px] w-[18px] rounded-full animate-ping pointer-events-none"
-                      style={{ background: "hsl(350 45% 52% / 0.22)", animationDuration: "1.4s" }}
+                       className="voice-recording-halo absolute bottom-3 left-3 pointer-events-none"
                     />
                   )}
                 {/* Conversation starters remain inside the single composer while typing. */}
