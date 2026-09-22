@@ -1,0 +1,298 @@
+Create a premium Lulou launch/loading screen inspired by the minimal loading experience shown in the attached Hinge screenshot.
+
+DO NOT copy Hinge’s logo or exact branding.
+
+Use the same design principle:
+
+- full-screen clean background
+- one centered brand mark
+- no clutter
+- no spinner unless absolutely necessary
+- no loading text
+- smooth transition into the app
+
+==================================================
+1. USE THE REAL LULOU LOGO
+==================================================
+
+Use Lulou’s correct existing logo:
+
+the double-L / heart monogram from the current Lulou branding.
+
+Do NOT use:
+- a flower
+- temporary “L”
+- text-only placeholder
+- old logo
+- generic icon
+
+Use the exact current production logo asset.
+
+==================================================
+2. BACKGROUND
+==================================================
+
+Use Lulou’s existing warm ivory/off-white background rather than stark bright white if that matches the current app token.
+
+Use the existing app background token so the transition into Lulou feels seamless.
+
+Do not introduce a new background colour.
+
+==================================================
+3. CENTERING
+==================================================
+
+Place the Lulou monogram visually centered both:
+
+- horizontally
+- vertically
+
+Account for iPhone safe areas so it still appears optically centered.
+
+Do not position it relative to the browser chrome.
+
+==================================================
+4. LOGO SIZE
+==================================================
+
+Keep the logo refined and fairly small.
+
+It should feel similar in visual weight to premium apps:
+
+- clearly visible
+- not oversized
+- lots of breathing room
+
+Do not place the word “Lulou” underneath unless current branding requires it.
+
+The monogram alone should be enough.
+
+==================================================
+5. SUBTLE ANIMATION
+==================================================
+
+Add a very subtle launch animation.
+
+For example:
+
+logo opacity:
+0 → 1
+
+and/or scale:
+0.97 → 1.0
+
+over approximately:
+
+250–450ms
+
+Then remain still.
+
+Do NOT:
+
+- spin the logo
+- bounce
+- pulse aggressively
+- use a progress bar
+- use Android-style loading spinner
+
+Keep it calm and premium.
+
+==================================================
+6. APP STARTUP FLOW
+==================================================
+
+Show this launch screen immediately when the installed Lulou PWA opens.
+
+It should cover the period where Lulou is resolving:
+
+- app bootstrap
+- Supabase session restoration
+- X-Session-Id/session verification
+- onboarding state
+- legacy-established state
+- initial authenticated app state
+
+Do NOT expose a blank white screen while these checks happen.
+
+==================================================
+7. DO NOT HOLD IT LONGER THAN NECESSARY
+==================================================
+
+The launch screen should disappear as soon as Lulou has enough state to render the correct route.
+
+Do not introduce an artificial long delay just to show branding.
+
+Expected:
+
+tap Lulou
+→ launch screen appears instantly
+→ app bootstrap completes
+→ smooth fade into correct screen
+
+==================================================
+8. SMOOTH TRANSITION
+==================================================
+
+When app is ready:
+
+fade the launch screen out cleanly.
+
+Approx:
+
+150–300ms
+
+Do not:
+
+- flash white
+- briefly show login before authenticated screen
+- briefly show onboarding for established user
+- show multiple loaders
+- jump layout
+
+The first visible app screen after the logo should be the correct resolved destination.
+
+==================================================
+9. BOOT FAILURE HANDLING
+==================================================
+
+Do NOT leave the user permanently staring at the Lulou logo if startup genuinely fails.
+
+Use the existing bounded bootstrap/session recovery.
+
+If startup exceeds a sensible timeout:
+
+transition from launch screen into the existing proper recovery/error state.
+
+Do not put technical errors directly onto the splash screen.
+
+==================================================
+10. SERVICE WORKER / PWA
+==================================================
+
+This must work correctly in the installed iPhone Home Screen PWA.
+
+Audit:
+
+- root mount
+- service-worker startup
+- stale bundle handling
+- chunk-load recovery
+- app bootstrap
+
+The loading screen must not mask an infinite startup failure.
+
+==================================================
+11. NO DUPLICATE LOADING SCREENS
+==================================================
+
+Audit the app for existing:
+
+- page loaders
+- full-screen startup spinners
+- blank bootstrap states
+- onboarding loading blockers
+
+At app startup, there should be ONE authoritative launch experience.
+
+Do not show:
+
+Lulou splash
+→ spinner
+→ another splash
+→ app
+
+It should be:
+
+Lulou splash
+→ app
+
+==================================================
+12. IOS FEEL
+==================================================
+
+The final result should feel like a polished iOS app:
+
+- minimal
+- fast
+- centered
+- restrained
+- no Android Material loading UI
+- no unnecessary text
+
+The user should feel like they opened a finished native-quality product.
+
+==================================================
+13. DO NOT BREAK
+==================================================
+
+Do not change:
+
+- authentication logic
+- onboarding rules
+- legacy-user rules
+- session recovery
+- messaging
+- calls
+- voice notes
+- payments
+- navigation
+- service-worker update logic except where required for reliable startup rendering
+
+This task is primarily the app launch/loading presentation.
+
+==================================================
+14. REAL IPHONE TEST
+==================================================
+
+Test on the actual installed Lulou PWA:
+
+1. Fully close Lulou.
+2. Reopen from Home Screen.
+
+Expected:
+
+- Lulou logo appears immediately
+- correct warm background
+- logo centered
+- subtle entrance
+- no blank white screen
+- no spinner
+- no incorrect intermediate route
+- app fades into correct authenticated screen
+
+Also test:
+
+- logged-out user
+- logged-in established user
+- newly onboarding user
+- app resume after background
+- fresh deployment/service-worker update
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact logo asset used
+2. exact background token used
+3. launch-screen component/location
+4. bootstrap condition controlling dismissal
+5. entrance animation
+6. exit animation
+7. timeout/failure behavior
+8. duplicate startup loaders removed/retained
+9. files changed
+10. production commit
+11. live Vercel revision
+12. real iPhone verification:
+  - splash appears immediately PASS/FAIL
+  - correct Lulou logo PASS/FAIL
+  - optically centered PASS/FAIL
+  - no blank white startup PASS/FAIL
+  - no unnecessary spinner PASS/FAIL
+  - correct route appears after splash PASS/FAIL
+  - smooth fade transition PASS/FAIL
+  - no infinite splash PASS/FAIL
+
+Do not mark complete unless opening the installed Lulou app gives a clean premium splash experience: Lulou logo centered on the Lulou background, followed directly by the correct app screen.
