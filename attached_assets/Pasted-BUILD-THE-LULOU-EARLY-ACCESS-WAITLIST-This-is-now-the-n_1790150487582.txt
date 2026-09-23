@@ -1,0 +1,763 @@
+BUILD THE LULOU EARLY-ACCESS WAITLIST.
+
+This is now the next major Lulou pre-launch feature.
+
+The purpose is to start building a concentrated pool of real users BEFORE the full public launch so Lulou can open smoothly with enough people available in Discover / Intent from day one.
+
+This must feel like a premium dating-product launch — NOT a generic startup email form.
+
+Do NOT interfere with the existing authenticated Lulou app.
+
+==================================================
+1. CORE STRATEGY
+==================================================
+
+Launch the waitlist initially around:
+
+SYDNEY
+
+We want density, not thousands of users scattered everywhere.
+
+The system should still support additional cities later, but Sydney should be the initial launch market.
+
+Target experience:
+
+visitor lands on Lulou
+→ understands what makes Lulou different
+→ joins early access
+→ confirms email
+→ receives waitlist confirmation
+→ gets personal referral link
+→ can invite friends
+→ referrals are tracked
+→ admin can release users in controlled waves later
+
+==================================================
+2. DO NOT REPLACE OR BREAK THE EXISTING APP
+==================================================
+
+The authenticated dating app is already functioning.
+
+Do NOT break:
+
+- authentication
+- onboarding
+- Connection DNA
+- Discover
+- Intent
+- Likes
+- Connections
+- messaging
+- voice notes
+- calls
+- payments
+- Profile
+- Settings
+
+Keep existing logged-in app routes working.
+
+Create the waitlist as a clean PUBLIC pre-launch route / marketing surface.
+
+Suggested route:
+
+/waitlist
+
+If there is already a public landing/root route, integrate carefully without disrupting existing authenticated routing.
+
+==================================================
+3. LANDING PAGE DESIGN
+==================================================
+
+The landing page must look like Lulou.
+
+Use:
+
+- warm ivory background
+- approved Lulou wine/burgundy
+- current Lulou double-L heart logo
+- existing premium serif + clean supporting typography
+- lots of breathing room
+- restrained iOS-style interaction
+- high-end editorial dating aesthetic
+
+Do NOT use:
+
+- startup SaaS blue gradients
+- neon
+- Android Material styling
+- giant generic cards
+- cartoon dating imagery
+- cheesy hearts everywhere
+
+==================================================
+4. HERO COPY
+==================================================
+
+Use premium messaging along this direction:
+
+Lulou
+
+Dating should feel like dating again.
+
+Built for people who actually want to talk, connect and meet.
+
+Join the early-access waitlist.
+
+Primary CTA:
+
+Join Early Access
+
+Secondary supporting copy:
+
+Launching first in Sydney.
+
+Keep it concise.
+
+==================================================
+5. EXPLAIN HOW LULOU IS DIFFERENT
+==================================================
+
+Below the hero, explain the product simply.
+
+Suggested sequence:
+
+Discover
+→ Connect
+→ Message
+→ Talk
+→ Meet
+
+Supporting copy:
+
+Less endless texting.
+More real connection.
+
+Lulou helps conversations move naturally from messages to voice, video and eventually meeting in real life.
+
+Do not explain every quota or internal mechanic on the landing page.
+
+Sell the philosophy, not the technical rules.
+
+==================================================
+6. WAITLIST FORM
+==================================================
+
+Keep signup friction LOW.
+
+Collect:
+
+REQUIRED:
+- First name
+- Email
+- City
+
+For City:
+default / prominently offer Sydney.
+
+Also require:
+
+- confirmation that user is 18+
+
+Do NOT collect excessive dating-profile information at this stage.
+
+Do NOT require:
+- full birthday
+- photos
+- phone number
+- Connection DNA
+- long dating preferences
+
+Those belong inside Lulou after access is granted.
+
+==================================================
+7. 18+ REQUIREMENT
+==================================================
+
+Lulou is 18+.
+
+The waitlist must not knowingly accept under-18 users.
+
+Use a clear confirmation:
+
+“I confirm that I’m 18 or older.”
+
+Required before submission.
+
+Do not let unchecked submissions through.
+
+==================================================
+8. DATABASE
+==================================================
+
+Create a proper persistent waitlist table.
+
+Use the existing production database architecture.
+
+Suggested fields:
+
+id
+email_normalized
+first_name
+city
+country
+is_18_plus
+status
+referral_code
+referred_by
+referral_count
+email_verified_at
+created_at
+updated_at
+invited_at
+joined_app_at
+
+Suggested statuses:
+
+waiting
+invited
+joined
+removed
+
+Add appropriate indexes/uniqueness.
+
+Email must be unique case-insensitively.
+
+Do not create duplicate waitlist users from:
+
+Test@Email.com
+test@email.com
+
+==================================================
+9. REFERRAL SYSTEM
+==================================================
+
+Every verified waitlist member should receive a unique referral code/link.
+
+Example:
+
+luloudating.com/waitlist?r=ABC123
+
+If a new verified person joins through that link:
+
+increment the original member’s referral count exactly once.
+
+Prevent:
+
+- self-referrals
+- duplicate referral credit
+- repeated refresh credit
+- same email earning multiple credits
+- trivial URL manipulation
+
+==================================================
+10. REFERRAL EXPERIENCE
+==================================================
+
+After signup/verification, show:
+
+You’re on the Lulou waitlist.
+
+We’re opening Sydney in waves to make sure there are enough people to actually meet.
+
+Then:
+
+Invite friends
+
+[ personal referral link ]
+
+[ Copy link ]
+
+Optional supporting copy:
+
+Invite people you think belong on Lulou and you may receive earlier access.
+
+Do NOT make fake guarantees about exact queue movement unless implemented.
+
+==================================================
+11. WAITLIST POSITION
+==================================================
+
+If position/rank is implemented, it must be REAL.
+
+Never show fake numbers.
+
+Possible:
+
+You’re #184 on the Sydney early-access list.
+
+Calculate from verified eligible waitlist records.
+
+If accurate position cannot be guaranteed efficiently, omit the rank.
+
+A premium waitlist does NOT require a fake countdown.
+
+==================================================
+12. PUBLIC WAITLIST COUNT
+==================================================
+
+Optional:
+
+show a real count such as:
+
+327 people waiting for Sydney early access
+
+ONLY if based on actual verified database records.
+
+Never seed/fake this number for social proof.
+
+If the count is very low initially, it is acceptable not to show it until a useful threshold is reached.
+
+==================================================
+13. EMAIL VERIFICATION
+==================================================
+
+Do not treat an unverified email as a fully valid lead.
+
+After submission:
+
+send a confirmation email using the existing Lulou email infrastructure.
+
+Email should say approximately:
+
+You’re almost in.
+
+Confirm your email to join Lulou early access.
+
+[ Confirm Early Access ]
+
+Use current Lulou email branding.
+
+After confirmation:
+
+email_verified_at is set
+status remains waiting
+referral becomes active
+
+==================================================
+14. DUPLICATE SIGNUP EXPERIENCE
+==================================================
+
+If someone enters an email already on the waitlist:
+
+do NOT throw an ugly database error.
+
+Show something like:
+
+You’re already on the list.
+
+Then allow them to resend/recover their confirmation or access their referral page safely.
+
+Do not reveal unnecessary account information.
+
+==================================================
+15. SUCCESS PAGE
+==================================================
+
+After verified signup, create a beautiful success state.
+
+Suggested:
+
+You’re on the list.
+
+Sydney is opening soon.
+
+We’re bringing people in gradually so Lulou feels alive from the moment you join.
+
+Then show:
+
+Your referral link
+Copy link
+
+and:
+
+We’ll email you when your access is ready.
+
+==================================================
+16. EMAILS
+==================================================
+
+Create/refine:
+
+A. VERIFY WAITLIST EMAIL
+
+Subject:
+Confirm your Lulou early access
+
+B. VERIFIED SUCCESS EMAIL
+
+Subject:
+You’re on the Lulou waitlist
+
+Body:
+- confirmation
+- Sydney early-access message
+- referral link
+
+C. ACCESS INVITATION EMAIL
+
+Subject:
+Your Lulou access is ready
+
+Body:
+Your place is ready.
+
+[ Join Lulou ]
+
+Do not send marketing spam.
+
+==================================================
+17. ACCESS WAVES
+==================================================
+
+Build the data model so I can eventually release:
+
+first 50
+next 50
+next 100
+etc.
+
+An invitation action should:
+
+waiting
+→ invited
+
+set:
+
+invited_at
+
+Then send the access invitation email.
+
+Do NOT automatically activate dating accounts directly.
+
+Invitation should route the user into the existing signup/onboarding flow.
+
+==================================================
+18. REFERRAL PRIORITY
+==================================================
+
+Store referral_count so future invitation waves can optionally prioritise users with successful referrals.
+
+Do not automatically promise:
+
+“Invite 3 people and you’re guaranteed access”
+
+unless we deliberately implement that rule later.
+
+For now:
+
+referrals can improve early-access priority.
+
+==================================================
+19. ADMIN VISIBILITY
+==================================================
+
+I need a safe way to understand the waitlist.
+
+At minimum expose/admin-report:
+
+- total signups
+- verified signups
+- Sydney verified signups
+- signups today
+- signups last 7 days
+- referral signups
+- top referral counts
+- waiting
+- invited
+- joined
+
+Do NOT expose this publicly.
+
+Use existing authenticated/admin architecture if available.
+
+==================================================
+20. EXPORT
+==================================================
+
+Provide a safe admin CSV export containing appropriate waitlist fields such as:
+
+first name
+email
+city
+status
+referral count
+created date
+verified date
+invited date
+
+Do not expose it to normal users.
+
+==================================================
+21. ANTI-ABUSE
+==================================================
+
+Protect submission from:
+
+- repeated automated requests
+- email spam
+- referral farming
+- duplicate submissions
+
+Use sensible:
+- rate limiting
+- validation
+- normalization
+
+Do not make the form frustrating for legitimate users.
+
+==================================================
+22. PRIVACY
+==================================================
+
+Clearly link:
+
+Privacy Policy
+Terms
+
+near signup.
+
+Use copy such as:
+
+By joining, you agree to receive essential early-access emails from Lulou.
+
+Do not automatically opt users into unrelated marketing without appropriate consent.
+
+==================================================
+23. MOBILE-FIRST
+==================================================
+
+The waitlist must look excellent on iPhone.
+
+Test:
+
+320px
+375px
+390px
+430px
+
+No:
+- clipped hero text
+- weird keyboard jumping
+- oversized inputs
+- horizontal scrolling
+- footer overlap
+
+==================================================
+24. FORM EXPERIENCE
+==================================================
+
+Use premium iOS-like fields.
+
+Keep:
+
+- large enough touch targets
+- subtle borders
+- warm surfaces
+- correct keyboard types
+- email autocomplete
+- smooth focus
+- clear inline validation
+
+CTA should use the SAME approved Lulou burgundy/wine family used by the outgoing voice-note bubbles.
+
+Do not use another lighter pink.
+
+==================================================
+25. LOADING / SUBMIT
+==================================================
+
+When joining:
+
+button immediately shows a subtle pending state.
+
+No repeated submissions.
+
+On success:
+transition smoothly to success state.
+
+On error:
+show clear useful copy.
+
+No raw server errors.
+
+==================================================
+26. ANALYTICS EVENTS
+==================================================
+
+Add safe analytics/events for:
+
+waitlist_view
+waitlist_form_started
+waitlist_submitted
+waitlist_verified
+waitlist_referral_copied
+waitlist_referral_signup
+waitlist_invited
+waitlist_joined_app
+
+Do not log private form data unnecessarily.
+
+==================================================
+27. SEO / SOCIAL PREVIEW
+==================================================
+
+Add suitable metadata:
+
+Title:
+Lulou — Dating should feel like dating again
+
+Description:
+Join Lulou early access. Launching first in Sydney.
+
+Use the correct Lulou social image/logo.
+
+==================================================
+28. DO NOT USE FAKE PEOPLE
+==================================================
+
+Important considering the previous NPC issue:
+
+Do NOT create:
+- fake waitlist users
+- fake live counter data
+- fake testimonials
+- fake dating profiles
+
+Use only real verified data.
+
+==================================================
+29. SYDNEY-FIRST LAUNCH READINESS
+==================================================
+
+The system should make it easy to know when Sydney has enough interested users to begin a controlled release.
+
+Do NOT automatically launch at an arbitrary number.
+
+Give me real data so we can decide when to open Wave 1.
+
+==================================================
+30. FUTURE CITY SUPPORT
+==================================================
+
+Build city handling so later we can support:
+
+Melbourne
+Brisbane
+Gold Coast
+Perth
+etc.
+
+But do NOT clutter the initial Sydney-focused message.
+
+==================================================
+31. EXISTING USER HANDLING
+==================================================
+
+If someone who already has a genuine Lulou account tries joining the waitlist with the same email:
+
+do not create confusing duplicate lifecycle state.
+
+Detect safely where possible.
+
+Existing production users should continue using Lulou normally.
+
+==================================================
+32. VISUAL ACCEPTANCE
+==================================================
+
+The waitlist should feel like the first impression of a premium dating brand.
+
+It must feel:
+
+- aspirational
+- intentional
+- elegant
+- high quality
+- iOS-native
+- unmistakably Lulou
+
+It must NOT feel like:
+
+- a Mailchimp form
+- an unfinished beta
+- a generic SaaS landing page
+- an Android web form
+
+==================================================
+33. DO NOT BREAK
+==================================================
+
+Do not change:
+
+- production dating-user data
+- candidate eligibility
+- authentication flow
+- onboarding
+- DNA
+- Discover
+- Intent
+- Likes
+- Connections
+- messaging
+- voice notes
+- calls
+- Stripe
+- current app routing for authenticated users
+
+==================================================
+34. PRODUCTION TESTS
+==================================================
+
+TEST:
+
+1. New email joins.
+2. Verification email arrives.
+3. Verification succeeds.
+4. User gets referral link.
+5. Referral link opens correctly.
+6. Second real test email joins through referral.
+7. Referral count becomes 1 exactly.
+8. Duplicate email does not create duplicate row.
+9. Under-18 confirmation missing blocks submission.
+10. Admin metrics reflect both signups.
+11. Invite user.
+12. Invitation email arrives.
+13. Existing authenticated Lulou app remains unaffected.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. public waitlist route
+2. database schema/migration
+3. exact signup fields
+4. email verification implementation
+5. referral implementation
+6. duplicate/referral abuse protection
+7. access-wave/invite implementation
+8. admin metrics available
+9. CSV/export behavior if implemented
+10. privacy/consent implementation
+11. analytics events
+12. files changed
+13. tests
+14. production commit
+15. live Vercel/Railway revision
+
+16. REAL PRODUCTION RESULTS:
+- waitlist page loads PASS/FAIL
+- mobile iPhone design PASS/FAIL
+- signup works PASS/FAIL
+- verification email arrives PASS/FAIL
+- verification works PASS/FAIL
+- referral link works PASS/FAIL
+- referral credit works exactly once PASS/FAIL
+- duplicate email protected PASS/FAIL
+- 18+ confirmation enforced PASS/FAIL
+- admin metrics accurate PASS/FAIL
+- invitation email works PASS/FAIL
+- existing Lulou app unaffected PASS/FAIL
+
+Do not mark complete unless a real person can join the Sydney early-access waitlist, verify their email, receive a referral link, refer another verified person correctly, and the existing authenticated Lulou application remains completely unaffected.
