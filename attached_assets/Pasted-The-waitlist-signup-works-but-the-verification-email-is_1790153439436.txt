@@ -1,0 +1,261 @@
+The waitlist signup works, but the verification email is NOT being delivered.
+
+I have now tested the REAL production waitlist with a real email address.
+
+Result:
+
+- waitlist form submitted successfully
+- signup appeared to complete
+- NO verification email arrived
+
+So the email verification flow is currently broken in production.
+
+Do NOT redesign the waitlist.
+Do NOT change the waitlist form.
+Do NOT change referral logic yet.
+
+Fix the real production email-delivery path first.
+
+==================================================
+1. TRACE MY REAL WAITLIST SIGNUP
+==================================================
+
+Find the most recent real production waitlist signup.
+
+Trace exactly:
+
+form submit
+→ waitlist row created
+→ verification token generated
+→ email send function called
+→ Resend API request sent
+→ Resend response received
+→ delivery status
+
+I want the FIRST failing step.
+
+Do not guess.
+
+==================================================
+2. CHECK WHETHER EMAIL SEND WAS ACTUALLY ATTEMPTED
+==================================================
+
+For the real signup, report:
+
+- waitlist row created yes/no
+- email_verified_at null yes/no
+- verification token created yes/no
+- verification email function invoked yes/no
+- Resend request attempted yes/no
+- Resend HTTP result
+- Resend message ID if one was returned
+- provider error category if failed
+
+Do NOT expose the verification token or secrets.
+
+==================================================
+3. RESEND CONFIGURATION
+==================================================
+
+Audit the existing production email configuration.
+
+Use the existing verified Lulou sender:
+
+Lulou <noreply@luloudating.com>
+
+Do NOT revert to:
+- resend.dev
+- old sender
+- random personal address
+
+Verify production has access to:
+
+RESEND_API_KEY
+
+without exposing its value.
+
+==================================================
+4. VERIFY DOMAIN / SENDER
+==================================================
+
+Confirm the current Resend sender domain:
+
+luloudating.com
+
+is still verified and permitted for production sending.
+
+If Resend rejects the sender:
+report the exact rejection.
+
+==================================================
+5. VERIFY EMAIL FUNCTION
+==================================================
+
+Audit the actual waitlist verification-email function.
+
+Check:
+
+- correct recipient email
+- normalized email not accidentally used incorrectly
+- valid subject
+- valid HTML/text body
+- valid confirmation URL
+- no exception swallowed
+- await actually used
+- no fire-and-forget promise lost during serverless execution
+
+If this is on Railway/server:
+make sure the process waits for the Resend response.
+
+==================================================
+6. DO NOT REPORT SIGNUP SUCCESS IF EMAIL FAILED
+==================================================
+
+This is important.
+
+If the verification email cannot be queued successfully:
+
+do NOT tell the user:
+
+“You’re almost in” / “Check your email”
+
+as if the email was sent.
+
+Return a proper safe error state.
+
+Example:
+
+“We saved your place, but we couldn’t send the verification email. Please try again.”
+
+Then provide:
+
+Resend verification email
+
+==================================================
+7. RESEND VERIFICATION BUTTON
+==================================================
+
+Add/use a reliable:
+
+Resend verification email
+
+action for unverified waitlist signups.
+
+Requirements:
+
+- rate limited
+- idempotent
+- generates/reuses verification state safely
+- does not create duplicate waitlist rows
+- does not increment referral credit prematurely
+- gives clear success/failure feedback
+
+==================================================
+8. EMAIL VERIFICATION LINK
+==================================================
+
+Confirm the email contains a working production URL such as:
+
+https://www.luloudating.com/waitlist/verify?token=...
+
+or the actual existing route.
+
+Verify:
+
+- HTTPS
+- www/non-www canonical handling
+- token encoded correctly
+- no localhost
+- no Replit URL
+- no Railway URL exposed to user
+
+==================================================
+9. TOKEN SECURITY
+==================================================
+
+Preserve secure token behavior:
+
+- sufficiently random token
+- expiry
+- one-time verification
+- no token logging
+- no raw token stored insecurely if existing design hashes it
+
+Do not weaken verification security.
+
+==================================================
+10. CHECK SUPPRESSION / BOUNCES
+==================================================
+
+If Resend reports success but email still does not arrive:
+
+check:
+
+- suppressed recipient
+- bounced recipient
+- complaint suppression
+- delivery status
+- spam/junk classification
+- domain authentication
+
+Do not assume “API accepted” means delivered.
+
+==================================================
+11. REAL EMAIL TEST REQUIRED
+==================================================
+
+Use a real test inbox.
+
+Test:
+
+1. Submit new waitlist signup.
+2. Confirm row created.
+3. Confirm Resend accepted send.
+4. Confirm email physically arrives.
+5. Open verification link.
+6. Confirm email_verified_at updates.
+7. Confirm success page appears.
+8. Confirm referral link is then available.
+
+Do not mark complete until the email actually lands in a real inbox.
+
+==================================================
+12. DO NOT BREAK
+==================================================
+
+Do not change:
+
+- waitlist design
+- hero copy
+- referral logic except gating referral activation behind verification
+- admin metrics
+- existing Lulou auth email flow
+- production app
+
+This task is specifically fixing waitlist verification email delivery.
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact first failing step
+2. whether Resend API request was attempted
+3. exact Resend response/error category
+4. exact sender address used
+5. confirmation luloudating.com sender verified
+6. exact verification URL format
+7. resend-verification behavior
+8. files changed
+9. production commit
+10. live Railway/Vercel revision
+
+11. REAL PRODUCTION TEST:
+- signup created PASS/FAIL
+- verification email physically arrived PASS/FAIL
+- verification link opened PASS/FAIL
+- email_verified_at updated PASS/FAIL
+- success/referral state shown PASS/FAIL
+
+Do not mark complete unless a real waitlist signup receives the verification email in a real inbox.
