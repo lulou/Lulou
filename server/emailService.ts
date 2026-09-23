@@ -77,12 +77,19 @@ export interface SendEmailOpts {
   type:    string;
   from?:   string;
   replyTo?: string;
+  onFailure?: (failure: EmailFailure) => void;
+}
+
+export interface EmailFailure {
+  category: string;
+  providerHttpStatus?: number;
 }
 
 export async function sendEmail(opts: SendEmailOpts): Promise<boolean> {
   const client = getClient();
 
   if (!client) {
+    opts.onFailure?.({ category: "RESEND_NOT_CONFIGURED" });
     console.warn(
       `[EMAIL] SKIPPED — RESEND_API_KEY not set. ` +
       `Would have sent "${opts.subject}" to ${opts.to} (type=${opts.type}). ` +
@@ -101,8 +108,10 @@ export async function sendEmail(opts: SendEmailOpts): Promise<boolean> {
   }
 
   let lastError: string | undefined;
+  let lastFailure: EmailFailure | undefined;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    lastFailure = undefined;
     try {
       const result = await client.emails.send({
         from:     opts.from ?? FROM,
@@ -113,9 +122,14 @@ export async function sendEmail(opts: SendEmailOpts): Promise<boolean> {
       });
 
       const resultError = (result as any)?.error;
-      if (resultError) throw new Error(`${resultError.name || "ResendError"} (HTTP ${resultError.statusCode || "unknown"}): ${resultError.message || "Resend rejected email"}`);
+      if (resultError) {
+        const name = String(resultError.name || "REJECTED").toUpperCase().replace(/[^A-Z0-9_]/g, "_").slice(0, 48);
+        const status = Number(resultError.statusCode);
+        lastFailure = { category: `RESEND_${name}`, ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { providerHttpStatus: status } : {}) };
+        throw new Error(`${resultError.name || "ResendError"} (HTTP ${resultError.statusCode || "unknown"}): ${resultError.message || "Resend rejected email"}`);
+      }
       const msgId = (result as any)?.data?.id ?? (result as any)?.id;
-      if (!msgId) throw new Error("Resend did not confirm acceptance");
+      if (!msgId) { lastFailure = { category: "RESEND_INVALID_RESPONSE" }; throw new Error("Resend did not confirm acceptance"); }
       console.log(`[EMAIL] SENT type=${opts.type} to=${opts.to} msgId=${msgId} attempt=${attempt}`);
       _appendLog({
         ts: new Date().toISOString(),
@@ -130,6 +144,7 @@ export async function sendEmail(opts: SendEmailOpts): Promise<boolean> {
 
     } catch (err: any) {
       lastError = err?.message ?? "Unknown error";
+      if (!lastFailure) lastFailure = { category: err?.name === "AbortError" ? "RESEND_TIMEOUT" : "RESEND_NETWORK_OR_RUNTIME" };
       const isLast = attempt === MAX_RETRIES;
       if (isLast) {
         console.error(`[EMAIL] FAILED type=${opts.type} to=${opts.to} after ${attempt} attempts: ${lastError}`);
@@ -140,6 +155,7 @@ export async function sendEmail(opts: SendEmailOpts): Promise<boolean> {
     }
   }
 
+  opts.onFailure?.(lastFailure ?? { category: "RESEND_UNKNOWN" });
   _appendLog({
     ts: new Date().toISOString(),
     to: opts.to,
