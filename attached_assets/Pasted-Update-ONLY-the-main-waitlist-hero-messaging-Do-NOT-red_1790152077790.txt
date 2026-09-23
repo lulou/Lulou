@@ -1,0 +1,104 @@
+Update ONLY the main waitlist hero messaging.
+
+Do NOT redesign the waitlist.
+Do NOT change the layout.
+Do NOT change the form.
+Do NOT change referral logic.
+Do NOT change verification.
+Do NOT change routing.
+Do NOT change the existing Lulou branding.
+
+The current headline:
+
+“Dating should feel like dating again.”
+
+is too generic.
+
+Replace it with:
+
+“Where conversations become something real.”
+
+Then replace the supporting copy underneath with:
+
+“A more intentional way to meet people who are ready to talk, connect and actually meet — launching first in Sydney.”
+
+==================================================
+DESIGN REQUIREMENTS
+==================================================
+
+Keep the current premium editorial look.
+
+Preserve:
+
+- existing serif headline style
+- existing spacing
+- existing warm ivory background
+- existing Lulou logo
+- existing Join Early Access button
+- existing mobile layout
+- existing Discover / Connect / Message / Talk / Meet section
+
+Do NOT make the headline smaller unless required for responsive fit.
+
+==================================================
+MOBILE RESPONSIVENESS
+==================================================
+
+Verify on:
+
+320px
+375px
+390px
+430px
+
+The new headline must:
+
+- wrap elegantly
+- not clip
+- not overflow
+- not create awkward single-word lines
+- preserve premium spacing
+
+The supporting copy should remain readable and balanced.
+
+==================================================
+COPY EXACTLY
+==================================================
+
+Headline:
+
+Where conversations become something real.
+
+Supporting copy:
+
+A more intentional way to meet people who are ready to talk, connect and actually meet — launching first in Sydney.
+
+Do not rewrite this copy.
+
+==================================================
+DO NOT BREAK
+==================================================
+
+Do not change:
+
+- waitlist signup behavior
+- form validation
+- email verification
+- referral tracking
+- admin metrics
+- existing authenticated Lulou app
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact component changed
+2. confirmation headline updated exactly
+3. confirmation supporting copy updated exactly
+4. mobile wrap verification
+5. files changed
+6. production commit
+7. live Vercel revision
+8. real iPhone visual verification PASS/FAIL
