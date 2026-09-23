@@ -203,8 +203,8 @@ export default function WaitlistPage() {
     <main className="grid min-h-[calc(100dvh-110px)] items-center gap-14 px-6 py-12 lg:grid-cols-[1fr_0.82fr] lg:gap-24 lg:py-24">
       <section className="max-w-2xl">
         <Mark>Early access · Sydney</Mark>
-        <h1 className="mt-6 max-w-xl font-serif text-[clamp(3.25rem,12vw,7.7rem)] leading-[.88] tracking-[-0.06em]">Dating should feel like dating again.</h1>
-        <p className="mt-8 max-w-md text-lg leading-8 text-[#77685f]">A quieter way to meet people who are ready for real conversation — launching first in Sydney.</p>
+        <h1 className="mt-6 max-w-xl font-serif text-[clamp(2rem,10vw,2.875rem)] leading-[.88] tracking-[-0.06em] sm:text-[clamp(3.25rem,5.4vw,4.25rem)]">Where conversations become something real.</h1>
+        <p className="mt-8 max-w-md text-lg leading-8 text-[#77685f]">A more intentional way to meet people who are ready to talk, connect and actually meet — launching first in Sydney.</p>
         <a href="#join-form" className="communication-wine-fill mt-8 inline-flex min-h-12 items-center rounded-full px-6 py-3 text-sm font-medium">Join Early Access <ArrowUpRight size={16} className="ml-2" /></a>
         <div className="mt-12 grid max-w-lg grid-cols-2 gap-x-7 gap-y-4 border-t border-[#d9c7bd] pt-5 text-sm text-[#77685f] sm:grid-cols-5 sm:gap-3">
           {["Discover", "Connect", "Message", "Talk", "Meet"].map((step, i) => <div key={step} className="flex items-center gap-2"><span className="font-serif text-xl text-[hsl(var(--communication-wine))]">0{i + 1}</span><span>{step}</span></div>)}
