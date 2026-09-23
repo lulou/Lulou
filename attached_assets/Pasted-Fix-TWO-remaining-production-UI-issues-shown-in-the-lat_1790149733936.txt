@@ -1,0 +1,349 @@
+Fix TWO remaining production UI issues shown in the latest REAL iPhone screenshots.
+
+Use the screenshots as the source of truth.
+
+1. “Elevate Your Profile” is STILL using the wrong lighter red/pink and must match the outgoing voice-note burgundy EXACTLY.
+2. The Intent Wheel empty state looks unfinished and cheap when there are no eligible users. It needs a premium Lulou empty-state design.
+
+Do NOT change unrelated functionality.
+
+==================================================
+PART 1 — ELEVATE BUTTON STILL WRONG COLOUR
+==================================================
+
+The first screenshot clearly shows:
+
+Elevate Your Profile
+
+still using a lighter pink/red than the outgoing voice-note bubbles.
+
+This has already been requested before and is still not visually correct.
+
+VOICE-NOTE BURGUNDY/WINE IS THE SOURCE OF TRUTH.
+
+Do NOT change the voice-note colour.
+
+Find the exact existing background token/value currently used by the working outgoing voice-note bubbles.
+
+Apply that exact token/value to:
+
+Elevate Your Profile
+
+Do NOT eyeball a near-match.
+Do NOT create another burgundy.
+Do NOT leave the current lighter pink.
+
+==================================================
+ELEVATE BUTTON STATES
+==================================================
+
+Preserve:
+
+- current button dimensions
+- icon
+- chevron
+- click behavior
+- loading state
+- Elevate checkout flow
+- Stripe logic
+
+Only update:
+- default fill
+- hover/pressed derivative if required for consistency
+
+White icon/text must remain clearly readable.
+
+==================================================
+VERIFY THE ACTUAL LIVE ELEMENT
+==================================================
+
+Do not just confirm a CSS token exists somewhere.
+
+Identify the exact live component rendering the button in the Likes empty state shown in the screenshot.
+
+Verify on production iPhone that its computed/default background is the exact voice-note colour.
+
+==================================================
+PART 2 — INTENT EMPTY STATE NEEDS REDESIGN
+==================================================
+
+The second screenshot shows the Intent tab when there are no eligible users.
+
+Current UI:
+
+- isolated Lulou logo
+- “No profiles to show yet”
+- generic “Retry” button
+- huge empty whitespace
+
+It looks unfinished and not premium enough for Lulou.
+
+If there are genuinely no eligible profiles in the user’s area/candidate pool, the page should still look intentionally designed.
+
+==================================================
+INTENT EMPTY STATE GOAL
+==================================================
+
+Create a polished premium empty state that feels like part of Lulou, not an error screen.
+
+The user should understand:
+
+- there are currently no eligible profiles available
+- this is normal, not a broken app
+- new users may appear
+- they can refresh/retry if they want
+- they can adjust relevant discovery settings if appropriate
+
+==================================================
+COPY DIRECTION
+==================================================
+
+Use refined copy such as:
+
+No one new right now
+
+We’ve shown you everyone who currently fits your preferences.
+
+New people join Lulou all the time.
+
+Then primary action:
+
+Refresh
+
+Secondary action if appropriate:
+
+Adjust preferences
+
+Do NOT use:
+“No profiles to show yet”
+
+if that reads too technical/generic.
+
+Do NOT make it sound like an error.
+
+==================================================
+PREMIUM VISUAL DESIGN
+==================================================
+
+Use Lulou’s design language:
+
+- warm ivory background
+- correct Lulou logo / monogram
+- elegant serif heading
+- clean body copy
+- Lulou wine accent
+- compact centered composition
+- soft spacing
+- subtle premium visual treatment
+
+Do NOT use:
+- giant blank whitespace
+- developer-style Retry button
+- Android Material styling
+- error icon
+- warning red
+- spinner as the main state
+
+==================================================
+LAYOUT
+==================================================
+
+Center the empty-state content in a more balanced vertical position.
+
+Suggested structure:
+
+[Lulou monogram / subtle branded graphic]
+
+No one new right now
+
+We’ve shown you everyone who currently fits your preferences.
+
+New people join all the time.
+
+[ Refresh ]
+
+[ Adjust preferences ]   optional
+
+Do not place the content awkwardly near the top with the rest of the page empty.
+
+==================================================
+BRANDED VISUAL
+==================================================
+
+Use the correct Lulou monogram.
+
+Optional:
+add a very subtle circular halo / soft wine outline around it.
+
+Keep it restrained.
+
+Do NOT use the logo as a random square image with no visual integration.
+
+==================================================
+REFRESH BEHAVIOR
+==================================================
+
+Refresh should:
+
+- re-request the authoritative Intent candidate pool
+- clear stale exhausted state where appropriate
+- not duplicate existing candidates
+- not reintroduce bots/NPCs
+- not bypass eligibility rules
+
+If still empty:
+remain on the same premium empty state.
+
+Do NOT make the user think something failed.
+
+==================================================
+ADJUST PREFERENCES
+==================================================
+
+If the app has a relevant existing preference/settings route:
+
+“Adjust preferences”
+
+should take the user to the appropriate dating/discovery preference area.
+
+Do not build a new preferences flow.
+
+If no safe/direct route exists, omit this secondary CTA rather than invent one.
+
+==================================================
+DISTINGUISH EMPTY VS ERROR
+==================================================
+
+This is important.
+
+There should be TWO separate states:
+
+A. VALID EMPTY RESULT
+→ premium “No one new right now” experience
+
+B. ACTUAL NETWORK/API ERROR
+→ proper retry/error state
+
+Do not show Retry/error wording for a legitimate empty candidate pool.
+
+==================================================
+INTENT / DISCOVER CONSISTENCY
+==================================================
+
+Preserve the previously requested shared eligibility logic.
+
+If Intent is empty because there are truly no eligible users:
+
+Discover should also reflect the same base eligible pool.
+
+Do NOT solve this visual task by inventing fake users or weakening candidate filters.
+
+==================================================
+NO NPC / BOT FALLBACKS
+==================================================
+
+Never populate the empty Intent state with:
+
+- bots
+- NPCs
+- demo profiles
+- seed users
+- invalid placeholder accounts
+
+Empty is better than fake.
+
+==================================================
+COLOUR CONSISTENCY
+==================================================
+
+Any primary filled CTA in this empty state should use the SAME approved voice-note burgundy/wine token.
+
+For example:
+
+Refresh
+
+should use the same primary brand fill if styled as a filled CTA.
+
+Do NOT introduce another lighter pink.
+
+==================================================
+DO NOT BREAK
+==================================================
+
+Do not change:
+
+- voice-note colour
+- voice-note functionality
+- Elevate checkout behavior
+- candidate eligibility logic except necessary stale-state refresh handling
+- Discover
+- Likes logic
+- Connections
+- Profile
+- calls
+- payments
+- message quotas
+- onboarding
+
+This task is specifically:
+
+1. correcting Elevate’s remaining colour mismatch
+2. redesigning the legitimate Intent empty state
+
+==================================================
+REAL IPHONE ACCEPTANCE
+==================================================
+
+LIKES:
+
+Verify:
+- Elevate button EXACTLY matches outgoing voice-note burgundy
+- icon/text remain readable
+- button still opens Elevate flow
+
+INTENT EMPTY STATE:
+
+Verify:
+- no generic “No profiles to show yet” technical-looking screen
+- branded premium empty state appears
+- balanced vertical layout
+- correct Lulou logo/monogram
+- primary CTA uses approved wine token
+- Refresh works
+- empty result remains elegant if still no users
+- real errors remain distinguishable from valid empty state
+- no bots/NPCs appear as filler
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact live component rendering Elevate button
+2. exact voice-note colour token/value used
+3. confirmation Elevate now uses it exactly
+4. exact Intent empty-state component changed
+5. exact empty-state copy implemented
+6. exact CTA(s) implemented
+7. valid-empty vs error-state logic
+8. Refresh behavior
+9. Adjust Preferences behavior if included
+10. confirmation no bots/NPCs are used as fallback
+11. files changed
+12. production commit
+13. live Vercel revision
+
+14. REAL IPHONE RESULTS:
+- Elevate exact voice-note colour PASS/FAIL
+- Elevate functionality unaffected PASS/FAIL
+- Intent premium empty state PASS/FAIL
+- balanced layout PASS/FAIL
+- Refresh works PASS/FAIL
+- valid empty state not presented as error PASS/FAIL
+- no NPC/bot fallback PASS/FAIL
+
+Do not mark complete unless:
+1. Elevate visibly matches the outgoing voice-note burgundy exactly,
+AND
+2. Intent’s genuine no-user state looks intentionally premium and finished rather than like a broken/unfinished error page.
