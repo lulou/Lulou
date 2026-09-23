@@ -2,10 +2,14 @@ import { createHash, randomBytes } from "crypto";
 import type { Express, Response, NextFunction } from "express";
 import { z } from "zod";
 import { supabaseAdmin, createUserClient } from "./supabase";
-import { sendEmail } from "./emailService";
+import { sendEmail, type SendEmailOpts } from "./emailService";
 import { waitlistInviteEmail, waitlistVerifiedEmail, waitlistVerifyEmail } from "./emailTemplates";
 
 const generic = { ok: true };
+const waitlistSender = "Lulou <noreply@luloudating.com>";
+const sendWaitlistEmail = (opts: Omit<SendEmailOpts, "from" | "replyTo">) =>
+  sendEmail({ ...opts, from: waitlistSender, replyTo: "noreply@luloudating.com" });
+const deliveryFailed = { code: "EMAIL_DELIVERY_FAILED", message: "We saved your place, but we couldn’t send the verification email. Please try again." };
 const joinSchema = z.object({ firstName: z.string().trim().min(1).max(80), email: z.string().trim().email().max(254), city: z.string().trim().min(1).max(80), is18Plus: z.literal(true), referralCode: z.string().trim().max(32).optional() });
 const eventSchema = z.object({ event: z.enum(["view", "form_started", "referral_copied"]) });
 const normalizeEmail = (s: string) => s.trim().toLowerCase();
@@ -13,7 +17,11 @@ const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const origin = () => {
   const value = process.env.FRONTEND_URL;
   if (!value) throw new Error("FRONTEND_URL is required for waitlist emails");
-  try { const u = new URL(value); if (u.protocol !== "https:" && u.hostname !== "localhost") throw new Error("FRONTEND_URL must use HTTPS"); return u.origin; } catch { throw new Error("FRONTEND_URL is invalid"); }
+  try {
+    const u = new URL(value);
+    if (u.protocol !== "https:" && u.hostname !== "localhost") throw new Error("FRONTEND_URL must use HTTPS");
+    return process.env.NODE_ENV === "production" ? "https://www.luloudating.com" : u.origin;
+  } catch { throw new Error("FRONTEND_URL is invalid"); }
 };
 const limits = new Map<string, { count: number; until: number }>();
 const emailCooldown = new Map<string, number>();
@@ -61,19 +69,16 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
     const { firstName, city } = parsed.data, email = normalizeEmail(parsed.data.email);
     try {
       origin(); // Fail before creating a lead if verification links cannot be built.
-      // Existing dating accounts remain on their normal lifecycle; do not
-      // create a second pre-launch record for them.
-      const existingProfile = await supabaseAdmin.from("profiles").select("user_id").ilike("email", email).limit(1);
-      if (existingProfile.error) return res.status(503).json({ message: "Unable to join the waitlist right now." });
-      if (existingProfile.data?.length) return res.json(generic);
+      // Waitlist verification is independent of dating-account verification.
+      // Never report success without saving the waitlist row or attempting mail.
       const existing = await supabaseAdmin.from("early_access_waitlist").select("id,email_verified_at,first_name,referral_code").eq("email_normalized", email).maybeSingle();
       if (existing.error) throw existing.error;
       if (existing.data) {
         if (!canEmail(email)) return res.json(generic);
         const delivered = existing.data.email_verified_at
-          ? await sendEmail({ to: email, subject: "You’re on the Lulou waitlist", html: waitlistVerifiedEmail(existing.data.first_name, `${origin()}/waitlist?r=${encodeURIComponent(existing.data.referral_code)}`), type: "waitlist_verified_resend" })
+          ? await sendWaitlistEmail({ to: email, subject: "You’re on the Lulou waitlist", html: waitlistVerifiedEmail(existing.data.first_name, `${origin()}/waitlist?r=${encodeURIComponent(existing.data.referral_code)}`), type: "waitlist_verified_resend" })
           : await sendVerification(email, existing.data.first_name, existing.data.id);
-        if (!delivered) { releaseEmailCooldown(email); return res.status(503).json({ message: "Email delivery is temporarily unavailable. Please try again." }); }
+        if (!delivered) { releaseEmailCooldown(email); return res.status(503).json(deliveryFailed); }
         return res.json(generic);
       }
       let referredBy: string | null = null;
@@ -92,7 +97,7 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
       }
       await supabaseAdmin.from("early_access_waitlist_events").insert({ waitlist_id: inserted.data.id, event: "submitted" });
       canEmail(email);
-      if (!await sendVerification(email, firstName, rawToken)) { releaseEmailCooldown(email); return res.status(503).json({ message: "Email delivery is temporarily unavailable. Please try again." }); }
+      if (!await sendVerification(email, firstName, rawToken)) { releaseEmailCooldown(email); return res.status(503).json(deliveryFailed); }
       return res.json(generic);
     } catch (e) { console.error("[WAITLIST_JOIN] request failed"); return res.status(500).json({ message: "Unable to join the waitlist right now." }); }
   });
@@ -101,12 +106,17 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
     if (!z.string().email().safeParse(email).success) return res.json(generic);
     try {
       const row = await supabaseAdmin.from("early_access_waitlist").select("id,first_name,email_verified_at,referral_code").eq("email_normalized", email).maybeSingle();
-      if (row.error || !row.data || !canEmail(email)) return res.json(generic);
+      if (row.error) return res.status(503).json({ message: "Verification email is temporarily unavailable. Please try again." });
+      if (!row.data) return res.json(generic);
+      if (!canEmail(email)) return res.status(429).json({ message: "Please wait a minute before requesting another email." });
       const sent = row.data.email_verified_at
-        ? await sendEmail({ to: email, subject: "You’re on the Lulou waitlist", html: waitlistVerifiedEmail(row.data.first_name, `${origin()}/waitlist?r=${encodeURIComponent(row.data.referral_code)}`), type: "waitlist_verified_resend" })
+        ? await sendWaitlistEmail({ to: email, subject: "You’re on the Lulou waitlist", html: waitlistVerifiedEmail(row.data.first_name, `${origin()}/waitlist?r=${encodeURIComponent(row.data.referral_code)}`), type: "waitlist_verified_resend" })
         : await sendVerification(email, row.data.first_name, row.data.id);
-      if (!sent) releaseEmailCooldown(email);
-    } catch { console.error("[WAITLIST_RESEND] request failed"); }
+      if (!sent) { releaseEmailCooldown(email); return res.status(503).json(deliveryFailed); }
+    } catch {
+      console.error("[WAITLIST_RESEND] request failed");
+      return res.status(503).json({ message: "Verification email is temporarily unavailable. Please try again." });
+    }
     res.json(generic);
   });
   app.post("/api/waitlist/verify", limiter("verify", 20), async (req, res) => {
@@ -119,7 +129,7 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
     const row = result.data[0];
     const member = await supabaseAdmin.from("early_access_waitlist").select("email_normalized,first_name").eq("referral_code", row.referral_link_code).maybeSingle();
     if (member.data) {
-      await sendEmail({
+      await sendWaitlistEmail({
         to: member.data.email_normalized,
         subject: "You’re on the Lulou waitlist",
         html: waitlistVerifiedEmail(member.data.first_name, `${origin()}/waitlist?r=${encodeURIComponent(row.referral_link_code)}`),
@@ -157,7 +167,7 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
     let invited = 0; for (const row of q.data) {
       const up = await supabaseAdmin.from("early_access_waitlist").update({ status:"invited", invited_at:new Date().toISOString(), updated_at:new Date().toISOString() }).eq("id",row.id).eq("status","waiting").select("id").maybeSingle();
       if (!up.data) continue;
-      const delivered = await sendEmail({ to: row.email_normalized, subject: "Your Lulou access is ready", html: waitlistInviteEmail(row.first_name, `${origin()}/?mode=signup`), type: "waitlist_invite" });
+      const delivered = await sendWaitlistEmail({ to: row.email_normalized, subject: "Your Lulou access is ready", html: waitlistInviteEmail(row.first_name, `${origin()}/?mode=signup`), type: "waitlist_invite" });
       if (delivered) { invited++; await supabaseAdmin.from("early_access_waitlist_events").insert({ waitlist_id: row.id, event:"invited" }); }
       else await supabaseAdmin.from("early_access_waitlist").update({ status:"waiting", invited_at:null, updated_at:new Date().toISOString() }).eq("id",row.id).eq("status","invited");
     }
@@ -183,5 +193,5 @@ async function sendVerification(to: string, firstName: string, tokenOrId: string
     const updated = await supabaseAdmin.from("early_access_waitlist").update({ email_verification_token_hash: hash(token), email_verification_expires_at: new Date(Date.now()+86400000).toISOString() }).eq("id", tokenOrId);
     if (updated.error) { console.error("[WAITLIST_EMAIL] token refresh failed"); return false; }
   }
-  return sendEmail({ to, subject: "Confirm your Lulou early access", html: waitlistVerifyEmail(firstName, `${origin()}/waitlist/verify?token=${token}`), type: "waitlist_verify" });
+  return sendWaitlistEmail({ to, subject: "Confirm your Lulou early access", html: waitlistVerifyEmail(firstName, `${origin()}/waitlist/verify?token=${encodeURIComponent(token)}`), type: "waitlist_verify" });
 }

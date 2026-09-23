@@ -25,7 +25,7 @@ const EMAIL_LOG_MAX    = 200;
 // Startup check — logged once at module load so Railway/Railway logs confirm
 // whether the key is present before the first email is attempted.
 if (RESEND_API_KEY) {
-  console.log(`[EMAIL] Resend configured — FROM="${FROM}" key=re_***${RESEND_API_KEY.slice(-4)}`);
+  console.log(`[EMAIL] Resend configured — FROM="${FROM}" key present`);
 } else {
   console.error(
     '[EMAIL] CRITICAL: RESEND_API_KEY is not set. ' +
@@ -75,6 +75,7 @@ export interface SendEmailOpts {
   subject: string;
   html:    string;
   type:    string;
+  from?:   string;
   replyTo?: string;
 }
 
@@ -104,7 +105,7 @@ export async function sendEmail(opts: SendEmailOpts): Promise<boolean> {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const result = await client.emails.send({
-        from:     FROM,
+        from:     opts.from ?? FROM,
         to:       opts.to,
         subject:  opts.subject,
         html:     opts.html,
@@ -112,7 +113,7 @@ export async function sendEmail(opts: SendEmailOpts): Promise<boolean> {
       });
 
       const resultError = (result as any)?.error;
-      if (resultError) throw new Error(resultError.message || "Resend rejected email");
+      if (resultError) throw new Error(`${resultError.name || "ResendError"} (HTTP ${resultError.statusCode || "unknown"}): ${resultError.message || "Resend rejected email"}`);
       const msgId = (result as any)?.data?.id ?? (result as any)?.id;
       if (!msgId) throw new Error("Resend did not confirm acceptance");
       console.log(`[EMAIL] SENT type=${opts.type} to=${opts.to} msgId=${msgId} attempt=${attempt}`);

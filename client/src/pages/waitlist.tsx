@@ -120,14 +120,14 @@ function PendingConfirmation({ email }: { email: string }) {
     setResending(true);
     try {
       await publicPost("/api/waitlist/resend", { email });
-      setMessage("If this address is on the list, a fresh confirmation email is on its way.");
-    } catch {
-      setMessage("We couldn’t resend that just now. Please try again shortly.");
+      setMessage("If this address is on the list, the email request was accepted. Please check your inbox.");
+    } catch (err: any) {
+      setMessage(err?.message || "We couldn’t resend that just now. Please try again shortly.");
     } finally {
       setResending(false);
     }
   };
-  return <Shell><div className="py-24 text-center"><Mark>Check your inbox</Mark><h1 className="mx-auto mt-5 max-w-xl font-serif text-4xl leading-tight sm:text-5xl">Your request is with us.</h1><p className="mx-auto mt-5 max-w-md text-base leading-7 text-[#77685f]">If <strong className="font-medium text-[#34251f]">{email}</strong> is new to Lulou, we’ll send a confirmation link. If you’re already on the list, you can safely resend it below.</p><button onClick={resend} disabled={resending} className="communication-wine-fill mt-8 inline-flex min-h-12 items-center gap-2 rounded-full px-6 py-3 text-sm font-medium disabled:opacity-60">{resending && <Loader2 size={16} className="animate-spin" />}Resend confirmation</button>{message && <p className="mx-auto mt-4 max-w-sm text-sm text-[#77685f]">{message}</p>}</div></Shell>;
+  return <Shell><div className="py-24 text-center"><Mark>Check your inbox</Mark><h1 className="mx-auto mt-5 max-w-xl font-serif text-4xl leading-tight sm:text-5xl">Your request is with us.</h1><p className="mx-auto mt-5 max-w-md text-base leading-7 text-[#77685f]">If <strong className="font-medium text-[#34251f]">{email}</strong> is on the waitlist, we’ll send a verification link. You can request another below.</p><button onClick={resend} disabled={resending} className="communication-wine-fill mt-8 inline-flex min-h-12 items-center gap-2 rounded-full px-6 py-3 text-sm font-medium disabled:opacity-60">{resending && <Loader2 size={16} className="animate-spin" />}Resend verification email</button>{message && <p className="mx-auto mt-4 max-w-sm text-sm text-[#77685f]">{message}</p>}</div></Shell>;
 }
 
 function ExpiredInvitation() {
@@ -140,14 +140,14 @@ function ExpiredInvitation() {
     setLoading(true);
     try {
       await publicPost("/api/waitlist/resend", { email: email.trim().toLowerCase() });
-      setMessage("If this address is on the list, a fresh confirmation email is on its way.");
-    } catch {
-      setMessage("We couldn’t resend that just now. Please try again shortly.");
+      setMessage("If this address is on the list, the email request was accepted. Please check your inbox.");
+    } catch (err: any) {
+      setMessage(err?.message || "We couldn’t resend that just now. Please try again shortly.");
     } finally {
       setLoading(false);
     }
   };
-  return <Shell><div className="py-24 text-center"><Mark>Link expired</Mark><h1 className="mt-5 font-serif text-4xl">Let’s send a fresh one.</h1><p className="mx-auto mt-4 max-w-sm text-sm leading-6 text-[#77685f]">Enter the email you used to join. We’ll only confirm whether a message can be sent.</p><form onSubmit={resend} className="mx-auto mt-7 flex max-w-sm flex-col gap-3 sm:flex-row"><input required type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="Email address" className="min-h-12 min-w-0 flex-1 rounded-full border border-[#cdbbb1] bg-[#fdf9f5] px-5 text-sm outline-none focus:border-[hsl(var(--communication-wine))]" /><button disabled={loading} className="communication-wine-fill min-h-12 rounded-full px-5 text-sm font-medium disabled:opacity-60">{loading ? "Sending…" : "Resend"}</button></form>{message && <p className="mx-auto mt-4 max-w-sm text-sm text-[#77685f]">{message}</p>}</div></Shell>;
+  return <Shell><div className="py-24 text-center"><Mark>Link expired</Mark><h1 className="mt-5 font-serif text-4xl">Let’s send a fresh one.</h1><p className="mx-auto mt-4 max-w-sm text-sm leading-6 text-[#77685f]">Enter the email you used to join. We’ll only confirm whether a message can be sent.</p><form onSubmit={resend} className="mx-auto mt-7 flex max-w-sm flex-col gap-3 sm:flex-row"><input required type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="Email address" className="min-h-12 min-w-0 flex-1 rounded-full border border-[#cdbbb1] bg-[#fdf9f5] px-5 text-sm outline-none focus:border-[hsl(var(--communication-wine))]" /><button disabled={loading} className="communication-wine-fill min-h-12 rounded-full px-5 text-sm font-medium disabled:opacity-60">{loading ? "Sending…" : "Resend verification email"}</button></form>{message && <p className="mx-auto mt-4 max-w-sm text-sm text-[#77685f]">{message}</p>}</div></Shell>;
 }
 
 export default function WaitlistPage() {
@@ -165,6 +165,7 @@ export default function WaitlistPage() {
   const [formStarted, setFormStarted] = useState(false);
   const [error, setError] = useState("");
   const [duplicate, setDuplicate] = useState(false);
+  const [deliveryFailed, setDeliveryFailed] = useState(false);
   const [submitted, setSubmitted] = useState<{ email: string; referralLink?: string; city?: string } | null>(null);
   const [verifyState, setVerifyState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [verifyData, setVerifyData] = useState<{ referralLink?: string; city?: string } | null>(null);
@@ -187,7 +188,7 @@ export default function WaitlistPage() {
   }
 
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); setError(""); setDuplicate(false);
+    event.preventDefault(); setError(""); setDuplicate(false); setDeliveryFailed(false);
     if (!firstName.trim() || !email.trim() || !is18Plus) { setError("Please add your name, email, and confirm you’re 18 or older."); return; }
     setLoading(true);
     try {
@@ -195,7 +196,10 @@ export default function WaitlistPage() {
       setSubmitted({ email: email.trim().toLowerCase() });
     } catch (err: any) {
       if (err?.status === 409 || /already|duplicate|exists/i.test(err?.message || "")) setDuplicate(true);
-      else setError(err?.message || "We couldn’t save that just now. Please try again.");
+      else {
+        setDeliveryFailed(err?.code === "EMAIL_DELIVERY_FAILED");
+        setError(err?.message || "We couldn’t save that just now. Please try again.");
+      }
     } finally { setLoading(false); }
   };
   return <Shell>
@@ -218,7 +222,7 @@ export default function WaitlistPage() {
           <label className="block text-sm"><span className="mb-2 block text-[#77685f]">City</span><select value={city} onChange={e => setCity(e.target.value)} className="w-full appearance-none rounded-xl border border-[#cdbbb1] bg-[#fdf9f5] px-4 py-3.5">{cities.map(item => <option key={item}>{item}</option>)}</select></label>
           <label className="flex items-start gap-3 text-sm leading-5 text-[#77685f]"><input type="checkbox" checked={is18Plus} onChange={e => setIs18Plus(e.target.checked)} className="mt-1 h-4 w-4 accent-[hsl(var(--communication-wine))]" /><span>I confirm I’m 18 or older and agree to the <Link href="/terms" className="underline underline-offset-4">Terms</Link> and <Link href="/privacy" className="underline underline-offset-4">Privacy Policy</Link>.</span></label>
           <p className="flex gap-2 text-xs leading-5 text-[#77685f]"><Mail size={15} className="mt-0.5 shrink-0" />We’ll only email about your invitation and essential account updates.</p>
-          {(error || duplicate) && <div className="rounded-xl border border-[#c58b88] bg-[#f7e4df] p-3 text-sm leading-5 text-[#763e3a]">{duplicate ? <>This email is already on the list. <button type="button" className="font-medium underline" onClick={async () => { setLoading(true); try { await publicPost("/api/waitlist/resend", { email: email.trim().toLowerCase() }); setError("A fresh confirmation email is on its way."); setDuplicate(false); } catch { setError("We couldn’t resend that just now."); } finally { setLoading(false); } }}>Resend confirmation</button></> : error}</div>}
+          {(error || duplicate) && <div className="rounded-xl border border-[#c58b88] bg-[#f7e4df] p-3 text-sm leading-5 text-[#763e3a]">{duplicate ? <>This email is already on the list. <button type="button" className="font-medium underline" onClick={async () => { setLoading(true); try { await publicPost("/api/waitlist/resend", { email: email.trim().toLowerCase() }); setSubmitted({ email: email.trim().toLowerCase() }); } catch (err: any) { setError(err?.message || "We couldn’t resend that just now."); } finally { setLoading(false); } }}>Resend verification email</button></> : <>{error}{deliveryFailed && <> <button type="button" disabled={loading} className="font-medium underline disabled:opacity-60" onClick={async () => { setLoading(true); try { await publicPost("/api/waitlist/resend", { email: email.trim().toLowerCase() }); setSubmitted({ email: email.trim().toLowerCase() }); } catch (err: any) { setError(err?.message || "We couldn’t resend that just now."); } finally { setLoading(false); } }}>Resend verification email</button></>}</>}</div>}
           <button disabled={loading} className="communication-wine-fill flex w-full items-center justify-center gap-2 rounded-full px-5 py-3.5 text-sm font-medium disabled:opacity-60">{loading && <Loader2 size={16} className="animate-spin" />}Request early access <ArrowUpRight size={16} /></button>
         </form>
         <p className="mt-5 flex items-center gap-2 text-xs text-[#77685f]"><ShieldCheck size={15} />A considered beginning, not another inbox.</p>
