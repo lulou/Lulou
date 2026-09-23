@@ -933,7 +933,7 @@ export default function LikesPage() {
 
             {!elevateActive && (
               <button
-                className="w-full rounded-xl bg-primary text-primary-foreground px-5 py-3.5 font-semibold text-sm flex items-center justify-center gap-2 shadow-md hover:brightness-105 active:scale-95 transition-all"
+                className="w-full rounded-xl communication-wine-fill px-5 py-3.5 font-semibold text-sm flex items-center justify-center gap-2 shadow-md active:scale-95 transition-all"
                 onClick={() => { setShowElevate(true); }}
                 data-testid="button-elevate-cta"
               >

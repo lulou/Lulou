@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Loader2, X, MapPin, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck, Heart, RotateCw } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
+import { LulouLogo } from "@/components/LulouLogo";
 import { ElevateModal } from "@/components/elevate-modal";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -1457,6 +1458,7 @@ export default function IntentPage() {
   const [revealQuote, setRevealQuote] = useState<string>("");
   // Tension-build label shown during pullforward/momentum phases
   const [momentumLabel, setMomentumLabel] = useState<string>('');
+  const [isRefreshingEmpty, setIsRefreshingEmpty] = useState(false);
 
   const { data: sparkStatus } = useQuery<{ sent: boolean }>({
     queryKey: ["/api/wheel/spark/status", selectedProfile?.userId],
@@ -3003,49 +3005,80 @@ export default function IntentPage() {
         })()
       : null;
 
+    const refreshEmptyFeed = async () => {
+      if (isRefreshingEmpty) return;
+      setIsRefreshingEmpty(true);
+      try {
+        // Force a fresh popular-feed request. Do not reuse the successful empty
+        // response while the user is explicitly asking to look again.
+        queryClient.removeQueries({ queryKey: ["/api/popular/debug"] });
+        await refetchProfiles({ cancelRefetch: true });
+      } finally {
+        setIsRefreshingEmpty(false);
+      }
+    };
+
     return (
-      <div className="flex-1 flex flex-col items-center justify-start p-6 overflow-y-auto">
-        <div className="text-center space-y-4 max-w-sm w-full mt-8">
-          <LulouFlowerIcon className="w-10 h-10 text-primary mx-auto opacity-60" />
-          {profiles?.emptyReason === "distance" ? (
-            <>
-              <h2 className="font-serif text-xl font-bold" data-testid="text-intent-no-profiles-distance">
-                {t("intent_distance_empty_title")}
-              </h2>
-              <p className="text-muted-foreground text-sm leading-relaxed">
-                {t("intent_distance_empty_desc").replace(
-                  "{distance}",
-                  formatDistance(profiles.radiusMiles ?? 0, units),
-                )}
-              </p>
-              <p className="text-muted-foreground text-sm leading-relaxed">
-                {t("intent_distance_empty_prompt")}
-              </p>
-              <button
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
-                onClick={() => navigate("/profile?focus=distance")}
-                data-testid="button-expand-intent-distance"
-              >
-                {t("expand_distance_btn")}
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="text-muted-foreground text-sm">{t("no_profiles_yet")}</p>
-              <button
-                className="px-4 py-2 rounded-md bg-primary/10 text-primary text-sm font-medium"
-                onClick={() => refetchProfiles()}
-                data-testid="button-refresh-intent-empty"
-              >
-                {t("retry_btn")}
-              </button>
-            </>
+      <div className="flex-1 flex items-center justify-center overflow-y-auto px-5 py-8">
+        <div
+          className="w-full max-w-[420px] rounded-[28px] border px-6 py-8 text-center sm:px-10 sm:py-9"
+          style={{
+            background: "hsl(38 42% 96%)",
+            borderColor: "hsl(29 28% 87%)",
+            boxShadow: "0 14px 38px hsl(25 25% 35% / 0.08)",
+          }}
+          data-testid="intent-empty-state"
+        >
+          <LulouLogo size={58} alt="Lulou" className="mx-auto mb-5 block" />
+          <h2
+            className="font-serif text-[27px] font-semibold leading-tight tracking-[-0.02em]"
+            style={{ color: "hsl(20 24% 19%)" }}
+            data-testid="text-intent-no-profiles"
+          >
+            {t("intent_empty_title")}
+          </h2>
+          <p
+            className="mx-auto mt-3 max-w-[310px] text-[15px] leading-7"
+            style={{ color: "hsl(22 15% 42%)" }}
+          >
+            {t("intent_empty_desc")}
+          </p>
+          {profiles?.emptyReason === "distance" && (
+            <p
+              className="mx-auto mt-2 max-w-[310px] text-[14px] leading-6"
+              style={{ color: "hsl(22 15% 48%)" }}
+            >
+              {t("intent_empty_distance_note").replace(
+                "{distance}",
+                formatDistance(profiles.radiusMiles ?? 0, units),
+              )}
+            </p>
           )}
+          <div className="mt-7 flex flex-col items-center gap-3">
+            <button
+              className="communication-wine-fill inline-flex min-h-11 w-full max-w-[220px] items-center justify-center rounded-full px-6 text-sm font-semibold tracking-[0.01em] transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
+              onClick={() => void refreshEmptyFeed()}
+              disabled={isRefreshingEmpty}
+              data-testid="button-refresh-intent-empty"
+            >
+              {isRefreshingEmpty ? t("loading_label") : t("intent_refresh")}
+            </button>
+            {profiles?.emptyReason === "distance" && (
+              <button
+                className="text-sm font-medium underline decoration-[hsl(350_35%_43%_/_0.35)] underline-offset-4"
+                style={{ color: "hsl(350 35% 38%)" }}
+                onClick={() => navigate("/profile?focus=distance")}
+                data-testid="button-adjust-intent-preferences"
+              >
+                {t("intent_adjust_preferences")}
+              </button>
+            )}
+          </div>
 
           {/* Developer-only empty-state diagnostics; normal users see the
               polished empty state above without internal filtering details. */}
           {import.meta.env.DEV && showWheelEmpty && (
-            <div className="mt-4 text-left">
+            <div className="mt-7 text-left">
               <button
                 className="text-xs text-muted-foreground underline underline-offset-2"
                 onClick={() => setWheelDiagExpanded(v => !v)}

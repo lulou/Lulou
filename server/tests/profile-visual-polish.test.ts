@@ -10,6 +10,8 @@ describe("profile visual polish regressions", () => {
   const profile = read("client/src/pages/profile.tsx");
   const settings = read("client/src/pages/settings.tsx");
   const layout = read("client/src/components/app-layout.tsx");
+  const likes = read("client/src/pages/likes.tsx");
+  const intent = read("client/src/pages/intent.tsx");
 
   it("uses restrained premium weights for identity, metadata, and section hierarchy", () => {
     expect(css).toContain(".profile-identity-title");
@@ -33,6 +35,24 @@ describe("profile visual polish regressions", () => {
     expect(css).toContain(".communication-wine-fill");
     expect(css).toContain("background: hsl(var(--communication-wine))");
     expect(profile).toContain('className="communication-wine-fill shrink-0"');
+    const emptyStateButton = likes.match(/<button\s+className="([^"]*)"\s+onClick=\{\(\) => \{ setShowElevate\(true\); \}\}\s+data-testid="button-elevate-cta"/);
+    expect(emptyStateButton).not.toBeNull();
+    expect(emptyStateButton![1]).toContain("communication-wine-fill");
+    expect(emptyStateButton![1]).not.toContain("bg-primary");
+  });
+
+  it("keeps the successful Intent empty state branded and separate from an API error", () => {
+    expect(intent).toContain('if (isError) {');
+    expect(intent).toContain('data-testid="button-retry-intent-error"');
+    expect(intent).toContain('data-testid="intent-empty-state"');
+    expect(intent).toContain("<LulouLogo");
+    expect(intent).toContain('t("intent_empty_title")');
+    expect(intent).toContain('t("intent_empty_desc")');
+    expect(intent).toContain('data-testid="button-refresh-intent-empty"');
+    expect(intent).toContain("communication-wine-fill inline-flex");
+    expect(intent).toContain('refetchProfiles({ cancelRefetch: true })');
+    expect(intent).toContain('navigate("/profile?focus=distance")');
+    expect(intent).not.toContain('t("no_profiles_yet")');
   });
 
   it("uses the voice-note wine token for primary Profile and Settings controls", () => {
