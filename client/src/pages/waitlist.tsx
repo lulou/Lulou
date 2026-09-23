@@ -94,12 +94,15 @@ function Success({ email, referralLink, city }: { email?: string; referralLink?:
   };
   return <div className="min-h-[100dvh] bg-[#f6eee9] text-[#34251f]">
     <Metadata />
-    <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-7"><LulouLogo size={42} rounded /><span className="text-[11px] uppercase tracking-[0.24em] text-[#77685f]">Early access · {city || "Sydney"}</span></header>
+    <header className="mx-auto flex max-w-6xl items-center justify-center px-6 py-7"><span className="text-[11px] uppercase tracking-[0.24em] text-[#77685f]">Early access · {city || "Sydney"}</span></header>
     <main className="mx-auto flex min-h-[calc(100dvh-158px)] max-w-2xl items-center px-6 py-16">
       <section className="w-full rounded-[2rem] border border-[#d9c7bd] bg-[#fbf6f1] p-7 shadow-[0_24px_70px_rgba(89,48,34,.08)] sm:p-12">
-        <div className="mb-8 flex h-12 w-12 items-center justify-center rounded-full bg-[#ead8cf] text-[hsl(var(--communication-wine))]"><CheckCircle2 size={24} /></div>
-        <Mark>You're on the list</Mark>
-        <h1 className="mt-5 font-serif text-4xl leading-[1.05] tracking-[-0.03em] sm:text-6xl">A better kind of first date is coming.</h1>
+        <div className="flex flex-col items-center">
+          <LulouLogo size={42} rounded />
+          <div className="mb-8 mt-7 flex h-12 w-12 items-center justify-center rounded-full bg-[#ead8cf] text-[hsl(var(--communication-wine))]"><CheckCircle2 size={24} /></div>
+          <Mark>You're on the list</Mark>
+        </div>
+        <h1 className="mt-5 text-center font-serif text-4xl leading-[1.05] tracking-[-0.03em] sm:text-6xl">A better kind of first date is coming.</h1>
         <p className="mt-6 max-w-lg text-base leading-7 text-[#77685f]">{email ? <>We’ll write to <strong className="font-medium text-[#34251f]">{email}</strong> when a Sydney wave is ready.</> : "Your invitation is confirmed. We’ll be in touch when a Sydney wave is ready."} No ranks, no noise — just a thoughtful invitation.</p>
         {referralLink && <div className="mt-9 rounded-2xl border border-[#d9c7bd] bg-[#f6eee9] p-4">
           <p className="text-[11px] uppercase tracking-[0.16em] text-[#77685f]">Your private invitation link</p>
