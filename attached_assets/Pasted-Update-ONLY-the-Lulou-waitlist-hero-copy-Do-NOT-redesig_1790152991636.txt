@@ -1,0 +1,131 @@
+Update ONLY the Lulou waitlist hero copy.
+
+Do NOT redesign the page.
+Do NOT change the layout.
+Do NOT change the form.
+Do NOT change referral logic.
+Do NOT change verification.
+Do NOT change routing.
+Do NOT change the existing Lulou branding.
+
+The current hero still feels too wordy and generic.
+
+Replace the current headline with:
+
+Meet someone worth leaving the app for.
+
+Replace the supporting copy underneath with:
+
+A more intentional dating experience for people ready to talk, connect and meet.
+
+Keep:
+
+EARLY ACCESS · SYDNEY
+
+above the headline.
+
+==================================================
+DESIGN GOAL
+==================================================
+
+The new hero should feel:
+
+- premium
+- confident
+- concise
+- memorable
+- emotionally stronger
+- less like generic marketing copy
+- more like a high-end dating brand
+
+The copy should create intrigue without over-explaining the product.
+
+==================================================
+PRESERVE CURRENT DESIGN
+==================================================
+
+Keep the existing:
+
+- Lulou logo
+- warm ivory background
+- serif hero typography
+- Join Early Access CTA
+- Discover / Connect / Message / Talk / Meet section
+- current spacing system
+- current mobile-first layout
+
+Do NOT introduce new decorative elements.
+
+==================================================
+HEADLINE
+==================================================
+
+Use exactly:
+
+Meet someone worth leaving the app for.
+
+Do not rewrite it.
+
+Keep it large and editorial.
+
+==================================================
+SUPPORTING COPY
+==================================================
+
+Use exactly:
+
+A more intentional dating experience for people ready to talk, connect and meet.
+
+Do not rewrite it.
+
+Keep it visually quieter than the headline.
+
+==================================================
+MOBILE RESPONSIVENESS
+==================================================
+
+Verify on:
+
+320px
+375px
+390px
+430px
+
+The headline must:
+
+- wrap elegantly
+- not clip
+- not overflow
+- avoid awkward single-word lines
+- preserve premium spacing
+
+The supporting copy should remain balanced and readable.
+
+==================================================
+DO NOT BREAK
+==================================================
+
+Do not change:
+
+- waitlist signup
+- email verification
+- referral links
+- admin metrics
+- age confirmation
+- public route behavior
+- existing authenticated Lulou app
+
+==================================================
+FINAL REPORT
+==================================================
+
+Report ONLY:
+
+1. exact component changed
+2. confirmation headline updated exactly
+3. confirmation supporting copy updated exactly
+4. mobile wrap verification
+5. files changed
+6. production commit
+7. live Vercel revision
+8. real iPhone visual verification PASS/FAIL
