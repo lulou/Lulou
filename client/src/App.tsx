@@ -25,6 +25,8 @@ import ElevateSuccessPage from "@/pages/elevate-success";
 import ExtrasSuccessPage from "@/pages/extras-success";
 import DragTestPage from "@/pages/drag-test";
 import AdminDiagnosticsPage from "@/pages/admin-diagnostics";
+import WaitlistPage from "@/pages/waitlist";
+import AdminWaitlistPage from "@/pages/admin-waitlist";
 import AdminPaymentSimPage from "@/pages/admin-payment-sim";
 import AuthCallbackPage from "@/pages/auth-callback";
 import DatePlanPage from "@/pages/date-plan";
@@ -3477,6 +3479,7 @@ function AppContent({ onStartupResolved }: { onStartupResolved: () => void }) {
       <Route path="/elevate/success" component={ElevateSuccessPage} />
       <Route path="/extras/success" component={ExtrasSuccessPage} />
       <Route path="/admin/diagnostics" component={AdminDiagnosticsPage} />
+      <Route path="/admin/waitlist" component={AdminWaitlistPage} />
       <Route path="/admin/payment-sim" component={AdminPaymentSimPage} />
       <Route>
         <AppLayout>
@@ -3506,6 +3509,7 @@ function App() {
   useEffect(() => {
     const publicRoute =
       rootLocation === "/drag-test" ||
+      rootLocation === "/waitlist" || rootLocation.startsWith("/waitlist/") ||
       ["/privacy", "/terms", "/community-guidelines", "/safe-dating",
         "/data-deletion", "/cookie-policy", "/billing-terms"].includes(rootLocation);
     if (publicRoute || !!supabaseConfigError) resolveStartup();
@@ -3580,6 +3584,10 @@ function App() {
   // ── Supabase config guard — after all hooks ────────────────────────────────
   // If VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY are missing (Vercel env
   // vars not set), show a clear actionable error instead of a blank page.
+  if (rootLocation === "/waitlist" || rootLocation.startsWith("/waitlist/")) {
+    return <AppRootErrorBoundary><WaitlistPage /></AppRootErrorBoundary>;
+  }
+
   if (supabaseConfigError) {
     console.error("[APP_CONFIG_ERROR]", supabaseConfigError);
     return (
@@ -3601,6 +3609,7 @@ function App() {
       </AppRootErrorBoundary>
     );
   }
+
 
   return (
     <AppRootErrorBoundary>

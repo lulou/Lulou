@@ -56,6 +56,7 @@ import {
 } from "./spinEligibility";
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
+import { registerWaitlistRoutes, markWaitlistJoinedApp } from "./waitlist";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -559,7 +560,7 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
   }
 }
 
-const isAuthenticated: RequestHandler = async (req: any, res, next) => {
+export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
   const _mwStart = Date.now();
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -1019,6 +1020,8 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Public early-access endpoints are isolated from authenticated dating flows.
+  registerWaitlistRoutes(app, isAuthenticated);
   clearStaleCallsOnStartup().catch((err) => console.error("[STARTUP] clearStaleCallsOnStartup failed:", err?.message));
   reconcilePendingCallSettlements().catch((err) => console.error("[STARTUP] call settlement reconciliation failed:", err?.message));
   setInterval(() => {
@@ -3383,6 +3386,8 @@ export async function registerRoutes(
       // effect on the very next /api/discover call.
       _userDiscoverMeta.delete(userId);
       res.json(result);
+      // Best-effort lifecycle hook; never affects profile persistence/response.
+      void markWaitlistJoinedApp(req.user.email);
 
       // Send welcome email when the user completes onboarding for the first time
       if ((parsed.data as any).onboardingComplete === true) {

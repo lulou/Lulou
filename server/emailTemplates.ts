@@ -30,6 +30,41 @@ const DIVIDER =
     <tr><td style="height:1px;background:linear-gradient(90deg,transparent,rgba(188,78,96,0.18),transparent);"></td></tr>
   </table>`;
 
+const waitlistEscape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]!));
+
+function waitlistLayout(title: string, firstName: string, copy: string, label: string, target: string, note: string): string {
+  const site = new URL(target).origin;
+  const name = waitlistEscape(firstName || "there");
+  const href = waitlistEscape(target);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} — Lulou</title></head>
+<body style="margin:0;padding:0;background:#f6eee9;color:#34251f;font-family:Arial,Helvetica,sans-serif">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6eee9;padding:40px 16px"><tr><td align="center">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:540px">
+<tr><td style="padding:0 0 24px;text-align:center"><img src="${site}/lulou-logo-master.png" width="52" height="52" alt="Lulou" style="display:inline-block;border-radius:12px"><p style="margin:12px 0 0;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#945064">Lulou · Early access</p></td></tr>
+<tr><td style="background:#fbf6f1;border:1px solid #d9c7bd;border-radius:24px;padding:40px 32px">
+<h1 style="margin:0 0 22px;font:normal 38px/1.12 Georgia,serif;letter-spacing:-1px;color:#34251f">${title}</h1>
+<p style="font-size:16px;line-height:1.7">Hi ${name},</p>
+<p style="font-size:16px;line-height:1.7;color:#66564f">${copy}</p>
+<p style="padding:18px 0 12px"><a href="${href}" style="display:inline-block;background:#945064;color:white;padding:15px 25px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none">${label}</a></p>
+<p style="font-size:13px;line-height:1.6;color:#77685f">${note}</p>
+</td></tr>
+<tr><td style="padding:24px 10px;text-align:center;font-size:12px;color:#77685f">You’re receiving this because you requested Lulou early access.<br>
+<a href="${site}/privacy" style="color:#945064">Privacy Policy</a> &nbsp;·&nbsp; <a href="${site}/terms" style="color:#945064">Terms</a></td></tr>
+</table></td></tr></table></body></html>`;
+}
+
+export function waitlistVerifyEmail(firstName: string, verifyUrl: string): string {
+  return waitlistLayout("You’re almost in.", firstName, "Confirm your email to join Lulou early access. We’re launching first in Sydney.", "Confirm Early Access", verifyUrl, "This link expires in 24 hours. If you didn’t request it, you can ignore this message.");
+}
+
+export function waitlistVerifiedEmail(firstName: string, referralUrl: string): string {
+  return waitlistLayout("You’re on the list.", firstName, "Sydney is opening in waves so there are enough people to actually meet. Here’s your personal link to share with friends.", "Invite friends", referralUrl, "We’ll email you when your access is ready. Referrals may help prioritise invitations, but don’t guarantee a place in any particular wave.");
+}
+
+export function waitlistInviteEmail(firstName: string, signupUrl: string): string {
+  return waitlistLayout("Your place is ready.", firstName, "Your Lulou invitation is here. Create your account and complete your profile to get started.", "Join Lulou", signupUrl, "Lulou is for adults aged 18 and over. You’ll confirm your eligibility during signup.");
+}
+
 // ── Shared layout wrapper ─────────────────────────────────────────────────────
 
 function layout(headerTitle: string, headerSubtitle: string, body: string, footerExtra?: string, preheader?: string): string {

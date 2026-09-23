@@ -111,7 +111,10 @@ export async function sendEmail(opts: SendEmailOpts): Promise<boolean> {
         replyTo:  opts.replyTo ?? FROM_ADDRESS,
       });
 
-      const msgId = (result as any)?.data?.id ?? (result as any)?.id ?? "(no-id)";
+      const resultError = (result as any)?.error;
+      if (resultError) throw new Error(resultError.message || "Resend rejected email");
+      const msgId = (result as any)?.data?.id ?? (result as any)?.id;
+      if (!msgId) throw new Error("Resend did not confirm acceptance");
       console.log(`[EMAIL] SENT type=${opts.type} to=${opts.to} msgId=${msgId} attempt=${attempt}`);
       _appendLog({
         ts: new Date().toISOString(),

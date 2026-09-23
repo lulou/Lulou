@@ -13,6 +13,7 @@ const _host = typeof window !== "undefined" ? window.location.hostname : "";
 const _isSameOriginHost =
   _host === "" ||
   _host === "localhost" ||
+  _host === "127.0.0.1" ||
   _host.endsWith(".replit.app") ||
   _host.endsWith(".replit.dev") ||
   _host.endsWith(".repl.co");

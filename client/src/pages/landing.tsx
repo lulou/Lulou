@@ -192,7 +192,11 @@ export default function Landing() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<AuthMode>("signin");
+  const [mode, setMode] = useState<AuthMode>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "signup"
+      ? "signup"
+      : "signin"
+  );
   const [authError, setAuthError] = useState<AuthError | null>(null);
   const [rawAuthError, setRawAuthError] = useState<RawAuthError | null>(null);
   const [showRawError, setShowRawError] = useState(false);
