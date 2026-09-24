@@ -4,6 +4,7 @@ import { z } from "zod";
 import { supabaseAdmin, createUserClient } from "./supabase";
 import { sendEmail, type SendEmailOpts, type EmailFailure } from "./emailService";
 import { waitlistInviteEmail, waitlistVerifiedEmail, waitlistVerifyEmail } from "./emailTemplates";
+import { publicWaitlistCount } from "./waitlistSocialProof";
 
 const generic = { ok: true };
 const waitlistSender = "Lulou <noreply@luloudating.com>";
@@ -64,6 +65,23 @@ async function admin(req: any, res: Response, next: NextFunction) {
 function csvCell(value: unknown) { const s = String(value ?? ""); return `"${(/^\s*[=+\-@]/.test(s) ? "'" : "") + s.replace(/"/g, '""')}"`; }
 
 export function registerWaitlistRoutes(app: Express, authenticated: any) {
+  app.get("/api/waitlist/public-count", async (_req, res) => {
+    try {
+      // Verification, rather than row creation, is when someone joins the list.
+      // The unique lower(email_normalized) index ensures one member per email.
+      const { count, error } = await supabaseAdmin.from("early_access_waitlist")
+        .select("id", { count: "exact", head: true })
+        .not("email_verified_at", "is", null)
+        .neq("status", "removed");
+      if (error) throw error;
+      const payload = publicWaitlistCount(count);
+      res.set("Cache-Control", "public, max-age=30, s-maxage=60");
+      return res.json(payload);
+    } catch {
+      res.set("Cache-Control", "no-store");
+      return res.status(503).json({ visible: false });
+    }
+  });
   app.post("/api/waitlist/join", limiter("join", 8), async (req: any, res) => {
     const parsed = joinSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Please provide a name, email, city, and confirm you are 18 or older." });

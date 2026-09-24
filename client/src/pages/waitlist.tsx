@@ -172,6 +172,27 @@ export default function WaitlistPage() {
   const [submitted, setSubmitted] = useState<{ email: string; referralLink?: string; city?: string } | null>(null);
   const [verifyState, setVerifyState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [verifyData, setVerifyData] = useState<{ referralLink?: string; city?: string } | null>(null);
+  const [waitlistCount, setWaitlistCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (token) return;
+    let active = true;
+    const loadCount = async () => {
+      try {
+        requireApiBase("/api/waitlist/public-count");
+        const response = await fetch(`${API_BASE}/api/waitlist/public-count`, { credentials: "omit" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active && data.visible === true && Number.isSafeInteger(data.count) && data.count >= 250) {
+          setWaitlistCount(data.count);
+        }
+      } catch {
+        // Social proof is optional; the signup form must work without it.
+      }
+    };
+    void loadCount();
+    return () => { active = false; };
+  }, [token]);
 
   useEffect(() => {
     if (!token) publicPost("/api/waitlist/event", { event: "view" }).catch(() => {});
@@ -228,6 +249,7 @@ export default function WaitlistPage() {
           {(error || duplicate) && <div className="rounded-xl border border-[#c58b88] bg-[#f7e4df] p-3 text-sm leading-5 text-[#763e3a]">{duplicate ? <>This email is already on the list. <button type="button" className="font-medium underline" onClick={async () => { setLoading(true); try { await publicPost("/api/waitlist/resend", { email: email.trim().toLowerCase() }); setSubmitted({ email: email.trim().toLowerCase() }); } catch (err: any) { setError(err?.message || "We couldn’t resend that just now."); } finally { setLoading(false); } }}>Resend verification email</button></> : <>{error}{deliveryFailed && <> <button type="button" disabled={loading} className="font-medium underline disabled:opacity-60" onClick={async () => { setLoading(true); try { await publicPost("/api/waitlist/resend", { email: email.trim().toLowerCase() }); setSubmitted({ email: email.trim().toLowerCase() }); } catch (err: any) { setError(err?.message || "We couldn’t resend that just now."); } finally { setLoading(false); } }}>Resend verification email</button></>}</>}</div>}
           <button disabled={loading} className="communication-wine-fill flex w-full items-center justify-center gap-2 rounded-full px-5 py-3.5 text-sm font-medium disabled:opacity-60">{loading && <Loader2 size={16} className="animate-spin" />}Request early access <ArrowUpRight size={16} /></button>
         </form>
+        {waitlistCount !== null && <p className="mx-auto mt-5 max-w-sm text-center text-sm leading-6 text-[#77685f]">Join <span className="font-semibold text-[hsl(var(--communication-wine))]">{waitlistCount}</span> people waiting for a better kind of first date.</p>}
         <p className="mt-5 flex items-center gap-2 text-xs text-[#77685f]"><ShieldCheck size={15} />A considered beginning, not another inbox.</p>
       </section>
     </main>
