@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import type { Express, Response, NextFunction } from "express";
 import { z } from "zod";
-import { supabaseAdmin, createUserClient } from "./supabase";
+import { requireAdminCapability, createUserClient } from "./supabase";
 import { sendEmail, type SendEmailOpts, type EmailFailure } from "./emailService";
 import { waitlistInviteEmail, waitlistVerifiedEmail, waitlistVerifyEmail } from "./emailTemplates";
 import { publicWaitlistCount } from "./waitlistSocialProof";
@@ -67,6 +67,7 @@ function csvCell(value: unknown) { const s = String(value ?? ""); return `"${(/^
 export function registerWaitlistRoutes(app: Express, authenticated: any) {
   app.get("/api/waitlist/public-count", async (_req, res) => {
     try {
+      const supabaseAdmin = await requireAdminCapability();
       // Verification, rather than row creation, is when someone joins the list.
       // The unique lower(email_normalized) index ensures one member per email.
       const { count, error } = await supabaseAdmin.from("early_access_waitlist")
@@ -87,6 +88,7 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
     if (!parsed.success) return res.status(400).json({ message: "Please provide a name, email, city, and confirm you are 18 or older." });
     const { firstName, city } = parsed.data, email = normalizeEmail(parsed.data.email);
     try {
+      const supabaseAdmin = await requireAdminCapability();
       origin(); // Fail before creating a lead if verification links cannot be built.
       let failure: EmailFailure | null = null;
       const onFailure = (value: EmailFailure) => { failure = value; };
@@ -126,6 +128,7 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
     const email = typeof req.body?.email === "string" ? normalizeEmail(req.body.email) : "";
     if (!z.string().email().safeParse(email).success) return res.json(generic);
     try {
+      const supabaseAdmin = await requireAdminCapability();
       let failure: EmailFailure | null = null;
       const onFailure = (value: EmailFailure) => { failure = value; };
       const row = await supabaseAdmin.from("early_access_waitlist").select("id,first_name,email_verified_at,referral_code").eq("email_normalized", email).maybeSingle();
@@ -146,6 +149,9 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
     const token = typeof req.body?.token === "string" ? req.body.token : "";
     if (!/^[a-f0-9]{64}$/i.test(token)) return res.status(400).json({ message: "Invalid or expired verification link." });
     try { origin(); } catch { return res.status(503).json({ message: "Verification is temporarily unavailable." }); }
+    let supabaseAdmin: Awaited<ReturnType<typeof requireAdminCapability>>;
+    try { supabaseAdmin = await requireAdminCapability(); }
+    catch { return res.status(503).json({ message: "Verification is temporarily unavailable." }); }
     const result = await supabaseAdmin.rpc("verify_early_access_waitlist", { p_token_hash: hash(token) });
     if (result.error) return res.status(503).json({ message: "Verification is temporarily unavailable." });
     if (!result.data?.[0]?.ok) return res.status(400).json({ message: "Invalid or expired verification link." });
@@ -163,16 +169,25 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
   });
   app.post("/api/waitlist/event", limiter("event", 60), async (req, res) => {
     const p = eventSchema.safeParse(req.body); if (!p.success) return res.status(400).json({ message: "Invalid event" });
+    let supabaseAdmin: Awaited<ReturnType<typeof requireAdminCapability>>;
+    try { supabaseAdmin = await requireAdminCapability(); }
+    catch { return res.status(503).json({ message: "Unable to record event" }); }
     const saved = await supabaseAdmin.from("early_access_waitlist_events").insert({ event: p.data.event });
     if (saved.error) return res.status(503).json({ message: "Unable to record event" });
     res.json(generic);
   });
   app.get("/api/admin/waitlist/stats", authenticated, admin, async (_req, res) => {
+    let supabaseAdmin: Awaited<ReturnType<typeof requireAdminCapability>>;
+    try { supabaseAdmin = await requireAdminCapability(); }
+    catch { return res.status(503).json({ message: "Unable to load waitlist stats" }); }
     const { data, error } = await supabaseAdmin.rpc("early_access_waitlist_stats");
     if (error || !data) return res.status(500).json({ message: "Unable to load waitlist stats" });
     res.json(data);
   });
   app.get("/api/admin/waitlist/export", authenticated, admin, async (_req, res) => {
+    let supabaseAdmin: Awaited<ReturnType<typeof requireAdminCapability>>;
+    try { supabaseAdmin = await requireAdminCapability(); }
+    catch { return res.status(503).json({ message: "Unable to export waitlist" }); }
     const rows: any[] = []; for (let from = 0; ; from += 1000) {
       const q = await supabaseAdmin.from("early_access_waitlist").select("first_name,email_normalized,city,status,referral_count,created_at,email_verified_at,invited_at").range(from, from + 999);
       if (q.error) return res.status(500).json({ message: "Unable to export waitlist" });
@@ -185,6 +200,9 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
     const city = req.body?.city, limit = Number(req.body?.limit);
     if (city !== "Sydney" || !Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ message: "city must be Sydney and limit must be 1-100" });
     try { origin(); } catch { return res.status(503).json({ message: "Invitations are temporarily unavailable." }); }
+    let supabaseAdmin: Awaited<ReturnType<typeof requireAdminCapability>>;
+    try { supabaseAdmin = await requireAdminCapability(); }
+    catch { return res.status(503).json({ message: "Invitations are temporarily unavailable." }); }
     const q = await supabaseAdmin.from("early_access_waitlist").select("id,email_normalized,first_name").eq("city", city).eq("status","waiting").not("email_verified_at","is",null).order("created_at").limit(limit);
     if (q.error) return res.status(500).json({ message: "Unable to invite waitlist members" });
     let invited = 0; for (const row of q.data) {
@@ -202,6 +220,8 @@ export function registerWaitlistRoutes(app: Express, authenticated: any) {
 export async function markWaitlistJoinedApp(email: string | undefined) {
   if (!email) return;
   const normalized = normalizeEmail(email);
+  let supabaseAdmin: Awaited<ReturnType<typeof requireAdminCapability>>;
+  try { supabaseAdmin = await requireAdminCapability(); } catch { return; }
   const claimed = await supabaseAdmin.from("early_access_waitlist")
     .update({ status: "joined", joined_app_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("email_normalized", normalized).eq("status", "invited").is("joined_app_at", null)
@@ -210,6 +230,9 @@ export async function markWaitlistJoinedApp(email: string | undefined) {
   await supabaseAdmin.from("early_access_waitlist_events").insert({ waitlist_id: claimed.data.id, event: "joined_app" });
 }
 async function sendVerification(to: string, firstName: string, tokenOrId: string, onFailure?: (failure: EmailFailure) => void) {
+  let supabaseAdmin: Awaited<ReturnType<typeof requireAdminCapability>>;
+  try { supabaseAdmin = await requireAdminCapability(); }
+  catch { onFailure?.({ category: "TOKEN_REFRESH_FAILED" }); return false; }
   let token = tokenOrId;
   if (!/^[a-f0-9]{64}$/i.test(token)) {
     token = randomBytes(32).toString("hex");

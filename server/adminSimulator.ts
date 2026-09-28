@@ -29,7 +29,7 @@ import {
   type ExtrasItemId,
   type ElevatePackId,
 } from "./purchaseItems";
-import { supabaseAdmin } from "./supabase";
+import { requireAdminCapability } from "./supabase";
 import { sendEmail } from "./emailService";
 import {
   purchaseConfirmationEmail,
@@ -68,6 +68,7 @@ interface UserInfo {
 
 async function getUserInfo(userId: string): Promise<UserInfo> {
   try {
+    const supabaseAdmin = await requireAdminCapability();
     const [authResult, profileResult] = await Promise.all([
       supabaseAdmin.auth.admin.getUserById(userId),
       supabaseAdmin
@@ -137,6 +138,7 @@ export function registerAdminSimulatorRoutes(
     async (req: Request, res: Response) => {
       if (!checkAdmin(req, res)) return;
       try {
+        const supabaseAdmin = await requireAdminCapability();
         const { data, error } = await supabaseAdmin.auth.admin.listUsers({
           page: 1,
           perPage: 100,
@@ -181,6 +183,7 @@ export function registerAdminSimulatorRoutes(
     async (req: Request, res: Response) => {
       if (!checkAdmin(req, res)) return;
       try {
+        await requireAdminCapability();
         const rows = await db
           .select()
           .from(adminPaymentSimulations)
@@ -202,6 +205,12 @@ export function registerAdminSimulatorRoutes(
     isAuthenticated,
     async (req: Request, res: Response) => {
       if (!checkAdmin(req, res)) return;
+
+      try {
+        await requireAdminCapability();
+      } catch {
+        return res.status(503).json({ message: "Admin capability is unavailable." });
+      }
 
       const adminUserId = (req as any).user?.id ?? "unknown";
       const adminEmail = (req as any).user?.email ?? "unknown";
@@ -411,6 +420,12 @@ export function registerAdminSimulatorRoutes(
     isAuthenticated,
     async (req: Request, res: Response) => {
       if (!checkAdmin(req, res)) return;
+
+      try {
+        await requireAdminCapability();
+      } catch {
+        return res.status(503).json({ message: "Admin capability is unavailable." });
+      }
 
       const adminEmail = (req as any).user?.email ?? "unknown";
       const { simSessionId } = req.body as { simSessionId: string };

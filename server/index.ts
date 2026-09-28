@@ -5,12 +5,7 @@ import { createServer } from "http";
 import { WebhookHandlers } from "./webhookHandlers";
 import helmet from "helmet";
 import { generalLimiter, authLimiter } from "./limiters";
-
-// Supabase clients require the project origin, not a REST endpoint path.
-// Some deployments provide VITE_SUPABASE_URL with a trailing /rest/v1.
-function getSupabaseProjectOrigin(): string {
-  return new URL(process.env.VITE_SUPABASE_URL!).origin;
-}
+import { initializeSupabaseAdmin, requireAdminCapability, AdminUnavailableError } from "./supabase";
 
 const app = express();
 const httpServer = createServer(app);
@@ -647,6 +642,10 @@ async function initPushCleanup() {
 
   // 2. Global error handler (must be after routes).
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    if (err instanceof AdminUnavailableError) {
+      if (res.headersSent) return next(err);
+      return res.status(503).json({ code: "ADMIN_UNAVAILABLE", message: "Service temporarily unavailable. Please retry." });
+    }
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
@@ -660,9 +659,9 @@ async function initPushCleanup() {
   });
 
   // 3. Static serving / Vite dev server.
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" && process.env.BRIDGE_BACKEND_ONLY !== "true") {
     serveStatic(app);
-  } else {
+  } else if (process.env.NODE_ENV !== "production") {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
@@ -756,12 +755,9 @@ async function initPushCleanup() {
   // If missing, Discovery/Wheel still work; distance filter is just skipped.
   (async () => {
     try {
-      const { createClient } = await import("@supabase/supabase-js");
-      const ws = (await import("ws")).default;
       const { setHasLatLngColumns } = await import("./storage");
-      const supabaseUrl = getSupabaseProjectOrigin();
-      const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-      const adminSb = createClient(supabaseUrl, serviceKey, { realtime: { transport: ws as any } });
+      await initializeSupabaseAdmin();
+      const adminSb = await requireAdminCapability();
       const { error } = await adminSb.from("profiles").select("latitude, longitude").limit(1);
       const columnsExist = !error || !error.message?.includes("does not exist");
       setHasLatLngColumns(columnsExist);
@@ -862,8 +858,6 @@ async function initPushCleanup() {
   // storage.ts so queries never reference a column that doesn't exist yet.
   (async () => {
     try {
-      const { createClient: _createClientProbe } = await import("@supabase/supabase-js");
-      const _ws = (await import("ws")).default;
       const {
         setHasIsPausedColumn,
         setHasIsDiscoverableColumn,
@@ -882,9 +876,8 @@ async function initPushCleanup() {
         setHasEmailVerifiedColumn,
       } = await import("./storage");
 
-      const _supabaseUrl = getSupabaseProjectOrigin();
-      const _serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-      const _adminSb = _createClientProbe(_supabaseUrl, _serviceKey, { realtime: { transport: _ws as any } });
+      await initializeSupabaseAdmin();
+      const _adminSb = await requireAdminCapability();
 
       type ColDef = {
         col: string;

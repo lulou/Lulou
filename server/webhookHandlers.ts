@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { processedStripeSessions, userBenefits, callCredits, membershipSubscriptions, refundRecords } from '@shared/schema';
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
-import { supabaseAdmin } from './supabase';
+import { requireAdminCapability } from './supabase';
 import { sendEmail, getEmailLog } from './emailService';
 import { sendPushToUser, buildPush } from './pushService';
 import {
@@ -47,6 +47,7 @@ async function getUserInfo(userId: string): Promise<UserInfo> {
     ]);
 
   try {
+    const supabaseAdmin = await requireAdminCapability();
     const [authResult, profileResult] = await Promise.all([
       withTimeout(supabaseAdmin.auth.admin.getUserById(userId), 4000, "getUserById"),
       supabaseAdmin

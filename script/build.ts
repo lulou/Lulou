@@ -48,14 +48,17 @@ async function runTranslationCheck() {
 }
 
 async function buildAll() {
-  await runTranslationCheck();
+  const bridgeOnly = process.env.BRIDGE_BACKEND_ONLY === "true";
+  if (!bridgeOnly) await runTranslationCheck();
 
   await rm("dist", { recursive: true, force: true });
 
-  console.log("building client...");
-  await viteBuild();
+  if (!bridgeOnly) {
+    console.log("building client...");
+    await viteBuild();
+  }
 
-  console.log("building server...");
+  console.log(bridgeOnly ? "building gate-free backend-only bridge..." : "building server...");
   const pkg = JSON.parse(await readFile("package.json", "utf-8"));
   const allDeps = [
     ...Object.keys(pkg.dependencies || {}),
@@ -71,6 +74,7 @@ async function buildAll() {
     outfile: "dist/index.cjs",
     define: {
       "process.env.NODE_ENV": '"production"',
+      "process.env.BRIDGE_BACKEND_ONLY": bridgeOnly ? '"true"' : '"false"',
     },
     minify: true,
     external: externals,

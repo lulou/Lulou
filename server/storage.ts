@@ -10,11 +10,12 @@ import {
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
 import { decideMeetAvailabilityAcceptance } from "@shared/meet-availability";
-import { supabase as defaultSupabase, supabaseAdmin, hasServiceRoleKey } from "./supabase";
+import { supabase as defaultSupabase, supabaseAdmin, hasServiceRoleKey, requireAdminCapability } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db, pool as localPool } from "./db";
 import { eq, gt, sql, and, or, asc } from "drizzle-orm";
 import { utcWeekStartKey } from "./spinEligibility";
+import { reactBeforeSecurityMigration } from "./reactionCompatibility";
 import { dnaBonusScore, deserializeDna, type DnaDimensions } from "./connectionDna";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -2298,18 +2299,40 @@ export class SupabaseStorage implements IStorage {
     };
   }
 
-  async reactToMessage(messageId: string, reaction: string | null): Promise<Message> {
-    const { data: result, error } = await this.sb
-      .from("messages")
-      .update({ reaction })
-      .eq("id", messageId)
-      .select()
-      .single();
+  async reactToMessage(messageId: string, actorId: string, reaction: string | null): Promise<Message> {
+    const { data: result, error } = await this.sb.rpc("set_message_reaction_atomic", {
+      p_message_id: messageId,
+      p_user_id: actorId,
+      p_reaction: reaction,
+    });
     if (error) {
+      // The compatibility backend must also run before the security migration
+      // creates this RPC. Only the explicit "function not found" error permits
+      // the guarded service-role table path; all other RPC failures are fatal.
+      if (error.code === "PGRST202" || error.code === "42883") {
+        const admin = await requireAdminCapability();
+        if (this.sb !== admin) throw new Error("Reaction requires verified admin authority");
+        return mapMessage(await reactBeforeSecurityMigration(admin, messageId, actorId, reaction));
+      }
       console.error("REACT_MSG_ERROR", error.message, error.code);
       throw new Error(`Failed to react to message: ${error.message}`);
     }
-    return mapMessage(result);
+    const rpcRow = Array.isArray(result) ? result[0] : result;
+    if (!rpcRow || String(rpcRow.out_message_id) !== messageId) {
+      throw new Error("Failed to react to message: authorization RPC returned no matching message");
+    }
+    const { data: row, error: readError } = await this.sb
+      .from("messages")
+      .select("*")
+      .eq("id", messageId)
+      .single();
+    if (readError || !row) {
+      throw new Error(`Failed to load reacted message: ${readError?.message ?? "message not found"}`);
+    }
+    if ((row.reaction ?? null) !== (rpcRow.out_reaction ?? null)) {
+      throw new Error("Failed to react to message: reaction result did not match persisted message");
+    }
+    return mapMessage(row);
   }
 
   async getUserMessageCount(matchId: string, userId: string): Promise<number> {
@@ -4063,23 +4086,29 @@ export class SupabaseStorage implements IStorage {
   }
 
   async resetUserTestData(userId: string): Promise<void> {
-    const { data: m1 } = await this.sb.from("matches").select("id").eq("user1_id", userId);
-    const { data: m2 } = await this.sb.from("matches").select("id").eq("user2_id", userId);
+    const admin = await requireAdminCapability();
+    const { data: m1, error: m1Error } = await admin.from("matches").select("id").eq("user1_id", userId);
+    if (m1Error) throw new Error(`resetUserTestData: failed to load user1 matches: ${m1Error.message}`);
+    const { data: m2, error: m2Error } = await admin.from("matches").select("id").eq("user2_id", userId);
+    if (m2Error) throw new Error(`resetUserTestData: failed to load user2 matches: ${m2Error.message}`);
     const matchIds = [...(m1 || []), ...(m2 || [])].map(r => r.id);
 
     if (matchIds.length > 0) {
-      await this.sb.from("messages").delete().in("match_id", matchIds);
+      const { error } = await admin.from("messages").delete().in("match_id", matchIds);
+      if (error) throw new Error(`resetUserTestData: failed to delete messages: ${error.message}`);
     }
 
-    await this.sb.from("matches").delete().or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
-
-    await this.sb.from("interactions").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
-
-    await this.sb.from("spin_standouts").delete().eq("user_id", userId);
-
-    await this.sb.from("spin_usage").delete().eq("user_id", userId);
-
-    await this.sb.from("spin_requests").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
+    const deletes = [
+      ["matches", admin.from("matches").delete().or(`user1_id.eq.${userId},user2_id.eq.${userId}`)],
+      ["interactions", admin.from("interactions").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)],
+      ["spin_standouts", admin.from("spin_standouts").delete().eq("user_id", userId)],
+      ["spin_usage", admin.from("spin_usage").delete().eq("user_id", userId)],
+      ["spin_requests", admin.from("spin_requests").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`)],
+    ] as const;
+    for (const [table, query] of deletes) {
+      const { error } = await query;
+      if (error) throw new Error(`resetUserTestData: failed to delete ${table}: ${error.message}`);
+    }
   }
 
   async addElevateCredits(userId: string, type: "elevate" | "super_elevate", quantity: number): Promise<void> {

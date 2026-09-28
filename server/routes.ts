@@ -32,7 +32,7 @@ import type { Profile } from "@shared/schema";
 import { matches, messages, userBenefits, callCredits, callTerminalSettlements, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, profilePhotoReactions, profilePromptReplies, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen, journeyCompletionAcknowledgements, userSettings } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
-import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
+import { supabase, supabaseAdmin, createUserClient, requireAdminCapability, adminCapabilityStatus, AdminUnavailableError } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull, gt, or, inArray, desc, sql as sqlExpr } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo, checkStripeReady, checkStripeAccountReady } from "./stripeClient";
@@ -57,6 +57,7 @@ import {
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
 import { registerWaitlistRoutes, markWaitlistJoinedApp } from "./waitlist";
+import { committedVoiceMessage, voiceContentForWrite, voiceUploadPath } from "./voice-note-media";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -364,6 +365,11 @@ type BroadcastHttpResult = {
 
 async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<BroadcastHttpResult> {
   const supabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
+  try {
+    await requireAdminCapability();
+  } catch {
+    return { ok: false, status: null, errorCategory: "config" };
+  }
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) {
     console.error(`[BROADCAST] Missing Supabase URL or service key — cannot deliver ${event} on ${topic}`);
@@ -435,13 +441,7 @@ function getAdminStorage(): SupabaseStorage {
 }
 
 function getCallStorage(req: any): SupabaseStorage {
-  if (hasServiceRoleKey) {
-    return new SupabaseStorage(supabaseAdmin);
-  }
-  const auth = req.headers.authorization;
-  if (auth) {
-    return new SupabaseStorage(createUserClient(auth));
-  }
+  // Calls update both participants' state. Never downgrade to user/anon RLS.
   return new SupabaseStorage(supabaseAdmin);
 }
 
@@ -507,7 +507,8 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
   const t0 = Date.now();
   console.log(`[AUTH] checkEmailVerified: cache miss — calling admin API userId=${userId.slice(0, 8)}`);
   try {
-    const adminCall = supabaseAdmin.auth.admin.getUserById(userId);
+    const admin = await requireAdminCapability();
+    const adminCall = admin.auth.admin.getUserById(userId);
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`getUserById timeout after ${EMAIL_VERIFIED_TIMEOUT_MS}ms`)), EMAIL_VERIFIED_TIMEOUT_MS)
     );
@@ -515,8 +516,7 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
     console.log(`[AUTH] checkEmailVerified: admin API OK in ${Date.now() - t0}ms userId=${userId.slice(0, 8)}`);
 
     if (error || !user) {
-      console.error("[AUTH] checkEmailVerified admin API error (fail-open):", error?.message);
-      return true; // fail open so outages don't block legitimate users
+      throw new AdminUnavailableError("probe_failed");
     }
 
     // Definitely unverified: email_confirmed_at is null (Supabase "Confirm email" ON).
@@ -550,13 +550,8 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
     logEmailEvent({ type: "verified", userId: userId.slice(0, 8), success: true });
     return true;
   } catch (e: any) {
-    const isTimeout = (e?.message ?? "").includes("timeout");
-    if (isTimeout) {
-      console.error(`[AUTH] checkEmailVerified TIMEOUT after ${EMAIL_VERIFIED_TIMEOUT_MS}ms (fail-open) userId=${userId.slice(0, 8)} — Supabase admin API did not respond in time`);
-    } else {
-      console.error("[AUTH] checkEmailVerified error (fail-open):", e?.message);
-    }
-    return true;
+    console.error("[AUTH] checkEmailVerified admin capability unavailable");
+    throw e instanceof AdminUnavailableError ? e : new AdminUnavailableError("probe_failed");
   }
 }
 
@@ -612,7 +607,7 @@ export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     // (not true), so those rows were permanently stuck invisible to the wheel and
     // Discover queries.  Use .or("email_verified.is.null,email_verified.eq.false")
     // so BOTH null and false are updated on the first authenticated request.
-    if (getHasEmailVerifiedColumn()) {
+    if (getHasEmailVerifiedColumn() && adminCapabilityStatus().available) {
       supabaseAdmin.from("profiles")
         .update({ email_verified: true })
         .eq("user_id", user.id)
@@ -733,8 +728,11 @@ export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
 
     next();
   } catch (err: any) {
-    console.error("[AUTH] MIDDLEWARE_ERROR", { error: err?.message, path: req.path });
-    return res.status(500).json({ message: `Auth check failed: ${err?.message || "unknown error"}` });
+    if (err instanceof AdminUnavailableError) {
+      return res.status(503).json({ code: "ADMIN_UNAVAILABLE", message: "Service temporarily unavailable. Please retry." });
+    }
+    console.error("[AUTH] MIDDLEWARE_ERROR", { path: req.path });
+    return res.status(500).json({ message: "Auth check failed" });
   }
 };
 
@@ -861,6 +859,12 @@ const messageBodySchema = z.object({
   content: z.string().min(1).max(500),
   clientRequestId: z.string().regex(/^[A-Za-z0-9_-]{8,120}$/).optional(),
 });
+
+const RESERVED_MESSAGE_PROTOCOL_PREFIX = /^__/;
+
+function isReservedMessageProtocol(content: string): boolean {
+  return RESERVED_MESSAGE_PROTOCOL_PREFIX.test(content.trim());
+}
 
 const AUTO_REPLIES = [
   "That's really interesting! I love hearing about that.",
@@ -1022,6 +1026,20 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Public early-access endpoints are isolated from authenticated dating flows.
   registerWaitlistRoutes(app, isAuthenticated);
+  // A disabled/cached pre-launch gate must not allow privileged dating routes to
+  // fall through to anon access or convert admin failures into generic 500s.
+  // Leave public anon and session-bootstrap endpoints available independently.
+  app.use("/api", async (req, res, next) => {
+    if (!req.headers.authorization || req.path === "/health" || req.path.startsWith("/auth/")) {
+      return next();
+    }
+    try {
+      await requireAdminCapability();
+      next();
+    } catch {
+      res.status(503).json({ code: "ADMIN_UNAVAILABLE", message: "Service temporarily unavailable. Please retry." });
+    }
+  });
   clearStaleCallsOnStartup().catch((err) => console.error("[STARTUP] clearStaleCallsOnStartup failed:", err?.message));
   reconcilePendingCallSettlements().catch((err) => console.error("[STARTUP] call settlement reconciliation failed:", err?.message));
   setInterval(() => {
@@ -2014,11 +2032,10 @@ export async function registerRoutes(
           oldSessionWasDifferentDevice ? "session_replaced" : "invalid_session",
         );
         if (oldSessionWasDifferentDevice) {
-          // Broadcast to a SESSION-SCOPED channel — only the old device is subscribed
-          // to `private-session:{oldSessionId}`.  The new device subscribes to its own
-          // `private-session:{newSessionId}`.  This prevents the new device from
-          // receiving the broadcast and accidentally signing itself out.
-          broadcastViaHttpApi(`private-session:${oldSessionId}`, "session-replaced", {
+          // Broadcast to the user's private channel.  The payload identifies both
+          // sessions so the old device can sign out while the new device ignores
+          // its own newSessionId.  Same-device replacements do not broadcast.
+          broadcastViaHttpApi(`private-session:${userId}`, "session-replaced", {
             oldSessionId,
             newSessionId: sessionId,
           }).catch(() => {});
@@ -2142,7 +2159,10 @@ export async function registerRoutes(
           oldSessionWasDifferentDevice ? "session_replaced" : "invalid_session",
         );
         if (oldSessionWasDifferentDevice) {
-          broadcastViaHttpApi(`private-session:${oldSessionId}`, "session-replaced", {
+          // Both bootstrap paths use the user's private channel.  The payload
+          // retains both IDs so the old device can identify the replacement;
+          // same-device replacements intentionally never broadcast.
+          broadcastViaHttpApi(`private-session:${userId}`, "session-replaced", {
             oldSessionId,
             newSessionId: sessionId,
           }).catch(() => {});
@@ -2539,15 +2559,18 @@ export async function registerRoutes(
     const t1 = Date.now();
     try {
       const { error } = await Promise.race<any>([
-        supabaseAdmin.from("profiles").select("user_id").limit(1),
+        supabase.from("profiles").select("user_id").limit(1),
         new Promise<{ error: Error }>((_, reject) =>
           setTimeout(() => reject(new Error("SUPABASE_TIMEOUT_2S")), 2000)
         ),
       ]);
-      results.supabase = { ok: !error, ms: Date.now() - t1, error: error?.message ?? null };
+      results.supabase = { ok: !error, ms: Date.now() - t1 };
     } catch (err: any) {
-      results.supabase = { ok: false, ms: Date.now() - t1, error: err.message };
+      results.supabase = { ok: false, ms: Date.now() - t1 };
     }
+    try { await requireAdminCapability(); } catch {}
+    const capability = adminCapabilityStatus();
+    results.admin = { available: capability.available, state: capability.state, reason: capability.reason };
 
     // ── Local PostgreSQL (Railway DATABASE_URL) probe ─────────────────────────
     // Runs SELECT 1 with a 4-second timeout.  Reports reachable + errorCategory
@@ -4201,7 +4224,7 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const { messageId } = req.params;
-      const { reaction } = req.body;
+      const reaction = req.body?.reaction;
 
       if (!messageId) {
         return res.status(400).json({ message: "Missing messageId" });
@@ -4221,11 +4244,16 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized to react to this message" });
       }
 
-      const validReaction = reaction === "❤️" ? "❤️" : null;
+      if (reaction !== "❤️" && reaction !== null) {
+        return res.status(400).json({ message: "Invalid reaction" });
+      }
 
-      console.log(validReaction ? "MESSAGE_REACTION_ADDED" : "MESSAGE_REACTION_REMOVED", { messageId, userId, reaction: validReaction });
+      console.log(reaction ? "MESSAGE_REACTION_ADDED" : "MESSAGE_REACTION_REMOVED", { messageId, userId, reaction });
 
-      const updated = await storage.reactToMessage(messageId, validReaction);
+      // Keep reads user-scoped and require a verified service-role capability
+      // before invoking the database-authorized mutation.
+      const adminClient = await requireAdminCapability();
+      const updated = await new SupabaseStorage(adminClient).reactToMessage(messageId, userId, reaction);
       res.json(updated);
     } catch (error: any) {
       console.error("MESSAGE_REACTION_ERROR", error?.message);
@@ -4253,7 +4281,11 @@ export async function registerRoutes(
 
       const { content, clientRequestId } = parsed.data;
 
-      if (!content.startsWith("__VOICE__:") && containsContactInfo(content)) {
+      if (isReservedMessageProtocol(content)) {
+        return res.status(400).json({ message: "Message uses a reserved protocol prefix" });
+      }
+
+      if (containsContactInfo(content)) {
         return res.status(400).json({ message: "No exchange of information until a date has been agreed upon. Complete your calls and match your availability first!" });
       }
 
@@ -5377,12 +5409,14 @@ export async function registerRoutes(
       let preCancelLastIsPaid = false;
       let preCancelMediaType: "phone" | "video" = "phone";
       let preCancelStage = 0;
+      let preCancelRow: any = null;
       try {
         const { data: pre } = await supabaseAdmin
           .from("matches")
           .select("*")
           .eq("id", matchId)
           .maybeSingle();
+        preCancelRow = pre;
         preCancelInitiatorId = pre?.call_initiator_id ?? null;
         preCancelSessionId   = pre?.call_session_id   ?? null;
         preCancelAnswered    = pre?.call_answered === true;
@@ -5403,7 +5437,7 @@ export async function registerRoutes(
       }
       if (!preCancelSessionId && preCancelLastSessionId === requestedSessionId) {
         await processCallSettlement(requestedSessionId);
-        return res.json(mapMatch(pre));
+        return res.json(mapMatch(preCancelRow));
       }
       if (requestedSessionId !== preCancelSessionId) {
         return res.status(409).json({ message: "Call session is no longer active" });
@@ -5609,7 +5643,7 @@ export async function registerRoutes(
       // Insert a "Call ended" system message once — only the first completer
       // wins result.counted, preventing duplicate inserts from both sides.
       if (result.counted) {
-        serverStorage.createMessage({
+        getAdminStorage().createMessage({
           matchId,
           senderId: userId,
           content: '__CALL_EVENT__:{"type":"ended"}',
@@ -6030,6 +6064,7 @@ export async function registerRoutes(
   });
 
   // ── Voice Notes entitlement & upload ─────────────────────────────────────
+
   // Voice notes unlock only after the first valid included call completes.
   // First-call eligibility still requires both users to reach the message threshold.
   const FIRST_CALL_MSG_THRESHOLD = 15;
@@ -6308,17 +6343,29 @@ export async function registerRoutes(
       // Mirror the normal message route's per-sender stage gate. A retry of an
       // already-created deterministic message is allowed through so it can
       // return success without consuming quota again.
-      let isExistingRetry = false;
       let voiceStage0Limit = 15;
       if (messageId) {
-        const { data: existing } = await supabaseAdmin
+        const { data: existing, error: lookupError } = await supabaseAdmin
           .from("messages")
-          .select("id")
+          .select("id,match_id,sender_id,content,reaction,created_at")
           .eq("id", messageId)
           .maybeSingle();
-        isExistingRetry = !!existing;
+        if (lookupError) throw lookupError;
+        if (existing) {
+          const message = committedVoiceMessage(existing, matchId, userId);
+          if (!message) return res.status(409).json({ message: "Voice note request ID already used" });
+          // Never retranscode/re-upload a committed note. Retries are reads of
+          // the original result, even if the caller supplied different bytes.
+          return res.json({ success: true, message, progression: {
+            user1Count: match.messageCount1, user2Count: match.messageCount2,
+            myCount: match.user1Id === userId ? match.messageCount1 : match.messageCount2,
+            theirCount: match.user1Id === userId ? match.messageCount2 : match.messageCount1,
+            voiceNotesEligible: true, firstCallEligible: false, callStage: match.callStage,
+            currentUserPendingMilestone: null,
+          } });
+        }
       }
-      if (!isExistingRetry && match.callStage === 0) {
+      if (match.callStage === 0) {
         const [extension] = await db.select().from(userBenefits).where(and(
           eq(userBenefits.userId, userId),
           eq(userBenefits.type, "message_extension"),
@@ -6330,7 +6377,7 @@ export async function registerRoutes(
         if (myCount >= limit) {
           return res.status(400).json({ message: "Message limit reached. Time to call!" });
         }
-      } else if (!isExistingRetry && match.callStage === 1) {
+      } else if (match.callStage === 1) {
         const myCount = match.user1Id === userId ? (match.messageCount1 ?? 0) : (match.messageCount2 ?? 0);
         const theirCount = match.user1Id === userId ? (match.messageCount2 ?? 0) : (match.messageCount1 ?? 0);
         if (myCount >= 12 && theirCount < 12) {
@@ -6374,35 +6421,23 @@ export async function registerRoutes(
 
       // A retry keeps the original client request ID, making the object path and
       // message identity stable even if the first successful response was lost.
-      const filePath = clientRequestId
-        ? `${matchId}/voice_${clientRequestId}.m4a`
-        : `${matchId}/voice_${randomUUID()}.m4a`;
-      const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
-      const publicUrl = urlData.publicUrl;
+      const filePath = voiceUploadPath(matchId, userId, clientRequestId ?? randomUUID());
       const tStorage = Date.now();
       console.log(`[VOICE_NOTE] storage upload start key=${filePath.replace(`${matchId}/`, "")}`);
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from("voice-notes")
-        .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: !!clientRequestId });
+        .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: false });
 
-      if (uploadError) {
-        // If bucket doesn't exist yet, create it and retry once
-        if (uploadError.message?.includes("Bucket not found") || uploadError.message?.includes("bucket")) {
-          await supabaseAdmin.storage.createBucket("voice-notes", { public: true }).catch(() => {});
-          const { error: retryErr } = await supabaseAdmin.storage
-            .from("voice-notes")
-            .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: !!clientRequestId });
-          if (retryErr) {
-            console.error(`[VOICE_NOTE_PIPELINE] storage upload error (after bucket create) error="${retryErr.message}"`);
-            console.error(`[VOICE] UPLOAD_FAIL ${retryErr.message}`);
-            return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
-          }
-        } else {
-          console.error(`[VOICE_NOTE_PIPELINE] storage upload error="${uploadError.message}"`);
-          console.error(`[VOICE] UPLOAD_FAIL ${uploadError.message}`);
-          return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
-        }
+      // A parallel or interrupted first attempt can leave an immutable object
+      // before its message row commits. Only a duplicate object for the same
+      // deterministic request may proceed to the idempotent message RPC.
+      const duplicateObject = !!clientRequestId && uploadError &&
+        (String((uploadError as any).statusCode) === "409" || (uploadError as any).error === "Duplicate");
+      if (uploadError && !duplicateObject) {
+        console.error(`[VOICE_NOTE_PIPELINE] storage upload error="${uploadError.message}"`);
+        console.error(`[VOICE] UPLOAD_FAIL ${uploadError.message}`);
+        return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
       }
       const storageMs = Date.now() - tStorage;
       console.log(`[VOICE_NOTE] storage upload complete key=${filePath.replace(`${matchId}/`, "")} storageMs=${storageMs}`);
@@ -6410,7 +6445,9 @@ export async function registerRoutes(
 
       const tInsert = Date.now();
       console.log(`[VOICE_NOTE] message persistence start`);
-      const voiceContent = `__VOICE__:${publicUrl}`;
+      const voiceContent = voiceContentForWrite(() =>
+        supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath).data.publicUrl,
+      );
       const consumesQuota = isQuotaConsumingUserMessage({
         content: voiceContent,
         callStage: match.callStage,
@@ -6869,12 +6906,15 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { toUserId, message } = req.body;
 
-      if (!toUserId || !message?.trim()) {
+      if (!toUserId || typeof message !== "string" || !message.trim()) {
         return res.status(400).json({ message: "Recipient and message are required" });
       }
 
       if (message.length > 500) {
         return res.status(400).json({ message: "Message too long (500 char max)" });
+      }
+      if (isReservedMessageProtocol(message)) {
+        return res.status(400).json({ message: "Message uses a reserved protocol prefix" });
       }
 
       const request = await storage.createSpinRequest(userId, toUserId, message.trim());
@@ -6911,6 +6951,19 @@ export async function registerRoutes(
         return res.status(400).json({ message: "accept must be true or false" });
       }
 
+      // Do not consume the request before checking capacity. Keep ownership and
+      // pending-state checks ahead of this preflight so unrelated users cannot
+      // learn whether the recipient's room is full.
+      if (accept) {
+        const request = await storage.getSpinRequest(id);
+        if (!request || request.toUserId !== userId || request.status !== "pending") {
+          return res.status(404).json({ message: "Request not found or already handled" });
+        }
+        const matchCount = await storage.getMatchCount(userId);
+        if (matchCount >= 8) {
+          return res.status(400).json({ message: "Connections room is full. Close a connection to free up space." });
+        }
+      }
       const updated = await storage.respondToSpinRequest(id, userId, accept);
       if (!updated) {
         return res.status(404).json({ message: "Request not found or already handled" });
@@ -6918,11 +6971,6 @@ export async function registerRoutes(
 
       let matchCreated = false;
       if (accept) {
-        const matchCount = await storage.getMatchCount(userId);
-        if (matchCount >= 8) {
-          return res.status(400).json({ message: "Connections room is full. Close a connection to free up space." });
-        }
-
         const existingMatches = await storage.getMatchesForUser(userId);
         const alreadyMatched = existingMatches.some(
           m => m.user1Id === updated.fromUserId || m.user2Id === updated.fromUserId
@@ -6931,12 +6979,13 @@ export async function registerRoutes(
         if (!alreadyMatched) {
           const match = await storage.createMatch(updated.fromUserId, updated.toUserId);
 
-          await storage.createMessage({
+          const systemStorage = getAdminStorage();
+          await systemStorage.createMessage({
             matchId: match.id,
             senderId: updated.fromUserId,
             content: updated.message,
           });
-          await storage.incrementMessageCount(match.id, updated.fromUserId);
+          await systemStorage.incrementMessageCount(match.id, updated.fromUserId);
 
           matchCreated = true;
         }
@@ -7044,6 +7093,23 @@ export async function registerRoutes(
         return res.status(400).json({ message: "proposedTime is required" });
       }
 
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      if (isSeedUser(otherUserId) && (action === "propose" || action === "reschedule")) {
+        // A network retry must not schedule another seed auto-accept. The
+        // message itself is the existing request identifier for this action.
+        const candidate = lastData?.type === "accept" && lastData.proposedBy === otherUserId
+          ? stageMsgs.at(-2)
+          : stageMsgs.at(-1);
+        if (candidate) {
+          let previous: any = null;
+          try { previous = JSON.parse(candidate.content.slice(SCHEDULE_PREFIX.length)); } catch { /* ignore */ }
+          if (previous?.type === action && previous.proposedBy === userId && previous.proposedTime === proposedTime &&
+              (lastData?.type !== "accept" || lastData.proposedTime === proposedTime)) {
+            return res.json({ message: candidate, scheduleData: previous });
+          }
+        }
+      }
+
       if (action === "propose" && lastData?.type === "accept") {
         return res.status(400).json({ message: "Call is already confirmed. Use reschedule if needed." });
       }
@@ -7055,7 +7121,7 @@ export async function registerRoutes(
       const scheduleData = { type: action, proposedBy: userId, proposedTime: resolvedTime, stage: callStage };
       const content = `${SCHEDULE_PREFIX}${JSON.stringify(scheduleData)}`;
 
-      const message = await storage.createMessage({ matchId, senderId: userId, content });
+      const message = await getAdminStorage().createMessage({ matchId, senderId: userId, content });
 
       const logLabels: Record<string, string> = {
         propose: "CALL_TIME_PROPOSED",
@@ -7068,13 +7134,11 @@ export async function registerRoutes(
         console.log("[CALL_SCHEDULE] CALL_SCHEDULE_CONFIRMED", { matchId, callStage, scheduledTime: resolvedTime });
       }
 
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       if (["propose", "reschedule"].includes(action) && isSeedUser(otherUserId)) {
-        const replyStorage = storage;
         setTimeout(async () => {
           try {
             const acceptData = { type: "accept", proposedBy: otherUserId, proposedTime: resolvedTime, stage: callStage };
-            await replyStorage.createMessage({ matchId, senderId: otherUserId, content: `${SCHEDULE_PREFIX}${JSON.stringify(acceptData)}` });
+            await getAdminStorage().createMessage({ matchId, senderId: otherUserId, content: `${SCHEDULE_PREFIX}${JSON.stringify(acceptData)}` });
             console.log("[CALL_SCHEDULE] SEED_AUTO_ACCEPTED", { matchId, otherUserId, callStage, scheduledTime: resolvedTime });
           } catch (err) { console.error("Seed auto-accept error:", err); }
         }, 1500 + Math.random() * 1500);
@@ -7204,11 +7268,24 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Match not found, calls not completed, or no matching dates yet" });
       }
 
-      await storage.createMessage({
-        matchId,
-        senderId: userId,
-        content: `__PHONE__:${profile.phoneNumber}`,
-      });
+      const phoneMessageId = `phone_${createHash("sha256").update(`${matchId}:${userId}`).digest("hex")}`;
+      const phoneContent = `__PHONE__:${profile.phoneNumber}`;
+      const adminStorage = getAdminStorage();
+      try {
+        await adminStorage.createMessage({
+          id: phoneMessageId,
+          matchId,
+          senderId: userId,
+          content: phoneContent,
+        });
+      } catch (error: any) {
+        if (error?.code !== "23505") throw error;
+        const { data: existing, error: readError } = await adminStorage.getMessage(phoneMessageId);
+        if (readError || existing?.match_id !== matchId ||
+            existing?.sender_id !== userId || existing?.content !== phoneContent) {
+          throw error;
+        }
+      }
 
       const journeyComplete =
         Number(match.callStage ?? 0) >= 4 &&
@@ -7285,7 +7362,8 @@ export async function registerRoutes(
       if (process.env.NODE_ENV !== "development") {
         return res.status(403).json({ message: "Not available in production" });
       }
-      const storage = getStorage(req);
+      const adminClient = await requireAdminCapability();
+      const storage = new SupabaseStorage(adminClient);
       const userId = req.user.id;
       await storage.resetUserTestData(userId);
       res.json({ ok: true });
@@ -8058,7 +8136,7 @@ export async function registerRoutes(
   //   - Local DB tables wiped (user_benefits, call_credits, user_elevates,
   //     membership_subscriptions, active_sessions, blocked_contacts,
   //     saved_wheel_profiles)
-  //   - Supabase tables wiped (interactions, messages, matches, profiles)
+  //   - Supabase tables wiped (interactions, spin data, messages, matches, profiles)
   //   - Supabase Auth user deleted
   // Retained: processed_stripe_sessions (legal accounting records)
 
@@ -8067,6 +8145,8 @@ export async function registerRoutes(
     const log: string[] = [];
 
     try {
+      const adminClient = await requireAdminCapability();
+
       // ── 1. Cancel Stripe subscription ─────────────────────────────────────
       const [sub] = await db
         .select()
@@ -8090,14 +8170,15 @@ export async function registerRoutes(
       // ── 2. Delete Supabase Storage files ──────────────────────────────────
       for (const bucket of ["profile-photos", "voice-notes"] as const) {
         try {
-          const { data: files } = await supabaseAdmin.storage
+          const { data: files, error: listError } = await adminClient.storage
             .from(bucket)
             .list(userId, { limit: 500 });
+          if (listError) throw listError;
           if (files && files.length > 0) {
             const paths = files.map((f) => `${userId}/${f.name}`);
-            const { error } = await supabaseAdmin.storage.from(bucket).remove(paths);
+            const { error } = await adminClient.storage.from(bucket).remove(paths);
             if (error) {
-              log.push(`storage_${bucket}_partial_error:${error.message}`);
+              throw error;
             } else {
               log.push(`storage_${bucket}_deleted:${files.length}_files`);
             }
@@ -8106,6 +8187,7 @@ export async function registerRoutes(
           }
         } catch (storageErr: any) {
           log.push(`storage_${bucket}_error:${storageErr.message}`);
+          throw storageErr;
         }
       }
 
@@ -8134,40 +8216,65 @@ export async function registerRoutes(
       // processed_stripe_sessions RETAINED — legal accounting records
 
       // ── 4. Wipe Supabase database tables ──────────────────────────────────
-      await supabaseAdmin
+      const { error: interactionsError } = await adminClient
         .from("interactions")
         .delete()
-        .or(`user_id.eq.${userId},target_user_id.eq.${userId}`);
+        .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
+      if (interactionsError) throw interactionsError;
       log.push("supabase_interactions_deleted");
 
-      const { data: matchRows } = await supabaseAdmin
+      const { error: spinRequestsError } = await adminClient
+        .from("spin_requests")
+        .delete()
+        .or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
+      if (spinRequestsError) throw spinRequestsError;
+      log.push("supabase_spin_requests_deleted");
+
+      const { error: spinUsageError } = await adminClient
+        .from("spin_usage")
+        .delete()
+        .eq("user_id", userId);
+      if (spinUsageError) throw spinUsageError;
+      log.push("supabase_spin_usage_deleted");
+
+      const { error: spinStandoutsError } = await adminClient
+        .from("spin_standouts")
+        .delete()
+        .eq("user_id", userId);
+      if (spinStandoutsError) throw spinStandoutsError;
+      log.push("supabase_spin_standouts_deleted");
+
+      const { data: matchRows, error: matchesReadError } = await adminClient
         .from("matches")
         .select("id")
         .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+      if (matchesReadError) throw matchesReadError;
 
       if (matchRows && matchRows.length > 0) {
         const matchIds = matchRows.map((m: { id: string }) => m.id);
-        await supabaseAdmin.from("messages").delete().in("match_id", matchIds);
+        const { error: messagesDeleteError } = await adminClient.from("messages").delete().in("match_id", matchIds);
+        if (messagesDeleteError) throw messagesDeleteError;
         log.push(`supabase_messages_deleted_for_${matchIds.length}_matches`);
-        await supabaseAdmin
+        const { error: matchesDeleteError } = await adminClient
           .from("matches")
           .delete()
           .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+        if (matchesDeleteError) throw matchesDeleteError;
         log.push(`supabase_matches_deleted:${matchIds.length}`);
       } else {
         log.push("supabase_no_matches_found");
       }
 
-      await supabaseAdmin.from("profiles").delete().eq("user_id", userId);
+      const { error: profileDeleteError } = await adminClient.from("profiles").delete().eq("user_id", userId);
+      if (profileDeleteError) throw profileDeleteError;
       log.push("supabase_profile_deleted");
 
       // ── 5. Delete Supabase Auth user ──────────────────────────────────────
-      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      const { error: authError } = await adminClient.auth.admin.deleteUser(userId);
       if (authError) {
-        log.push(`supabase_auth_delete_warn:${authError.message}`);
-      } else {
-        log.push("supabase_auth_user_deleted");
+        throw authError;
       }
+      log.push("supabase_auth_user_deleted");
 
       console.log(`[DELETE ACCOUNT] User ${userId} fully deleted. Steps: ${log.join(" | ")}`);
       return res.json({ success: true, log });
@@ -8345,6 +8452,22 @@ export async function registerRoutes(
     };
   }
 
+  async function getDatePlanWriteContext(storage: SupabaseStorage, matchId: string, userId: string) {
+    const match = await storage.getMatch(matchId, userId);
+    if (!match) return null;
+    const messages = await storage.getDatePlanMessages(matchId);
+    return {
+      messages,
+      state: parseDatePlanState(messages, userId, match.user1Id, match.user2Id),
+    };
+  }
+
+  function latestDatePlanAction(messages: any[], prefix: string, userId?: string) {
+    return [...messages].reverse().find(
+      m => m.content.startsWith(prefix) && (!userId || m.senderId === userId),
+    );
+  }
+
   app.get("/api/date-plan/:matchId", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);
@@ -8387,10 +8510,12 @@ export async function registerRoutes(
       const { type } = req.body;
       if (typeof type !== "string" || !type.trim()) return res.status(400).json({ message: "type required" });
 
-      const matchDetail = await storage.getMatch(matchId, userId);
-      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
-
-      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_TYPE_VOTE__:${JSON.stringify({ type })}` });
+      const context = await getDatePlanWriteContext(storage, matchId, userId);
+      if (!context) return res.status(404).json({ message: "Match not found" });
+      const content = `__DATE_TYPE_VOTE__:${JSON.stringify({ type })}`;
+      if (latestDatePlanAction(context.messages, "__DATE_TYPE_VOTE__:", userId)?.content !== content) {
+        await getAdminStorage().createMessage({ matchId, senderId: userId, content });
+      }
       res.json({ ok: true });
     } catch (err: any) {
       console.error("POST /api/date-plan/vote error:", err?.message);
@@ -8406,10 +8531,13 @@ export async function registerRoutes(
       const { name, address } = req.body;
       if (typeof name !== "string" || !name.trim()) return res.status(400).json({ message: "name required" });
 
-      const matchDetail = await storage.getMatch(matchId, userId);
-      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
-
-      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_VENUE__:${JSON.stringify({ name: name.trim(), address: (address ?? "").trim() })}` });
+      const context = await getDatePlanWriteContext(storage, matchId, userId);
+      if (!context) return res.status(404).json({ message: "Match not found" });
+      const content = `__DATE_VENUE__:${JSON.stringify({ name: name.trim(), address: (address ?? "").trim() })}`;
+      const latest = latestDatePlanAction(context.messages, "__DATE_VENUE__:");
+      if (latest?.senderId !== userId || latest.content !== content) {
+        await getAdminStorage().createMessage({ matchId, senderId: userId, content });
+      }
       res.json({ ok: true });
     } catch (err: any) {
       console.error("POST /api/date-plan/venue error:", err?.message);
@@ -8423,10 +8551,15 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { matchId } = req.params;
 
-      const matchDetail = await storage.getMatch(matchId, userId);
-      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
-
-      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_VENUE_ACCEPT__:${JSON.stringify({ userId })}` });
+      const context = await getDatePlanWriteContext(storage, matchId, userId);
+      if (!context) return res.status(404).json({ message: "Match not found" });
+      const { state } = context;
+      if (!state.myVote || state.myVote !== state.theirVote || !state.venueName) {
+        return res.status(400).json({ message: "Agree on a date type and propose a venue first" });
+      }
+      if (!state.venueAccepted) {
+        await getAdminStorage().createMessage({ matchId, senderId: userId, content: `__DATE_VENUE_ACCEPT__:${JSON.stringify({ userId })}` });
+      }
       res.json({ ok: true });
     } catch (err: any) {
       console.error("POST /api/date-plan/venue-accept error:", err?.message);
@@ -8444,10 +8577,16 @@ export async function registerRoutes(
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: "Invalid date format" });
       if (!/^\d{2}:\d{2}$/.test(time)) return res.status(400).json({ message: "Invalid time format" });
 
-      const matchDetail = await storage.getMatch(matchId, userId);
-      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
-
-      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_DATETIME__:${JSON.stringify({ date, time })}` });
+      const context = await getDatePlanWriteContext(storage, matchId, userId);
+      if (!context) return res.status(404).json({ message: "Match not found" });
+      if (!context.state.venueAccepted) {
+        return res.status(400).json({ message: "Accept a venue before proposing a date and time" });
+      }
+      const content = `__DATE_DATETIME__:${JSON.stringify({ date, time })}`;
+      const latest = latestDatePlanAction(context.messages, "__DATE_DATETIME__:");
+      if (latest?.senderId !== userId || latest.content !== content) {
+        await getAdminStorage().createMessage({ matchId, senderId: userId, content });
+      }
       res.json({ ok: true });
     } catch (err: any) {
       console.error("POST /api/date-plan/datetime error:", err?.message);
@@ -8461,10 +8600,15 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { matchId } = req.params;
 
-      const matchDetail = await storage.getMatch(matchId, userId);
-      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
-
-      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_DATETIME_ACCEPT__:${JSON.stringify({ userId })}` });
+      const context = await getDatePlanWriteContext(storage, matchId, userId);
+      if (!context) return res.status(404).json({ message: "Match not found" });
+      const { state } = context;
+      if (!state.venueAccepted || !state.proposedDate || !state.proposedTime) {
+        return res.status(400).json({ message: "Propose a date and time after accepting the venue first" });
+      }
+      if (!state.datetimeAccepted) {
+        await getAdminStorage().createMessage({ matchId, senderId: userId, content: `__DATE_DATETIME_ACCEPT__:${JSON.stringify({ userId })}` });
+      }
       res.json({ ok: true });
     } catch (err: any) {
       console.error("POST /api/date-plan/datetime-accept error:", err?.message);
@@ -8485,7 +8629,7 @@ export async function registerRoutes(
       const existing = await storage.getDatePlanMessages(matchId);
       const alreadyConfirmed = existing.filter(m => m.content.startsWith("__DATE_CONFIRM__:")).some(m => m.senderId === userId);
       if (!alreadyConfirmed) {
-        await storage.createMessage({ matchId, senderId: userId, content: `__DATE_CONFIRM__:${JSON.stringify({ userId })}` });
+        await getAdminStorage().createMessage({ matchId, senderId: userId, content: `__DATE_CONFIRM__:${JSON.stringify({ userId })}` });
       }
       res.json({ ok: true });
     } catch (err: any) {
@@ -8510,7 +8654,7 @@ export async function registerRoutes(
       const existing = await storage.getDatePlanMessages(matchId);
       const myFbMsg = existing.find(m => m.content.startsWith("__DATE_FEEDBACK__:") && m.senderId === userId);
       if (!myFbMsg) {
-        await storage.createMessage({ matchId, senderId: userId, content: `__DATE_FEEDBACK__:${JSON.stringify({ rating })}` });
+        await getAdminStorage().createMessage({ matchId, senderId: userId, content: `__DATE_FEEDBACK__:${JSON.stringify({ rating })}` });
       }
       res.json({ ok: true });
     } catch (err: any) {
