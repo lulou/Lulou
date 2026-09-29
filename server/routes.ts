@@ -25,6 +25,7 @@ const APP_VERSION: string = (process.env.npm_package_version as string | undefin
 
 import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn, incrementMatchBadge, resetMatchBadge, getTotalBadge, getAllMatchBadgeCounts } from "./storage";
 import { classifyCandidateFeedEmptyReason } from "./candidate-feed";
+import { buildRealtimeCompatibilityMessages, sendPublicBeforePrivate, type RealtimeHttpMessage } from "./realtime-compat";
 import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
@@ -363,7 +364,12 @@ type BroadcastHttpResult = {
   errorCategory?: "config" | "http" | "network";
 };
 
-async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<BroadcastHttpResult> {
+async function broadcastViaHttpApi(
+  topic: string,
+  event: string,
+  payload: Record<string, any>,
+  options: { legacyPublicTopics?: string[] } = {},
+): Promise<BroadcastHttpResult> {
   const supabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
   try {
     await requireAdminCapability();
@@ -375,37 +381,45 @@ async function broadcastViaHttpApi(topic: string, event: string, payload: Record
     console.error(`[BROADCAST] Missing Supabase URL or service key — cannot deliver ${event} on ${topic}`);
     return { ok: false, status: null, errorCategory: "config" };
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3_000);
-  try {
-    const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
-      method: "POST",
-      headers: {
-        "apikey": serviceKey,
-        "Authorization": `Bearer ${serviceKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messages: [
-          { topic, event, payload },
-        ],
-      }),
-      signal: controller.signal,
-    });
-    if (res.ok) {
-      console.log(`[BROADCAST] HTTP delivered ${event} on ${topic}, status=${res.status}`);
-      return { ok: true, status: res.status };
-    } else {
+  const messages = buildRealtimeCompatibilityMessages(topic, event, payload, options.legacyPublicTopics);
+  const sendBatch = async (batch: RealtimeHttpMessage[]): Promise<BroadcastHttpResult> => {
+    const mode = batch[0]?.private ? "private" : "public";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3_000);
+    try {
+      const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+        method: "POST",
+        headers: {
+          "apikey": serviceKey,
+          "Authorization": `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messages: batch }),
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        console.log(`[BROADCAST] HTTP delivered ${mode} ${event} on ${topic}, status=${res.status}`);
+        return { ok: true, status: res.status };
+      }
       const body = await res.text().catch(() => "");
-      console.error(`[BROADCAST] HTTP error: status=${res.status} topic=${topic} event=${event} body=${body}`);
+      console.error(`[BROADCAST] HTTP ${mode} error: status=${res.status} topic=${topic} event=${event} body=${body.slice(0, 500)}`);
       return { ok: false, status: res.status, errorCategory: "http" };
+    } catch (err: any) {
+      console.error(`[BROADCAST] HTTP ${mode} fetch threw: ${err?.message} — topic=${topic} event=${event}`);
+      return { ok: false, status: null, errorCategory: "network" };
+    } finally {
+      clearTimeout(timeout);
     }
-  } catch (err: any) {
-    console.error(`[BROADCAST] HTTP fetch threw: ${err?.message} — topic=${topic} event=${event}`);
-    return { ok: false, status: null, errorCategory: "network" };
-  } finally {
-    clearTimeout(timeout);
-  }
+  };
+  // Do not put private:true in the public HTTP batch: a rejected private entry
+  // could reject the entire batch and prevent the published PWA from receiving
+  // its existing event. Return the public result; private delivery is additive.
+  return sendPublicBeforePrivate(messages, sendBatch, (result, error) => {
+    console.error(`[BROADCAST] private compatibility copy failed for ${event} on ${topic}`, {
+      status: result?.status ?? null,
+      error: error instanceof Error ? error.message : error ? String(error) : undefined,
+    });
+  });
 }
 
 async function broadcastCallEvent(matchId: string, event: Record<string, any>) {
@@ -2038,6 +2052,8 @@ export async function registerRoutes(
           broadcastViaHttpApi(`private-session:${userId}`, "session-replaced", {
             oldSessionId,
             newSessionId: sessionId,
+          }, {
+            legacyPublicTopics: [`private-session:${oldSessionId}`],
           }).catch(() => {});
           console.log(`[SESSION] REVOKED old session for ${userId.slice(0, 8)} — notified on private-session channel`);
         } else {
@@ -2165,6 +2181,8 @@ export async function registerRoutes(
           broadcastViaHttpApi(`private-session:${userId}`, "session-replaced", {
             oldSessionId,
             newSessionId: sessionId,
+          }, {
+            legacyPublicTopics: [`private-session:${oldSessionId}`],
           }).catch(() => {});
           console.log(`[SESSION_BS] step-4 revoked old session broadcast sent userId=${userId.slice(0, 8)}`);
         } else {

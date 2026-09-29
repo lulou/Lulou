@@ -17,7 +17,10 @@ const migration = readFileSync("supabase/migrations/add_call_connected_at.sql", 
 
 describe("end-to-end call regressions", () => {
   it("uses the unprefixed topic required by the Supabase HTTP broadcast API", () => {
-    expect(routes).toContain("{ topic, event, payload }");
+    const compatibility = readFileSync("server/realtime-compat.ts", "utf8");
+    expect(compatibility).toContain("{ topic, event, payload: publicPayload }");
+    expect(compatibility).toContain("{ topic, event, payload, private: true }");
+    expect(routes).toContain("buildRealtimeCompatibilityMessages(topic, event, payload");
     expect(routes).not.toContain("{ topic: `realtime:${topic}`, event, payload }");
   });
 
