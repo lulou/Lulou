@@ -277,3 +277,46 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     fetch: safeFetch,
   },
 });
+
+// A second RealtimeClient is required for public compatibility subscriptions:
+// realtime-js returns the existing channel for a duplicate topic on one client,
+// regardless of the requested private/public configuration.
+export const supabasePublicRealtime = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    storageKey: `${_storageKey}-public-realtime`,
+  },
+  global: {
+    fetch: safeFetch,
+  },
+});
+
+// The SDK forwards INITIAL_SESSION / SIGNED_IN / TOKEN_REFRESHED to Realtime
+// and automatically rejoins subscribed channels after socket reconnects.
+// Installed iOS PWAs can resume without a navigation: renew the current token
+// and reopen a disconnected socket when they return to the foreground. Do not
+// remove/recreate channels here: doing that during an active call loses signals.
+if (typeof window !== "undefined") {
+  let resuming = false;
+  const resumeRealtime = async () => {
+    if (resuming || document.visibilityState === "hidden" || !supabase.getChannels().length) return;
+    resuming = true;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      await supabase.realtime.setAuth(session.access_token);
+      if (!supabase.realtime.isConnected()) supabase.realtime.connect();
+    } catch (error) {
+      console.warn("[REALTIME] Foreground authentication will retry on next resume", error);
+    } finally {
+      resuming = false;
+    }
+  };
+  window.addEventListener("pageshow", () => { void resumeRealtime(); });
+  window.addEventListener("online", () => { void resumeRealtime(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void resumeRealtime();
+  });
+}

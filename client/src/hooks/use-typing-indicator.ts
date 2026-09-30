@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import {
+  createRealtimeCompatibilityPair,
+  onCompatibilityBroadcast,
+  removeCompatibilityPair,
+  sendCompatibilityBroadcast,
+  subscribeCompatibilityPair,
+  type RealtimeCompatibilityPair,
+} from "@/lib/realtime-compat";
 
 const TYPING_THROTTLE_MS = 2000;
 const TYPING_TIMEOUT_MS = 3500;
@@ -12,16 +19,15 @@ export function useTypingIndicator(
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSentRef = useRef<number>(0);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const channelRef = useRef<RealtimeCompatibilityPair | null>(null);
   const isTypingRef = useRef(false);
 
   useEffect(() => {
     if (!enabled || !matchId || !userId) return;
 
     const channelName = `typing-${matchId}`;
-    const channel = supabase
-      .channel(channelName, { config: { broadcast: { self: false } } })
-      .on("broadcast", { event: "typing" }, (payload: any) => {
+    const channels = createRealtimeCompatibilityPair(channelName, { self: false });
+    onCompatibilityBroadcast(channels, "typing", (payload: any) => {
         const senderId = payload?.payload?.userId;
         if (!senderId || senderId === userId) return;
 
@@ -34,13 +40,13 @@ export function useTypingIndicator(
           setIsOtherTyping(false);
           console.log("[CHAT] USER_STOPPED_TYPING", { matchId, reason: "timeout" });
         }, TYPING_TIMEOUT_MS);
-      })
-      .subscribe();
+    });
+    subscribeCompatibilityPair(channels);
 
-    channelRef.current = channel;
+    channelRef.current = channels;
 
     return () => {
-      supabase.removeChannel(channel);
+      removeCompatibilityPair(channels);
       channelRef.current = null;
       if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
       setIsOtherTyping(false);
@@ -59,11 +65,8 @@ export function useTypingIndicator(
       console.log("[CHAT] USER_STARTED_TYPING", { matchId, userId });
     }
 
-    channelRef.current.send({
-      type: "broadcast",
-      event: "typing",
-      payload: { userId },
-    });
+    void sendCompatibilityBroadcast(channelRef.current, "typing", { userId })
+      .catch((error: any) => console.warn("[CHAT] typing broadcast failed", error?.message));
   }, [matchId, userId]);
 
   const stopTyping = useCallback(() => {

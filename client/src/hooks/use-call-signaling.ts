@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { supabase } from "@/lib/supabase";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession, markSessionEndedForMatch } from "@/lib/cancelled-calls";
 import { armCallSession, disarmCallSession, markSessionAsVideo, isPushArmedSession, getLoginTime } from "@/lib/live-call-sessions";
@@ -12,6 +11,14 @@ import {
   reportCallAvailabilityDiagnostic,
 } from "@/lib/call-availability-diagnostics";
 import { getCallSessionTimestamp } from "@/lib/call-session-id";
+import {
+  createRealtimeCompatibilityPair,
+  onCompatibilityBroadcast,
+  removeCompatibilityPair,
+  sendCompatibilityBroadcast,
+  subscribeCompatibilityPair,
+  type RealtimeCompatibilityPair,
+} from "@/lib/realtime-compat";
 
 // Set false once Bug 2 (caller-cancel race) is confirmed fixed in production.
 const DEBUG_CALLS = true;
@@ -29,7 +36,7 @@ function getChannelName(matchId: string) {
   return `call-signal:${matchId}`;
 }
 
-const subscribedChannels = new Map<string, ReturnType<typeof supabase.channel>>();
+const subscribedChannels = new Map<string, RealtimeCompatibilityPair>();
 
 let callEndedCallback: ((matchId: string, callSessionId?: string | null) => void) | null = null;
 let callRingHandler: ((active: boolean) => void) | null = null;
@@ -145,7 +152,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 
     for (const [id, ch] of subscribedChannels.entries()) {
       if (!currentIds.has(id)) {
-        supabase.removeChannel(ch);
+        removeCompatibilityPair(ch);
         subscribedChannels.delete(id);
       }
     }
@@ -153,11 +160,9 @@ export function useCallSignaling(matchIds: string[], userId: string) {
     for (const matchId of matchIds) {
       if (subscribedChannels.has(matchId)) continue;
 
-      const channel = supabase.channel(getChannelName(matchId), {
-        config: { broadcast: { self: false } },
-      });
+      const channels = createRealtimeCompatibilityPair(getChannelName(matchId), { self: false });
 
-      channel.on("broadcast", { event: "call-signal" }, async ({ payload }) => {
+      onCompatibilityBroadcast(channels, "call-signal", async ({ payload }) => {
         console.log("[CALL_SIGNAL] BROADCAST_RECEIVED", { matchId, payloadType: payload?.type, senderId: payload?.userId || payload?.callerId, isSelf: (payload?.userId || payload?.callerId) === userId });
         if (!payload) return;
         const event = payload as CallSignalEvent;
@@ -718,7 +723,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         }
       });
 
-      channel.subscribe((status) => {
+      subscribeCompatibilityPair(channels, (status) => {
         if (status === "SUBSCRIBED") {
           console.log("[CALL_STATE] subscription created", { matchId, channelName: getChannelName(matchId) });
           console.log("[CALL_SIGNAL] CHANNEL_SUBSCRIBED", { matchId, channelName: getChannelName(matchId) });
@@ -727,14 +732,16 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         } else {
           console.log("[CALL_SIGNAL] CHANNEL_STATUS", { matchId, status });
         }
+      }, (status) => {
+        console.log("[CALL_SIGNAL] public compatibility channel status", { matchId, status });
       });
-      subscribedChannels.set(matchId, channel);
+      subscribedChannels.set(matchId, channels);
     }
 
     return () => {
       for (const [id, ch] of subscribedChannels.entries()) {
         console.log("[CALL_STATE] subscription removed", { matchId: id, reason: "effect_cleanup" });
-        supabase.removeChannel(ch);
+        removeCompatibilityPair(ch);
       }
       subscribedChannels.clear();
       prevKeyRef.current = "";
@@ -745,11 +752,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
   const existing = subscribedChannels.get(matchId);
   if (existing) {
-    existing.send({
-      type: "broadcast",
-      event: "call-signal",
-      payload: event,
-    }).then((result) => {
+    sendCompatibilityBroadcast(existing, "call-signal", event).then((result) => {
       if (result !== "ok") {
         console.warn(`[CALL_SIGNAL] Client broadcast ${event.type} result=${result} matchId=${matchId}`);
       } else {
@@ -762,28 +765,23 @@ export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
   }
 
   const channelName = getChannelName(matchId);
-  const tempChannel = supabase.channel(channelName, {
-    config: { broadcast: { self: false } },
-  });
+  const tempChannels = createRealtimeCompatibilityPair(channelName, { self: false });
 
   const timeout = setTimeout(() => {
     console.warn(`[CALL_SIGNAL] Temp channel subscribe timeout for ${event.type} matchId=${matchId}`);
-    supabase.removeChannel(tempChannel);
+    removeCompatibilityPair(tempChannels);
   }, 5000);
 
-  tempChannel.subscribe((status) => {
+  subscribeCompatibilityPair(tempChannels, (status) => {
     if (status === "SUBSCRIBED") {
       clearTimeout(timeout);
-      tempChannel.send({
-        type: "broadcast",
-        event: "call-signal",
-        payload: event,
-      }).then((result) => {
+      sendCompatibilityBroadcast(tempChannels, "call-signal", event).then((result) => {
         console.log(`[CALL_SIGNAL] Temp channel broadcast ${event.type} result=${result} matchId=${matchId}`);
-        setTimeout(() => supabase.removeChannel(tempChannel), 2000);
+        // Give the legacy public join enough time to flush its queued copy.
+        setTimeout(() => removeCompatibilityPair(tempChannels), 6000);
       }).catch((err: any) => {
         console.error(`[CALL_SIGNAL] Temp channel broadcast ${event.type} failed matchId=${matchId}:`, err?.message);
-        supabase.removeChannel(tempChannel);
+        removeCompatibilityPair(tempChannels);
       });
     }
   });

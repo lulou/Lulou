@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import {
+  createRealtimeCompatibilityPair,
+  onCompatibilityBroadcast,
+  removeCompatibilityPair,
+  subscribeCompatibilityPair,
+  type RealtimeCompatibilityPair,
+} from "@/lib/realtime-compat";
 
 type UnreadState = Record<string, number>;
 type RealtimeMessageSummary = {
@@ -42,7 +48,7 @@ export function useUnreadCounts(
   enabled = true,
 ) {
   const [unreadCounts, setUnreadCounts] = useState<UnreadState>({});
-  const bcChannelsRef = useRef<Map<string, ReturnType<typeof supabase.channel>>>(new Map());
+  const bcChannelsRef = useRef<Map<string, RealtimeCompatibilityPair>>(new Map());
   const activeMatchIdRef = useRef(activeMatchId);
   const onNewBackgroundMessageRef = useRef(onNewBackgroundMessage);
   const seenMsgIdsRef = useRef<Set<string>>(new Set());
@@ -125,7 +131,7 @@ export function useUnreadCounts(
       // Tear down all channels when the owning tab becomes hidden or user logs out.
       // This is the key performance gate: 0 open WebSocket channels while the
       // Connections tab is not in the foreground.
-      for (const [, ch] of bcChannels) supabase.removeChannel(ch);
+      for (const [, ch] of bcChannels) removeCompatibilityPair(ch);
       bcChannels.clear();
       return;
     }
@@ -135,7 +141,7 @@ export function useUnreadCounts(
     // Remove channels for matches that left the list
     for (const [mid, ch] of bcChannels) {
       if (!activeIds.has(mid)) {
-        supabase.removeChannel(ch);
+        removeCompatibilityPair(ch);
         bcChannels.delete(mid);
       }
     }
@@ -143,9 +149,8 @@ export function useUnreadCounts(
     // Open one broadcast channel per match (server pushes on every insert)
     for (const matchId of matchIds) {
       if (bcChannels.has(matchId)) continue;
-      const ch = supabase
-        .channel(`chat:${matchId}`)
-        .on("broadcast", { event: "new-message" }, ({ payload }) => {
+      const channels = createRealtimeCompatibilityPair(`chat:${matchId}`);
+      onCompatibilityBroadcast(channels, "new-message", ({ payload }) => {
           if (!payload) return;
           const senderId = payload.senderId ?? payload.sender_id;
           handleIncomingMessage(matchId, {
@@ -154,13 +159,13 @@ export function useUnreadCounts(
             content: payload.content,
             createdAt: payload.createdAt ?? payload.created_at ?? null,
           });
-        })
-        .subscribe();
-      bcChannels.set(matchId, ch);
+      });
+      subscribeCompatibilityPair(channels);
+      bcChannels.set(matchId, channels);
     }
 
     return () => {
-      for (const [, ch] of bcChannels) supabase.removeChannel(ch);
+      for (const [, ch] of bcChannels) removeCompatibilityPair(ch);
       bcChannels.clear();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

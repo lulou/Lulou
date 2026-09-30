@@ -4,6 +4,15 @@ import { cleanupCallAudio, getCallAudioAuditSnapshot } from "@/lib/call-audio";
 import { configureVoiceChat } from "@/lib/audio-session";
 import { callDebug } from "@/lib/call-debug";
 import { API_BASE, getAuthHeaders, requireApiBase } from "@/lib/queryClient";
+import {
+  createRealtimeCompatibilityPair,
+  onCompatibilityBroadcast,
+  removeCompatibilityPair,
+  sendCompatibilityBroadcast,
+  subscribeCompatibilityPair,
+  subscribeCompatibilityPublic,
+  type RealtimeCompatibilityPair,
+} from "@/lib/realtime-compat";
 
 declare global {
   interface Window {
@@ -119,10 +128,12 @@ async function fetchIceServers(): Promise<RTCIceServer[]> {
 // presses Answer. Buffered signals (e.g. an early offer from the caller)
 // are replayed into handleSignal once useWebRTC's init() takes ownership.
 type PresubEntry = {
+  pair: RealtimeCompatibilityPair;
   channel: ReturnType<typeof supabase.channel>;
   subscribePromise: Promise<void>;
   bufferedSignals: any[];
   consumed: boolean;
+  activeSignalHandler?: (payload: any) => void;
 };
 
 const _presubChannels = new Map<string, PresubEntry>();
@@ -139,12 +150,23 @@ export function calleePresubscribe(matchId: string, callSessionId: string, userI
     return () => {};
   }
   const channelName = `call:${matchId}:${callSessionId}`;
-  const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
-  const entry: PresubEntry = { channel, subscribePromise: Promise.resolve(), bufferedSignals: [], consumed: false };
+  const pair = createRealtimeCompatibilityPair(channelName, { self: false });
+  const channel = pair.privateChannel;
+  const entry: PresubEntry = {
+    pair,
+    channel,
+    subscribePromise: Promise.resolve(),
+    bufferedSignals: [],
+    consumed: false,
+  };
 
   // Buffer signals that arrive before useWebRTC attaches its own handler.
-  channel.on("broadcast", { event: "signal" }, ({ payload }) => {
-    if (entry.consumed || !payload || payload.from === userId || payload.callSessionId !== callSessionId) return;
+  onCompatibilityBroadcast(pair, "signal", ({ payload }) => {
+    if (!payload || payload.from === userId || payload.callSessionId !== callSessionId) return;
+    if (entry.consumed && entry.activeSignalHandler) {
+      entry.activeSignalHandler(payload);
+      return;
+    }
     entry.bufferedSignals.push(payload);
     if (payload.type === "webrtc:offer") {
       console.log("[CALLEE_FIX] offer received (buffered before init)", { matchId });
@@ -155,7 +177,7 @@ export function calleePresubscribe(matchId: string, callSessionId: string, userI
     const timer = setTimeout(() => {
       reject(new Error("CALLEE_PRESUB_TIMEOUT_20s"));
     }, 20_000);
-    channel.subscribe((status: string) => {
+    subscribeCompatibilityPair(pair, (status: string) => {
       if (status === "SUBSCRIBED") {
         clearTimeout(timer);
         console.log("[CALLEE_FIX] signalling channel subscribed", { matchId, channelName });
@@ -173,7 +195,7 @@ export function calleePresubscribe(matchId: string, callSessionId: string, userI
   return () => {
     const e = _presubChannels.get(key);
     if (e && !e.consumed) {
-      supabase.removeChannel(e.channel);
+      removeCompatibilityPair(e.pair);
       _presubChannels.delete(key);
       console.log("[CALLEE_FIX] pre-sub channel cleaned up (dismissed before answer)", { matchId });
     }
@@ -190,10 +212,12 @@ export function calleePresubSendReady(matchId: string, callSessionId: string, us
   entry.subscribePromise
     .then(() => {
       if (entry.consumed) return;
-      entry.channel.send({
-        type: "broadcast",
-        event: "signal",
-        payload: { type: "webrtc:ready", from: userId, callSessionId },
+      void sendCompatibilityBroadcast(entry.pair, "signal", {
+        type: "webrtc:ready",
+        from: userId,
+        callSessionId,
+      }).catch((error: any) => {
+        console.warn("[CALLEE_FIX] ready send failed", { matchId, error: error?.message });
       });
       console.log("[CALLEE_FIX] ready sent on pre-sub channel", { matchId });
     })
@@ -265,6 +289,7 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pcAuditIdRef = useRef<number | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const compatibilityPairRef = useRef<RealtimeCompatibilityPair | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const hasSetRemoteDescRef = useRef(false);
@@ -326,10 +351,9 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       });
       pcAuditIdRef.current = null;
     }
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
-    }
+    if (compatibilityPairRef.current) removeCompatibilityPair(compatibilityPairRef.current);
+    compatibilityPairRef.current = null;
+    channelRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
     setConnectionState("closed");
@@ -380,12 +404,12 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
     });
 
     const broadcastOnChannel = async (msg: SignalPayload): Promise<void> => {
-      const channel = channelRef.current;
-      if (!channel) throw new Error("SIGNAL_CHANNEL_MISSING");
-      const status = await channel.send({
-        type: "broadcast",
-        event: "signal",
-        payload: { ...msg, from: userId, callSessionId },
+      const pair = compatibilityPairRef.current;
+      if (!pair) throw new Error("SIGNAL_CHANNEL_MISSING");
+      const status = await sendCompatibilityBroadcast(pair, "signal", {
+        ...msg,
+        from: userId,
+        callSessionId,
       });
       if (status !== "ok") {
         throw new Error(`SIGNAL_SEND_${String(status).toUpperCase().replace(/\s+/g, "_")}`);
@@ -728,14 +752,14 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
       // window (e.g. a webrtc:offer sent by the caller) are buffered and replayed
       // below, after the PC is created, so no signals are lost.
       const presub = !isCaller ? calleePresubConsume(matchId, callSessionId) : null;
-      const channel = presub?.channel ?? supabase.channel(channelName, {
-        config: { broadcast: { self: false } },
-      });
+      const compatibilityPair = presub?.pair ?? createRealtimeCompatibilityPair(channelName, { self: false });
+      compatibilityPairRef.current = compatibilityPair;
+      const channel = compatibilityPair.privateChannel;
       channelRef.current = channel;
       callDebug.update({ channelStatus: "subscribing" });
       callDebug.event(`init: channel ${presub ? "reused (pre-sub)" : "created"} (${channelName})`);
 
-      channel.on("broadcast", { event: "signal" }, ({ payload }) => {
+      const receiveSignal = (payload: any) => {
         if (!payload || payload.callSessionId !== callSessionId) return;
         if (payload.from === userId) {
           // Belt-and-suspenders: self:false should prevent this, but log if it
@@ -753,7 +777,11 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
           return;
         }
         handleSignal(payload as SignalMessage);
-      });
+      };
+      if (!presub) {
+        onCompatibilityBroadcast(compatibilityPair, "signal", ({ payload }) => receiveSignal(payload));
+        subscribeCompatibilityPublic(compatibilityPair);
+      }
 
       // Attempt getUserMedia with the full echo/noise/gain constraints first.
       // If the browser rejects them (OverconstrainedError / NotSupportedError —
@@ -1424,8 +1452,9 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
                 pcRef.current = null;
               }
               if (channelRef.current) {
-                supabase.removeChannel(channelRef.current);
+                if (compatibilityPairRef.current) removeCompatibilityPair(compatibilityPairRef.current);
                 channelRef.current = null;
+                compatibilityPairRef.current = null;
               }
               setFailureReason(reason);
               setConnectionState("failed");
@@ -1467,8 +1496,9 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
             pcRef.current = null;
           }
           if (channelRef.current) {
-            supabase.removeChannel(channelRef.current);
+            if (compatibilityPairRef.current) removeCompatibilityPair(compatibilityPairRef.current);
             channelRef.current = null;
+            compatibilityPairRef.current = null;
           }
           setFailureReason(reason);
           setConnectionState("failed");
@@ -1508,8 +1538,9 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
             pcRef.current = null;
           }
           if (channelRef.current) {
-            supabase.removeChannel(channelRef.current);
+            if (compatibilityPairRef.current) removeCompatibilityPair(compatibilityPairRef.current);
             channelRef.current = null;
+            compatibilityPairRef.current = null;
           }
           callDebug.update({ outcome: "failed", failureReason: reason });
           callDebug.event(`timeout: 60s EXPIRED — ${reason.slice(0, 80)}`);
@@ -1535,11 +1566,13 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
             matchId,
           });
           callDebug.event(`init: replaying ${presub.bufferedSignals.length} buffered signal(s)`);
-          for (const sig of presub.bufferedSignals) {
+          while (presub.bufferedSignals.length > 0) {
             if (cleanedUpRef.current) break;
+            const sig = presub.bufferedSignals.shift();
             await handleSignal(sig as SignalMessage);
           }
         }
+        if (presub) presub.activeSignalHandler = receiveSignal;
 
         // Send webrtc:ready immediately, then retry every 2s until the caller
         // responds with an offer. This handles the race condition where the caller
@@ -1623,13 +1656,13 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
     callDebug.event("hangup: user ended call");
     console.log("[CALL_DEBUG] HANGUP: tearing down WebRTC session", { matchId });
     console.log("[WebRTC] CALL_END_REQUESTED - sending hangup signal");
-    const channel = channelRef.current;
-    if (channel) {
-      channel.send({
-        type: "broadcast",
-        event: "signal",
-        payload: { type: "webrtc:hangup", from: userId },
-      });
+    const pair = compatibilityPairRef.current;
+    if (pair) {
+      void sendCompatibilityBroadcast(pair, "signal", {
+        type: "webrtc:hangup",
+        from: userId,
+        callSessionId,
+      }).catch((error: any) => console.warn("[WebRTC] hangup broadcast failed", error?.message));
       console.log("[WebRTC] CALL_END_SENT - webrtc:hangup broadcast");
     }
     if (readyRetryIntervalRef.current) {
@@ -1672,8 +1705,9 @@ export function useWebRTC({ matchId, callSessionId, userId, isCaller, isVideo, e
     console.log("[WebRTC] CALL_STATE_CLEARED - streams and peer connection closed");
     setTimeout(() => {
       if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
+        if (compatibilityPairRef.current) removeCompatibilityPair(compatibilityPairRef.current);
         channelRef.current = null;
+        compatibilityPairRef.current = null;
         console.log("[WebRTC] CALL_LISTENER_REMOVED - signaling channel removed");
       }
       console.log("[WebRTC] CALL_SESSION_CLOSED - all resources released");

@@ -1,6 +1,10 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, createContext, useContext, createElement } from "react";
 import type { ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  notePrivateSessionJoined,
+  setPrivateSessionChannel,
+} from "@/lib/realtime-compatibility";
 import { setCachedToken, queryClient, API_BASE } from "@/lib/queryClient";
 import { stopAllCallSounds } from "@/lib/call-audio";
 import { clearAllArmedSessions, setLoginTime } from "@/lib/live-call-sessions";
@@ -9,7 +13,6 @@ import type { User } from "@supabase/supabase-js";
 import {
   isCurrentSessionReplacement,
   type ForcedLogoutNotice,
-  type SessionReplacedEventDetail,
 } from "@/lib/session-conflict";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1447,46 +1450,127 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.id]);
 
-  // ── Realtime session-replaced channel (SESSION-SCOPED) ───────────────────
-  // Subscribe to `private-session:{mySessionId}` — a channel that is unique to
-  // THIS device's application session.  When the server replaces this session
-  // (new login from a different device), it broadcasts ONLY to this channel,
-  // ensuring the NEW device (which subscribes to its own session channel) is
-  // never accidentally signed out by receiving the broadcast.
-  //
-  // Falls back to the 401 session_replaced path (middleware gate or heartbeat)
-  // if the broadcast is missed while the device is offline.
+  // ── Realtime session-replaced channels ────────────────────────────────────
+  // Keep listening on the legacy public session-ID topic for older servers and
+  // clients, while the authenticated private user topic is the new path. The
+  // session IDs in private-channel payloads ensure only the replaced device
+  // reacts to a user-scoped event.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !isSessionReady) return;
 
     const mySessionId = localStorage.getItem("lulou_session_id") ?? "";
     if (!mySessionId) return; // no session ID yet — heartbeat 401 covers this
 
-    const channelName = `private-session:${mySessionId}`;
-    const channel = supabase
-      .channel(channelName)
-      .on("broadcast", { event: "session-replaced" }, (msg) => {
-        const payload = msg.payload ?? {};
-        // Defense-in-depth: only act if this broadcast is for our session ID.
-        // (The session-scoped channel already ensures this, but belt-and-braces.)
-        if (payload.newSessionId && payload.newSessionId === mySessionId) {
-          // We ARE the new device — server sent to wrong channel; ignore.
-          console.warn("[AUTH] IGNORED session-replaced broadcast (we are the new device)", { payload });
+    const legacyChannelName = `private-session:${mySessionId}`;
+    const userChannelName = `private-session:${user.id}`;
+    const handledReplacementKeys = new Set<string>();
+    let disposed = false;
+    let resumingRealtime = false;
+    let privateChannel: ReturnType<typeof supabase.channel> | null = null;
+
+    const dispatchReplacement = (payload: any, source: "legacy-public" | "private-user") => {
+      const oldSessionId = typeof payload?.oldSessionId === "string" ? payload.oldSessionId : "";
+      const newSessionId = typeof payload?.newSessionId === "string" ? payload.newSessionId : "";
+      if (source === "private-user") {
+        if (oldSessionId !== mySessionId || !newSessionId || newSessionId === mySessionId) {
+          console.warn("[AUTH] IGNORED private session-replaced broadcast (session mismatch)", { payload });
           return;
         }
-        console.log("[AUTH] SESSION_REPLACED_BROADCAST received on session channel", { sessionId: mySessionId.slice(0, 8) + "…", payload });
-        window.dispatchEvent(new CustomEvent("lulou:session-replaced", {
-          detail: { reason: "session_replaced", sessionId: mySessionId, source: "realtime" },
-        }));
+      } else if (
+        (oldSessionId && oldSessionId !== mySessionId)
+        || newSessionId === mySessionId
+      ) {
+        // The legacy topic is session-scoped, but validate explicit IDs too.
+        console.warn("[AUTH] IGNORED legacy session-replaced broadcast (session mismatch)", { payload });
+        return;
+      }
+
+      const dedupeKey = `${oldSessionId || mySessionId}:${newSessionId || "legacy"}`;
+      if (handledReplacementKeys.has(dedupeKey)) {
+        console.log("[AUTH] duplicate session-replaced broadcast ignored", { source, dedupeKey });
+        return;
+      }
+      handledReplacementKeys.add(dedupeKey);
+      window.setTimeout(() => handledReplacementKeys.delete(dedupeKey), 10_000);
+      console.log("[AUTH] SESSION_REPLACED_BROADCAST received on session channel", {
+        sessionId: mySessionId.slice(0, 8) + "…",
+        source,
+        payload,
+      });
+      window.dispatchEvent(new CustomEvent("lulou:session-replaced", {
+        detail: { reason: "session_replaced", sessionId: mySessionId, source: "realtime" },
+      }));
+    };
+
+    // Legacy fallback: intentionally public, retaining the existing topic name
+    // and session-ID scope expected by already deployed publishers.
+    const legacyChannel = supabase
+      .channel(legacyChannelName, { config: { private: false } })
+      .on("broadcast", { event: "session-replaced" }, (msg) => {
+        dispatchReplacement(msg?.payload ?? {}, "legacy-public");
       })
       .subscribe((status) => {
-        console.log(`[AUTH] SESSION_CHANNEL_STATUS ${channelName} → ${status}`);
+        console.log(`[AUTH] LEGACY_SESSION_CHANNEL_STATUS ${legacyChannelName} → ${status}`);
       });
 
-    return () => {
-      supabase.removeChannel(channel).catch(() => {});
+    // Private user-scoped replacement channel. Set the current JWT before
+    // joining because private broadcast authorization is enforced by Realtime.
+    void (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (disposed || session?.user.id !== user.id || !session.access_token) return;
+      await supabase.realtime.setAuth(session.access_token);
+      if (disposed) return;
+      const channel = supabase
+        .channel(userChannelName, { config: { private: true } });
+      privateChannel = channel;
+      setPrivateSessionChannel(channel);
+      channel
+        .on("broadcast", { event: "session-replaced" }, (msg) => {
+          dispatchReplacement(msg?.payload ?? {}, "private-user");
+        })
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") notePrivateSessionJoined(channel);
+          console.log(`[AUTH] PRIVATE_SESSION_CHANNEL_STATUS ${userChannelName} → ${status}`);
+        });
+    })().catch((error) => {
+      console.warn("[AUTH] private user session channel could not join", error);
+    });
+
+    // Re-authenticate and wake the existing Realtime socket when an installed
+    // PWA or browser tab resumes. Supabase rejoins its current channels; do not
+    // tear them down and recreate them, since active WebRTC calls use them too.
+    const resumeRealtime = async () => {
+      if (disposed || resumingRealtime || document.visibilityState === "hidden") return;
+      resumingRealtime = true;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (disposed || session?.user.id !== user.id || !session.access_token) return;
+        await supabase.realtime.setAuth(session.access_token);
+        if (!disposed && !supabase.realtime.isConnected()) supabase.realtime.connect();
+      } catch (error) {
+        console.warn("[AUTH] Realtime resume authentication failed; will retry on next resume", error);
+      } finally {
+        resumingRealtime = false;
+      }
     };
-  }, [user?.id]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void resumeRealtime();
+    };
+    const onPageShow = () => { void resumeRealtime(); };
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("online", onPageShow);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("online", onPageShow);
+      document.removeEventListener("visibilitychange", onVisible);
+      setPrivateSessionChannel(null);
+      supabase.removeChannel(legacyChannel).catch(() => {});
+      if (privateChannel) supabase.removeChannel(privateChannel).catch(() => {});
+    };
+  }, [user?.id, isSessionReady]);
 
   // ── Forced-logout event handler ───────────────────────────────────────────
   // Fires when either:
@@ -1501,15 +1585,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const handleSessionReplaced = (event: Event) => {
       if (!mounted) return;
-      const detail = (event as CustomEvent<SessionReplacedEventDetail>).detail;
+      const detail: unknown = (event as CustomEvent<unknown>).detail;
       const currentSessionId = localStorage.getItem("lulou_session_id") ?? "";
       const currentUser = currentUserRef.current;
-      if (!isCurrentSessionReplacement(detail, currentUser?.id, currentSessionId)) {
+      if (!currentUser || !isCurrentSessionReplacement(detail, currentUser.id, currentSessionId)) {
+        const detailObject = detail && typeof detail === "object"
+          ? detail as { sessionId?: unknown; source?: unknown }
+          : null;
         console.warn("[AUTH] SESSION_REPLACED_IGNORED — event does not own current user/session", {
           hasCurrentUser: !!currentUser,
           hasCurrentSessionId: !!currentSessionId,
-          eventHasSessionId: !!detail?.sessionId,
-          source: detail?.source ?? "unknown",
+          eventHasSessionId: typeof detailObject?.sessionId === "string",
+          source: typeof detailObject?.source === "string" ? detailObject.source : "unknown",
         });
         return;
       }

@@ -2,6 +2,15 @@ import { useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Match, Profile, Message } from "@shared/schema";
+import {
+  createRealtimeCompatibilityPair,
+  onCompatibilityBroadcast,
+  onCompatibilityPublicBroadcast,
+  removeCompatibilityPair,
+  sendCompatibilityBroadcast,
+  subscribeCompatibilityPair,
+  type RealtimeCompatibilityPair,
+} from "@/lib/realtime-compat";
 
 type LastMessage = { content: string; senderId: string; createdAt: Date | null };
 type MatchWithProfile = Match & { profile: Profile; lastMessage: LastMessage | null };
@@ -18,7 +27,7 @@ export function useRealtimeMessages(
   // onTeaserEvent removed — 5-msg teaser is no longer part of the progression
 ) {
   const queryClient = useQueryClient();
-  const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const broadcastChannelRef = useRef<RealtimeCompatibilityPair | null>(null);
   const pgChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   // Ref-based callbacks so the channel setup effect never needs to re-run when
   // callback identities change (avoids unnecessary channel reconnects).
@@ -186,17 +195,13 @@ export function useRealtimeMessages(
   const broadcastNewMessage = useCallback((msg: Message) => {
     const ch = broadcastChannelRef.current;
     if (!ch || !matchId) return;
-    ch.send({
-      type: "broadcast",
-      event: "new-message",
-      payload: {
+    void sendCompatibilityBroadcast(ch, "new-message", {
         id: msg.id,
         match_id: msg.matchId,
         sender_id: msg.senderId,
         content: msg.content,
         reaction: msg.reaction ?? null,
         created_at: msg.createdAt,
-      },
     }).catch((err: any) =>
       console.warn("[CHAT_REALTIME] broadcast send error", err?.message)
     );
@@ -210,11 +215,7 @@ export function useRealtimeMessages(
   const broadcastDateChoice = useCallback((userId: string, choice: 'plan' | 'keep' | null) => {
     const ch = broadcastChannelRef.current;
     if (!ch || !matchId) return;
-    ch.send({
-      type: "broadcast",
-      event: "date-choice",
-      payload: { userId, choice },
-    }).catch((err: any) =>
+    void sendCompatibilityBroadcast(ch, "date-choice", { userId, choice }).catch((err: any) =>
       console.warn("[DATE_CHOICE] broadcast send error", err?.message)
     );
     console.log("[DATE_CHOICE] broadcast sent", { matchId: matchId.slice(0, 8), choice });
@@ -225,13 +226,12 @@ export function useRealtimeMessages(
 
     // ── Channel 1: Supabase Broadcast — instant delivery ~50ms ──
     // self: true so the sender also receives the echo (dedup handles it).
-    const broadcastChannel = supabase
-      .channel(`chat:${matchId}`, { config: { broadcast: { self: true } } })
-      .on("broadcast", { event: "new-message" }, ({ payload }) => {
+    const broadcastChannels = createRealtimeCompatibilityPair(`chat:${matchId}`, { self: true });
+    onCompatibilityBroadcast(broadcastChannels, "new-message", ({ payload }) => {
         console.log("[CHAT_REALTIME] broadcast event received", { matchId: matchId.slice(0, 8) });
         handleNewMessage(payload);
-      })
-      .on("broadcast", { event: "date-choice" }, ({ payload }) => {
+    });
+    onCompatibilityBroadcast(broadcastChannels, "date-choice", ({ payload }) => {
         // payload: { userId, choice }
         const { userId, choice } = payload as { userId: string; choice: 'plan' | 'keep' | null };
         console.log("[DATE_CHOICE] broadcast received", { matchId: matchId.slice(0, 8), choice });
@@ -242,8 +242,8 @@ export function useRealtimeMessages(
             ? { ...old, dateChoiceUser1: choice }
             : { ...old, dateChoiceUser2: choice };
         });
-      })
-      .on("broadcast", { event: "meet-availability" }, ({ payload }) => {
+    });
+    const handleMeetAvailabilityBroadcast = ({ payload }: any) => {
         if (!payload) return;
         queryClient.setQueryData<MatchDetailLike>(["/api/matches", matchId], (old) =>
           old ? {
@@ -259,8 +259,10 @@ export function useRealtimeMessages(
             ? Math.max(0, Date.now() - payload.serverBroadcastAt)
             : null,
         });
-      })
-      .on("broadcast", { event: "number-exchange" }, ({ payload }) => {
+    };
+    broadcastChannels.privateChannel.on("broadcast", { event: "meet-availability" }, handleMeetAvailabilityBroadcast);
+    onCompatibilityPublicBroadcast(broadcastChannels, "meet-availability", handleMeetAvailabilityBroadcast);
+    onCompatibilityBroadcast(broadcastChannels, "number-exchange", ({ payload }) => {
         if (!payload) return;
         queryClient.setQueryData<MatchDetailLike>(["/api/matches", matchId], (old) =>
           old ? {
@@ -279,20 +281,20 @@ export function useRealtimeMessages(
           matchId: matchId.slice(0, 8),
           complete: payload.journeyComplete === true,
         });
-      })
-      .on("broadcast", { event: "voice-note-unlock" }, () => {
+    });
+    onCompatibilityBroadcast(broadcastChannels, "voice-note-unlock", () => {
         // Retroactive/legacy path — fired by the entitlement endpoint when it
         // detects callStage > 0 on a cold cache hit. Reuse the same callback.
         console.log("[VOICE_NOTE_REALTIME] unlock event received (legacy path)", { matchId: matchId.slice(0, 8) });
         onVoiceNoteUnlockRef.current?.();
-      })
-      .on("broadcast", { event: "voice-note-post-call-unlock" }, () => {
+    });
+    onCompatibilityBroadcast(broadcastChannels, "voice-note-post-call-unlock", () => {
         // Fired by POST /api/matches/:matchId/call/complete when the first call
         // genuinely connected and lasted ≥30 s. Both users get this event.
         console.log("[VOICE_NOTE_REALTIME] post-call unlock event received", { matchId: matchId.slice(0, 8) });
         onVoiceNoteUnlockRef.current?.();
-      })
-      .on("broadcast", { event: "first-call-unlock" }, ({ payload }) => {
+    });
+    onCompatibilityBroadcast(broadcastChannels, "first-call-unlock", ({ payload }) => {
         if (payload?.user1Count !== undefined && payload?.user2Count !== undefined) {
           queryClient.setQueryData<any>(["/api/matches", matchId], (old: any) =>
             old ? { ...old, messageCount1: payload.user1Count, messageCount2: payload.user2Count } : old
@@ -305,19 +307,24 @@ export function useRealtimeMessages(
         }
         console.log("[FIRST_CALL_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
         onFirstCallUnlockRef.current?.();
-      })
+    });
       // voice-notes-teaser event removed — 5-msg teaser is no longer part of the progression
-      .subscribe((status) => {
+    subscribeCompatibilityPair(broadcastChannels, (status) => {
         console.log("[CHAT_REALTIME] broadcast channel status", { matchId: matchId.slice(0, 8), status });
+    }, (status) => {
+      console.log("[CHAT_REALTIME] public compatibility channel status", {
+        matchId: matchId.slice(0, 8),
+        status,
       });
+    });
 
-    broadcastChannelRef.current = broadcastChannel;
+    broadcastChannelRef.current = broadcastChannels;
 
     // ── Channel 2: postgres_changes — WAL fallback/reconciliation ~200-500ms ──
     // Catches any messages that bypass the broadcast path (e.g. server-inserted
     // system messages, or if the broadcast packet is dropped).
     const pgChannel = supabase
-      .channel(`messages:${matchId}`)
+      .channel(`messages:${matchId}`, { config: { private: true } })
       .on(
         "postgres_changes" as any,
         {
@@ -338,10 +345,8 @@ export function useRealtimeMessages(
     pgChannelRef.current = pgChannel;
 
     return () => {
-      if (broadcastChannelRef.current) {
-        supabase.removeChannel(broadcastChannelRef.current);
-        broadcastChannelRef.current = null;
-      }
+      removeCompatibilityPair(broadcastChannels);
+      broadcastChannelRef.current = null;
       if (pgChannelRef.current) {
         supabase.removeChannel(pgChannelRef.current);
         pgChannelRef.current = null;
