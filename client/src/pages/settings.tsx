@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getAuthHeaders, API_BASE } from "@/lib/queryClient";
 import { startPurchase, restorePurchases as doRestorePurchases } from "@/lib/purchase-service";
 import { supabase } from "@/lib/supabase";
 import { useUnits } from "@/lib/units";
@@ -103,6 +103,23 @@ type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "p
 export default function SettingsPage() {
   const [, navigate] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
+  const [authorizedAdminId, setAuthorizedAdminId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!user?.id) return;
+    let active = true;
+    // Reuse the production admin gate; never infer admin status from client email.
+    void (async () => {
+      try {
+        const headers = await getAuthHeaders();
+        const res = await fetch(`${API_BASE}/api/admin/email-diagnostics`, { headers, cache: "no-store" });
+        if (active) setAuthorizedAdminId(res.ok ? user.id : null);
+      } catch {
+        // This optional entry must not affect Settings or normal app behavior.
+        if (active) setAuthorizedAdminId(null);
+      }
+    })();
+    return () => { active = false; };
+  }, [user?.id]);
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -1300,6 +1317,18 @@ export default function SettingsPage() {
             onPress={() => setActiveSheet("billing_terms")}
             testId="button-billing-terms"
           />
+
+          {authorizedAdminId === user?.id && (
+            <>
+              <SectionHeader title="Admin" />
+              <SettingRow
+                icon={<Shield className="w-[18px] h-[18px] text-muted-foreground" />}
+                label="Private Realtime diagnostic"
+                onPress={() => navigate("/admin/diagnostics")}
+                testId="button-private-realtime-diagnostic"
+              />
+            </>
+          )}
 
           {/* ── Development-only version / deployment details ── */}
           {import.meta.env.DEV && (

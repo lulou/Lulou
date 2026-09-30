@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, createContex
 import type { ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import {
-  notePrivateSessionJoined,
+  notePrivateSessionStatus,
   setPrivateSessionChannel,
 } from "@/lib/realtime-compatibility";
 import { setCachedToken, queryClient, API_BASE } from "@/lib/queryClient";
@@ -1523,13 +1523,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const channel = supabase
         .channel(userChannelName, { config: { private: true } });
       privateChannel = channel;
-      setPrivateSessionChannel(channel);
+      setPrivateSessionChannel(channel, true);
       channel
         .on("broadcast", { event: "session-replaced" }, (msg) => {
           dispatchReplacement(msg?.payload ?? {}, "private-user");
         })
         .subscribe((status) => {
-          if (status === "SUBSCRIBED") notePrivateSessionJoined(channel);
+          notePrivateSessionStatus(channel, status);
           console.log(`[AUTH] PRIVATE_SESSION_CHANNEL_STATUS ${userChannelName} → ${status}`);
         });
     })().catch((error) => {

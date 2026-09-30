@@ -3,6 +3,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { getAuthHeaders, API_BASE } from "@/lib/queryClient";
 import { RefreshCw, ShieldCheck, ShieldOff, Mail, AlertCircle, CheckCircle, Clock, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
+import { getRealtimeCompatibilityEvidence } from "@/lib/realtime-compatibility";
+import { supabase } from "@/lib/supabase";
+import { PrivateRealtimeDiagnosticCard } from "@/components/private-realtime-diagnostic";
 
 interface EmailEvent {
   ts: string;
@@ -59,6 +62,24 @@ function relativeTime(ts: string) {
   return `${Math.round(diff / 3_600_000)}h ago`;
 }
 
+function PrivateRealtimeDiagnosticOnThisDevice({ userId }: { userId: string }) {
+  const [evidence, setEvidence] = useState(() => getRealtimeCompatibilityEvidence(userId));
+  const [websocketConnected, setWebsocketConnected] = useState(() => supabase.realtime.isConnected());
+
+  useEffect(() => {
+    // Read the existing channel and socket. No new subscription or transport change.
+    const refresh = () => {
+      setEvidence(getRealtimeCompatibilityEvidence(userId));
+      setWebsocketConnected(supabase.realtime.isConnected());
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 1000);
+    return () => window.clearInterval(interval);
+  }, [userId]);
+
+  return <PrivateRealtimeDiagnosticCard evidence={evidence} websocketConnected={websocketConnected} />;
+}
+
 export default function AdminDiagnosticsPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -71,7 +92,7 @@ export default function AdminDiagnosticsPage() {
   const fetchDiagnostics = useCallback(async () => {
     try {
       const headers = await getAuthHeaders();
-      const res = await fetch(`${API_BASE}/api/admin/email-diagnostics`, { headers });
+      const res = await fetch(`${API_BASE}/api/admin/email-diagnostics`, { headers, cache: "no-store" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message ?? `HTTP ${res.status}`);
@@ -174,6 +195,7 @@ export default function AdminDiagnosticsPage() {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-4 space-y-4">
+        {user?.id && <PrivateRealtimeDiagnosticOnThisDevice key={user.id} userId={user.id} />}
         {/* Enforcement date */}
         <div className="text-xs text-muted-foreground flex items-center gap-1.5">
           <Clock className="w-3.5 h-3.5" />
