@@ -7,6 +7,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, getAuthHeaders, API_BASE } from "@/lib/queryClient";
 import { startPurchase, restorePurchases as doRestorePurchases } from "@/lib/purchase-service";
 import { supabase } from "@/lib/supabase";
+import { usePrivateRealtimeDiagnosticAccess } from "@/lib/private-realtime-diagnostic-access";
+import { TemporaryPrivateRealtimeDiagnostic } from "@/components/temporary-private-realtime-diagnostic";
 import { useUnits } from "@/lib/units";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import type { NotifCategory } from "@/hooks/use-push-notifications";
@@ -103,6 +105,7 @@ type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "p
 export default function SettingsPage() {
   const [, navigate] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
+  const temporaryDiagnostic = usePrivateRealtimeDiagnosticAccess(supabase.auth, user?.id, user?.email);
   const [authorizedAdminId, setAuthorizedAdminId] = useState<string | null>(null);
   useEffect(() => {
     if (!user?.id) return;
@@ -1318,6 +1321,18 @@ export default function SettingsPage() {
             testId="button-billing-terms"
           />
 
+          {temporaryDiagnostic.allowed && (
+            <>
+              <SectionHeader title="Temporary diagnostics" />
+              <SettingRow
+                icon={<Shield className="w-[18px] h-[18px] text-muted-foreground" />}
+                label="Private Realtime diagnostic"
+                onPress={() => { void temporaryDiagnostic.requestOpen(); }}
+                testId="button-temporary-private-realtime-diagnostic"
+              />
+            </>
+          )}
+
           {authorizedAdminId === user?.id && (
             <>
               <SectionHeader title="Admin" />
@@ -1499,6 +1514,13 @@ export default function SettingsPage() {
       ══════════════════════════════════════════════════════════════════════ */}
 
       {/* ── Selfie verification sheet ── */}
+      <TemporaryPrivateRealtimeDiagnostic
+        authorized={temporaryDiagnostic.allowed}
+        open={temporaryDiagnostic.open}
+        userId={user?.id}
+        onClose={temporaryDiagnostic.close}
+      />
+
       <Sheet open={activeSheet === "selfie"} onOpenChange={open => !open && setActiveSheet(null)}>
         <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
           <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
