@@ -25,11 +25,9 @@
  *  blocked even if the user has previously tapped other things.
  *
  *  Fix: create ONE element for each tone at module load time.
- *  On the first user gesture, call play() on these same elements
- *  (pre-warm). iOS marks them as "user-activated" synchronously
- *  (before the Promise resolves). Future play() calls on the SAME
- *  elements succeed from any context — React effects, Supabase
- *  Realtime callbacks, anywhere.
+ *  Reuse these elements across calls. The caller ringback can be pre-warmed
+ *  on a gesture; the incoming ringtone is never played as a generic warm-up
+ *  and may only be retried while its exact verified authority grant is live.
  *
  * WHY HTMLAudioElement INSTEAD OF Web Audio API
  *
@@ -37,10 +35,8 @@
  *
  *  BUG 1 — No ringtone:
  *    AudioContext always starts SUSPENDED on iOS. resume() requires a
- *    gesture in the same call stack. The incoming overlay mounts from
- *    a Supabase Realtime effect (no gesture). By the time the user
- *    taps Answer, silenceRing() has killed the ring state — context
- *    never resumes.
+ *    gesture in the same call stack. Incoming playback therefore uses a
+ *    singleton HTMLAudioElement and is retried from an authorized gesture.
  *
  *  BUG 2 — Screeching during connected call:
  *    getUserMedia() switches iOS AVAudioSession to PlayAndRecord.
@@ -52,9 +48,10 @@
  *  synchronous, no AVAudioSession restart risk.
  */
 
-import { isArmedSession, clearAllArmedSessions } from "@/lib/live-call-sessions";
-import { isStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
-import { STARTUP_SILENCE_UNTIL } from "@/lib/app-load-time";
+import { isArmedSession } from "./live-call-sessions";
+import { isStartupSweepComplete } from "./startup-sweep";
+import { STARTUP_SILENCE_UNTIL } from "./app-load-time";
+import { incomingCallAuthority, type IncomingCallGrant } from "./incoming-call-authority";
 
 // Internal alias — keeps internal code private while using the shared set.
 const _isSessionArmed = isArmedSession;
@@ -145,7 +142,7 @@ function _getRingbackSrc(): string {
 // ── Singleton audio elements ───────────────────────────────────────────────
 //
 // ONE element per tone. Created at module load, reused for every call.
-// Pre-warming on the first user gesture authorises the element on iOS Safari.
+// Incoming playback is authority-gated; caller ringback may use a silent warm-up.
 
 let _ringtoneEl: HTMLAudioElement | null = null;
 let _ringbackEl: HTMLAudioElement | null = null;
@@ -153,8 +150,67 @@ let _ringtoneActive  = false;  // ring is supposed to be playing right now
 let _ringbackActive  = false;
 let _ringtoneSessionId: string | null = null;
 let _ringbackSessionId: string | null = null;
-let _ringtoneWarm    = false;  // element has been user-activated on iOS
 let _ringbackWarm    = false;
+let _ringtoneGrant: IncomingCallGrant | null = null;
+let _ringtoneAttempt = 0;
+let _ringbackAttempt = 0;
+let _ringtonePlayPending = false;
+let _ringbackPlayPending = false;
+
+function _hasIncomingAuthority(sessionId: string, grant: IncomingCallGrant): boolean {
+  return incomingCallAuthority.get(sessionId) === grant;
+}
+
+function _ownsIncomingAttempt(sessionId: string, grant: IncomingCallGrant, attempt: number): boolean {
+  return _ringtoneActive
+    && _ringtoneSessionId === sessionId
+    && _ringtoneGrant === grant
+    && _ringtoneAttempt === attempt;
+}
+
+function _playAuthorizedIncoming(sessionId: string, grant: IncomingCallGrant): void {
+  if (!_ringtoneActive || _ringtoneSessionId !== sessionId || _ringtoneGrant !== grant) return;
+  if (!_hasIncomingAuthority(sessionId, grant)) {
+    stopIncomingRingtoneForSession(sessionId, "incoming_authority_expired");
+    return;
+  }
+  const el = _ensureRingtoneEl();
+  if (!el || _ringtonePlayPending || !el.paused) return;
+
+  const attempt = _ringtoneAttempt;
+  _ringtonePlayPending = true;
+  el.muted = false;
+  try {
+    el.play().then(() => {
+      if (!_ownsIncomingAttempt(sessionId, grant, attempt)) {
+        // A late play() resolution must not revive a stopped singleton. Never
+        // pause a newer call that has since taken ownership of this element.
+        if (!_ringtoneActive && _ringtoneSessionId === null) {
+          el.pause();
+          el.currentTime = 0;
+        }
+        return;
+      }
+      _ringtonePlayPending = false;
+      if (!_hasIncomingAuthority(sessionId, grant)) {
+        stopIncomingRingtoneForSession(sessionId, "authority_revoked_during_play");
+      }
+    }).catch(() => {
+      if (!_ownsIncomingAttempt(sessionId, grant, attempt)) return;
+      _ringtonePlayPending = false;
+      if (!_hasIncomingAuthority(sessionId, grant)) {
+        stopIncomingRingtoneForSession(sessionId, "authority_revoked_during_play");
+        return;
+      }
+      // Vibration is a tactile fallback only for the currently authorized ring.
+      try {
+        if (navigator.vibrate) navigator.vibrate([400, 200, 400, 1500, 400, 200, 400]);
+      } catch { /* non-fatal */ }
+    });
+  } catch {
+    if (_ownsIncomingAttempt(sessionId, grant, attempt)) _ringtonePlayPending = false;
+  }
+}
 
 function _ensureRingtoneEl(): HTMLAudioElement | null {
   if (typeof window === "undefined") return null;
@@ -190,77 +246,45 @@ function _ensureRingbackEl(): HTMLAudioElement | null {
  * any context (React effects, Supabase callbacks, etc.).
  */
 function _warmElements(): void {
-  // ── Hard startup suppression ─────────────────────────────────────────────
-  // Belt-and-suspenders for the 5-second silence window.  Even if
-  // _ringtoneActive / _ringbackActive are somehow true (e.g. because a stale
-  // rering slipped through all upstream guards), the warm-up path must not
-  // play audio during the suppression window.  Treat both flags as false.
   const inSilenceWindow = Date.now() < STARTUP_SILENCE_UNTIL;
-  const ringtoneAllowed  = _ringtoneActive  && !inSilenceWindow;
-  const ringbackAllowed  = _ringbackActive  && !inSilenceWindow;
   if (inSilenceWindow && (_ringtoneActive || _ringbackActive)) {
     console.log("[CALL_AUDIO_GUARD] warmup suppressed — inside 5 s startup silence window", {
       msRemaining: STARTUP_SILENCE_UNTIL - Date.now(),
     });
   }
 
-  // ── Ringtone ──
-  const rt = _ensureRingtoneEl();
-  if (rt && !_ringtoneWarm) {
-    _ringtoneWarm = true; // mark synchronously — activation happens on play() call, not Promise resolve
-
-    // Use muted=true (not just volume=0) for the warm-up when no ring is pending.
-    // iOS Safari can still emit a brief audio burst from the pre-decoded buffer
-    // before the async .then() fires, even at volume=0.  muted=true is a DOM-level
-    // gate that the audio pipeline cannot bypass — guaranteed silence during warm-up.
-    const wasMuted = rt.muted;
-    if (!ringtoneAllowed) rt.muted = true;
-
-    rt.play().then(() => {
-      // If no incoming call is pending (or suppressed), silence immediately.
-      if (!ringtoneAllowed) {
-        rt.pause();
-        rt.currentTime = 0;
-        rt.muted = wasMuted;
-        console.log("[CALL_RINGTONE] blocked because no verified incoming call");
-      } else {
-        rt.muted = wasMuted; // ensure audible for the real ring
-        // Ring was waiting for unlock — it's now playing.
-        console.log("[CALL_RINGTONE] incoming ringtone started (post-unlock)");
-      }
-    }).catch(() => {
-      rt.muted = wasMuted;
-      // AbortError from immediate pause is expected and harmless — element is still warm.
-      if (ringtoneAllowed) {
-        // Ring was waiting — try once more (should succeed now that element is warm).
-        rt.currentTime = 0;
-        rt.play().catch(() => {});
-      }
-    });
+  // An incoming tone is never played merely to warm the singleton. A user
+  // gesture may retry it only for the exact, still-live verified grant.
+  const incomingSessionId = _ringtoneSessionId;
+  const incomingGrant = incomingSessionId ? incomingCallAuthority.get(incomingSessionId) : null;
+  if (!inSilenceWindow && isStartupSweepComplete() && incomingSessionId
+    && incomingGrant && _ringtoneGrant === incomingGrant) {
+    _playAuthorizedIncoming(incomingSessionId, incomingGrant);
   }
 
-  // ── Ringback ──
+  // Ringback remains caller-side and armed-session owned. Its warm-up callbacks
+  // carry both the exact session ID and an attempt generation so a delayed
+  // gesture Promise cannot unmute or retry a replacement call.
   const rb = _ensureRingbackEl();
   if (rb && !_ringbackWarm) {
     _ringbackWarm = true;
-
-    // Same muted=true guard for ringback — prevents the "transition beep" that
-    // occurs when Answer is the user's first gesture and _doUnlock fires mid-call.
+    const sessionId = _ringbackSessionId;
+    if (_ringbackActive && sessionId) {
+      _playOwnedRingback(sessionId);
+      return;
+    }
+    const attempt = _ringbackAttempt;
     const wasMuted = rb.muted;
-    if (!ringbackAllowed) rb.muted = true;
+    rb.muted = true;
 
     rb.play().then(() => {
-      if (!ringbackAllowed) {
-        rb.pause();
-        rb.currentTime = 0;
-        rb.muted = wasMuted;
-        console.log("[FINAL_CALL_FIX] stale ringtone blocked");
-      } else {
-        rb.muted = wasMuted;
-      }
-    }).catch(() => {
+      if (_ringbackAttempt !== attempt || _ringbackSessionId !== sessionId || _ringbackActive) return;
+      rb.pause();
+      rb.currentTime = 0;
       rb.muted = wasMuted;
-      if (ringbackAllowed) { rb.currentTime = 0; rb.play().catch(() => {}); }
+    }).catch(() => {
+      if (_ringbackAttempt !== attempt || _ringbackSessionId !== sessionId || _ringbackActive) return;
+      rb.muted = wasMuted;
     });
   }
 }
@@ -289,7 +313,8 @@ function _doUnlock(): void {
   document.removeEventListener("click",      _doUnlock, true);
   _unlockListenersRegistered = false;
 
-  // Warm the singleton ring elements — this is the critical iOS fix.
+  // Warm caller-side audio and retry an incoming sound only while its exact
+  // verified session grant remains current.
   _warmElements();
 
   console.log("[CALL_RINGTONE] audio unlocked");
@@ -300,9 +325,8 @@ function _doUnlock(): void {
 
 /**
  * Register the audio-unlock gesture listeners.
- * Must be called from CallDetectors (authenticated context only).
- * Calling before auth resolves would let the warm-up play() fire on the
- * Landing page, which can produce a brief audible tone on some systems.
+ * Must be called from CallDetectors (authenticated context only). Incoming
+ * playback remains independently gated by the current verified call grant.
  */
 export function registerCallAudioUnlock(): void {
   if (_audioUnlocked || _unlockListenersRegistered) return;
@@ -353,16 +377,13 @@ export function onAudioUnlocked(cb: () => void): () => void {
 /**
  * Start the incoming ringtone (RECEIVER only).
  *
- * Pass `sessionId` from the match so the guard can confirm it was armed by a
- * live Realtime call:ring event.  If the session is not armed (stale DB row,
- * cache hit, or route-change refetch), the ring is blocked before any audio
- * is produced — eliminating the "random ring on navigation" bug.
+ * Pass `sessionId` from the match so the audio controller can require the
+ * current backend-verified incoming authority grant for this exact session.
+ * Armed state or cached UI data alone can never authorize this sound.
  *
- * Uses the singleton element. If it has been pre-warmed (any prior gesture),
- * play() succeeds immediately from a React effect. If not yet warmed (cold
- * mobile session with no prior gesture), play() is blocked — the ring starts
- * automatically when _doUnlock fires on the next touch. Vibration is triggered
- * as an immediate tactile fallback on Android.
+ * Uses the singleton element. A rejected autoplay attempt may be retried only
+ * by the hook timer or a user gesture while the same authority grant remains
+ * live. Vibration is triggered as a tactile fallback on Android.
  */
 export function startIncomingRingtone(sessionId?: string | null): void {
   try {
@@ -371,6 +392,18 @@ export function startIncomingRingtone(sessionId?: string | null): void {
     // is not authenticated. Block the ringtone and log for diagnostics.
     if (!_unlockListenersRegistered && !_audioUnlocked) {
       console.log("[CALL_AUDIO_GUARD] blocked call audio because user is logged out");
+      return;
+    }
+
+    // Armed-session state only records transport/UI history. Incoming audio is
+    // authorized exclusively by the current backend-verified grant.
+    if (!sessionId) return;
+    const grant = incomingCallAuthority.get(sessionId);
+    if (!grant) {
+      stopIncomingRingtoneForSession(sessionId, "incoming_authority_missing");
+      console.log("[CALL_AUDIO_GUARD] blocked incoming ring without live verified authority", {
+        sessionId: sessionId.slice(0, 8),
+      });
       return;
     }
 
@@ -404,22 +437,6 @@ export function startIncomingRingtone(sessionId?: string | null): void {
       return;
     }
 
-    // ── Armed-session guard ──────────────────────────────────────────────
-    // Only sessions confirmed by a live Realtime call:ring event may play
-    // audio. Stale DB rows (refetch, cache hits, route-change polls) are
-    // blocked here — they can reach incomingCall memo if the session was
-    // previously armed but the end signal was lost, so this is the final
-    // firewall preventing ghost rings on navigation.
-    //
-    // NOTE: null/undefined sessionId is also blocked — a missing session ID
-    // means the call state came from stale/partial data, not a live signal.
-    if (!sessionId || !_isSessionArmed(sessionId)) {
-      console.log("[RING_DEBUG] blocked stale trigger — session not armed", {
-        sessionId: sessionId ? sessionId.slice(0, 8) : "null",
-        source: "startIncomingRingtone",
-      });
-      return;
-    }
     console.log("[RING_DEBUG] verified live call trigger", {
       sessionId: sessionId.slice(0, 8),
       source: "startIncomingRingtone",
@@ -428,15 +445,23 @@ export function startIncomingRingtone(sessionId?: string | null): void {
     const el = _ensureRingtoneEl();
     if (!el) { console.warn("[CALL_RINGTONE] ringtone element unavailable"); return; }
 
-    if (_ringtoneActive && _ringtoneSessionId === sessionId) return;
-    // A replacement session takes ownership of the singleton.
-    if (_ringtoneActive) {
-      el.pause();
-      el.currentTime = 0;
+    if (_ringtoneActive && _ringtoneSessionId === sessionId && _ringtoneGrant === grant) {
+      _playAuthorizedIncoming(sessionId, grant);
+      return;
     }
+    if (_ringtoneActive && _ringtoneSessionId && _ringtoneSessionId !== sessionId
+      && _ringtoneGrant && _hasIncomingAuthority(_ringtoneSessionId, _ringtoneGrant)) {
+      console.log("[CALL_AUDIO_GUARD] retained ringtone owned by another verified session");
+      return;
+    }
+    // A replacement session takes ownership of the singleton.
+    if (_ringtoneActive) stopIncomingRingtone("replaced_by_new_incoming_session");
 
     _ringtoneActive = true;
     _ringtoneSessionId = sessionId;
+    _ringtoneGrant = grant;
+    _ringtoneAttempt++;
+    _ringtonePlayPending = false;
     el.currentTime  = 0;
 
     console.log("[CALL_RINGTONE] incoming ringtone started");
@@ -446,22 +471,9 @@ export function startIncomingRingtone(sessionId?: string | null): void {
       startup_ringtone_started: true,
     });
 
-    el.play().catch(() => {
-      // Blocked by autoplay policy (cold session, no prior gesture).
-      console.log("[CALL_RINGTONE] ringtone blocked by autoplay — waiting for first gesture");
-
-      // Vibration fallback — works on Android without audio unlock.
-      try {
-        if (navigator.vibrate) {
-          navigator.vibrate([400, 200, 400, 1500, 400, 200, 400]);
-        }
-      } catch { /* non-fatal */ }
-      // _ringtoneActive remains true. When _doUnlock fires on the next touch,
-      // _warmElements() calls play() on this element and it starts ringing.
-    });
+    _playAuthorizedIncoming(sessionId, grant);
   } catch (e) {
-    _ringtoneActive = false;
-    _ringtoneSessionId = null;
+    if (sessionId && _ringtoneSessionId === sessionId) stopIncomingRingtoneForSession(sessionId, "incoming_start_error");
     console.warn("[CALL_RINGTONE] startIncomingRingtone error:", e);
   }
 }
@@ -471,8 +483,11 @@ export function startIncomingRingtone(sessionId?: string | null): void {
  * Pauses and resets the element but does NOT destroy it — singleton stays warm.
  */
 export function stopIncomingRingtone(reason: string): void {
+  _ringtoneAttempt++;
+  _ringtonePlayPending = false;
   _ringtoneActive = false;
   _ringtoneSessionId = null;
+  _ringtoneGrant = null;
   const el = _ringtoneEl;
   if (!el) return;
   el.pause();
@@ -486,6 +501,19 @@ export function stopIncomingRingtoneForSession(sessionId: string | null | undefi
   if (!sessionId || _ringtoneSessionId !== sessionId) return;
   stopIncomingRingtone(reason);
 }
+
+/** Stop only call tones currently owned by this exact session ID. */
+export function stopCallSoundsForSession(sessionId: string | null | undefined, reason: string): void {
+  if (!sessionId) return;
+  stopIncomingRingtoneForSession(sessionId, reason);
+  stopOutgoingRingbackForSession(sessionId, reason);
+}
+
+// Revocation is independent of React state, so a terminal/expiry/identity/
+// background notification synchronously silences the exact matching owner.
+incomingCallAuthority.subscribe((sessionId, reason) => {
+  if (reason !== "verified") stopCallSoundsForSession(sessionId, `incoming_authority_${reason}`);
+});
 
 /**
  * Start the outgoing ringback (CALLER only, while waiting for answer).
@@ -523,6 +551,7 @@ export function startOutgoingRingback(sessionId?: string | null): void {
     // ── Armed-session guard ──────────────────────────────────────────────
     // null/undefined sessionId is blocked — same rule as startIncomingRingtone.
     if (!sessionId || !_isSessionArmed(sessionId)) {
+      if (sessionId) stopOutgoingRingbackForSession(sessionId, "outgoing_session_not_armed");
       console.log("[RING_DEBUG] blocked stale trigger — session not armed", {
         sessionId: sessionId ? sessionId.slice(0, 8) : "null",
         source: "startOutgoingRingback",
@@ -537,20 +566,55 @@ export function startOutgoingRingback(sessionId?: string | null): void {
     const el = _ensureRingbackEl();
     if (!el) return;
 
-    if (_ringbackActive && _ringbackSessionId === sessionId) return;
-    if (_ringbackActive) { el.pause(); el.currentTime = 0; }
+    if (_ringbackActive && _ringbackSessionId === sessionId) {
+      if (el.paused && !_ringbackPlayPending) _playOwnedRingback(sessionId);
+      return;
+    }
+    if (_ringbackActive && _ringbackSessionId && _ringbackSessionId !== sessionId
+      && _isSessionArmed(_ringbackSessionId)) {
+      console.log("[CALL_AUDIO_GUARD] retained ringback owned by another armed session");
+      return;
+    }
+    if (_ringbackActive) stopOutgoingRingback("replaced_by_new_outgoing_session");
 
     _ringbackActive = true;
     _ringbackSessionId = sessionId;
+    _ringbackAttempt++;
+    _ringbackPlayPending = false;
     el.currentTime  = 0;
-
-    el.play().catch(() => {
-      // Will auto-start when _doUnlock fires (same mechanism as ringtone).
-    });
+    el.muted = false;
+    _playOwnedRingback(sessionId);
   } catch (e) {
-    _ringbackActive = false;
-    _ringbackSessionId = null;
+    if (sessionId && _ringbackSessionId === sessionId) stopOutgoingRingbackForSession(sessionId, "outgoing_start_error");
     console.warn("[CALL_RINGTONE] startOutgoingRingback error:", e);
+  }
+}
+
+function _playOwnedRingback(sessionId: string): void {
+  const el = _ensureRingbackEl();
+  if (!el || !_ringbackActive || _ringbackSessionId !== sessionId || !_isSessionArmed(sessionId)
+    || _ringbackPlayPending || !el.paused) return;
+  const attempt = _ringbackAttempt;
+  _ringbackPlayPending = true;
+  el.muted = false;
+  try {
+    el.play().then(() => {
+      if (_ringbackAttempt !== attempt || _ringbackSessionId !== sessionId || !_ringbackActive) {
+        if (!_ringbackActive && _ringbackSessionId === null) {
+          el.pause();
+          el.currentTime = 0;
+        }
+        return;
+      }
+      _ringbackPlayPending = false;
+      if (!_isSessionArmed(sessionId)) stopOutgoingRingbackForSession(sessionId, "outgoing_session_disarmed");
+    }).catch(() => {
+      if (_ringbackAttempt !== attempt || _ringbackSessionId !== sessionId) return;
+      _ringbackPlayPending = false;
+      if (!_isSessionArmed(sessionId)) stopOutgoingRingbackForSession(sessionId, "outgoing_session_disarmed");
+    });
+  } catch {
+    if (_ringbackAttempt === attempt) _ringbackPlayPending = false;
   }
 }
 
@@ -558,6 +622,8 @@ export function startOutgoingRingback(sessionId?: string | null): void {
  * Stop the outgoing ringback immediately.
  */
 export function stopOutgoingRingback(reason: string): void {
+  _ringbackAttempt++;
+  _ringbackPlayPending = false;
   _ringbackActive = false;
   _ringbackSessionId = null;
   const el = _ringbackEl;
@@ -567,6 +633,11 @@ export function stopOutgoingRingback(reason: string): void {
   if (reason !== "restart") {
     console.log(`[CALL_RINGTONE] stopped: ${reason}`);
   }
+}
+
+export function stopOutgoingRingbackForSession(sessionId: string | null | undefined, reason: string): void {
+  if (!sessionId || _ringbackSessionId !== sessionId) return;
+  stopOutgoingRingback(reason);
 }
 
 /**
@@ -654,13 +725,11 @@ export type RingtoneNode = { osc: OscillatorNode; gain: GainNode };
 if (typeof window !== "undefined") {
   window.addEventListener("pagehide", () => {
     stopAllCallSounds("pagehide");
-    // Clear armed sessions and reset startup sweep so that if the browser
-    // restores the page from bfcache, no stale sessions can trigger audio
-    // before the sweep re-runs. Belt-and-suspenders alongside the pageshow
-    // handler in CallDetectors which does the same on bfcache restore.
-    clearAllArmedSessions();
-    resetStartupSweep();
-    console.log("[CALL_AUDIO_GUARD] pagehide — armed sessions cleared, sweep reset");
+    // Incoming grants are invalid while hidden and require a fresh verification
+    // on restore. Preserve generic connected/caller state: a pagehide event is
+    // not an authoritative call termination.
+    incomingCallAuthority.setForeground(false);
+    console.log("[CALL_AUDIO_GUARD] pagehide — incoming authority suspended");
   });
   window.addEventListener("beforeunload", () => stopAllCallSounds("beforeunload"));
 }

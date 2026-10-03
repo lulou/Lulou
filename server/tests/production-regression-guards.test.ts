@@ -59,6 +59,8 @@ describe("production regression guards", () => {
     const app = readFileSync("client/src/App.tsx", "utf8");
     const signaling = readFileSync("client/src/hooks/use-call-signaling.ts", "utf8");
     const audio = readFileSync("client/src/lib/call-audio.ts", "utf8");
+    const authority = readFileSync("client/src/lib/incoming-call-authority.ts", "utf8");
+    const verifier = readFileSync("client/src/lib/verify-incoming-call.ts", "utf8");
 
     expect(app).toContain("clearAllArmedSessions()");
     expect(app).toContain('stopAllCallSounds("calldetectors_mount")');
@@ -68,23 +70,28 @@ describe("production regression guards", () => {
     expect(app).toContain("isEndedCall(m)");
     expect(app).toContain("isStaleCall(m)");
     expect(signaling).toContain("isStartupSweepComplete()");
-    expect(signaling).toContain("/call/verify-incoming");
-    expect(signaling).toContain("verification.callSessionId !== ringSessionId");
-    expect(signaling).toContain("verification.calleeId !== userId");
-    expect(signaling).toContain('stopIncomingRingtoneForSession(callSessionId, "incoming_server_rejected")');
+    expect(verifier).toContain("/call/verify-incoming");
+    expect(signaling).toContain("incomingCallAuthority.verify(candidate, verifyIncomingCall");
+    expect(authority).toContain("result.callSessionId !== callSessionId");
+    expect(authority).toContain("result.calleeId !== calleeId");
+    expect(authority).toContain("calleeId !== this.userId");
+    expect(signaling).toContain("stopCallSoundsForSession(callSessionId, reason)");
     expect(signaling).toContain("latestRingCandidateByMatch.get(matchId) !== ringSessionId");
-    expect(signaling).toContain("if (!verification) {");
+    expect(signaling).toContain("if (!grant) {");
     expect(signaling).toContain("clearStartupCancelledSession(matchId, ringSessionId)");
     expect(signaling).toContain("isCallSessionCancelled(matchId, ringSessionId) && !isStartupCancelledOnly");
     expect(app).toContain("if (isArmedSession(m.callSessionId)) continue");
     expect(audio).toContain("isStartupSweepComplete");
     const routes = readFileSync("server/routes.ts", "utf8");
+    const authorization = readFileSync("server/call-ringing-authorization.ts", "utf8");
     expect(routes).toContain('app.post("/api/matches/:matchId/call/verify-incoming"');
-    expect(routes).toContain('row.call_session_id !== callSessionId ? "session_replaced"');
-    expect(routes).toContain('calleeId !== userId ? "callee_mismatch"');
-    expect(routes).toContain('row.call_answered ? "already_answered"');
-    expect(routes).toContain('row.call_completed ? "already_completed"');
-    expect(routes).toContain('ageMs < 0 || ageMs > CALL_STALE_RINGING_MS ? "expired"');
+    expect(routes).toContain("getIncomingCallAuthorityFailure(row,");
+    expect(authorization).toContain('row.call_session_id !== callSessionId) return "session_replaced"');
+    expect(authorization).toContain('if (calleeId !== userId) return "callee_mismatch"');
+    expect(authorization).toContain('if (row.call_answered === true) return "already_answered"');
+    expect(authorization).toContain('if (row.call_completed === true) return "already_completed"');
+    expect(authorization).toContain("getCallRingingFreshnessFailure(row.call_started_at, nowMs)");
+    expect(authorization).toContain("CALL_STALE_RINGING_MS");
   });
 
   it("hands an accepted call directly into the real active-call overlay", () => {
@@ -102,7 +109,8 @@ describe("production regression guards", () => {
     expect(incoming).toContain('queryKey: ["/api/matches", match.id]');
     expect(incoming).toContain("onAnswer?.(answeredMatch)");
     expect(app).toContain("answeredCall || locallyAnsweredCall || callerRingingCall");
-    expect(app).toContain("setLocallyAnsweredCall(answeredMatch)");
+    expect(app).toContain("commitIncomingAnswer(");
+    expect(app).toContain("setLocallyAnsweredCall(answered)");
     expect(app).toContain("locallyAnsweredKey === sessionKey");
     expect(app).toContain("!isArmedSession(sessionId)");
     expect(app).toContain("isCallSessionCancelled(locallyAnsweredCall.id, sessionId)");

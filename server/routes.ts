@@ -56,6 +56,11 @@ import {
 } from "./spinEligibility";
 import { getUsableProfilePhotos } from "@shared/profile-photo-quality";
 import { CALL_STALE_RINGING_MS } from "@shared/call-lifecycle";
+import {
+  getCallRingingFreshnessFailure,
+  getIncomingCallAuthorityFailure,
+  validateReringCall,
+} from "./call-ringing-authorization";
 import { registerWaitlistRoutes, markWaitlistJoinedApp } from "./waitlist";
 
 
@@ -4826,12 +4831,13 @@ export async function registerRoutes(
         setTimeout(async () => {
           try {
             const { data: recheck } = await supabaseAdmin.from("matches").select("call_answered,call_completed,call_initiator_id,call_started_at,call_session_id").eq("id", matchId).maybeSingle();
+            const freshnessFailure = getCallRingingFreshnessFailure(recheck?.call_started_at);
             if (recheck
               && recheck.call_initiator_id === userId
-              && recheck.call_started_at
+              && !freshnessFailure
               && recheck.call_session_id === match.callSessionId
-              && !recheck.call_answered
-              && !recheck.call_completed
+              && recheck.call_answered === false
+              && recheck.call_completed === false
             ) {
               console.log("[CALL_START] DELAYED_RERING", { matchId, delayMs, callSessionId: match.callSessionId });
               const reringBroadcast = await broadcastCallEvent(matchId, {
@@ -4916,23 +4922,27 @@ export async function registerRoutes(
       if (error || !data) {
         return res.json({ status: "noop", reason: "not_found" });
       }
-      const m = mapMatch(data);
-      if (m.callInitiatorId !== userId) {
-        return res.json({ status: "noop", reason: "not_initiator" });
+      const expectedSessionIdProvided = Object.prototype.hasOwnProperty.call(req.body ?? {}, "callSessionId");
+      const validation = validateReringCall(data, {
+        matchId,
+        userId,
+        expectedSessionId: req.body?.callSessionId,
+        expectedSessionIdProvided,
+      });
+      if (!validation.valid) {
+        return res.json({ status: "noop", reason: validation.reason });
       }
-      if (!m.callStartedAt || m.callAnswered || m.callCompleted) {
-        return res.json({ status: "noop", reason: "not_ringing" });
-      }
+      const callSessionId = validation.callSessionId;
       const adminStorage = getAdminStorage();
       const callerProfile = await adminStorage.getProfileMeta(userId);
       const callerName = callerProfile?.firstName || "Someone";
-      console.log("[CALL_RERING] REBROADCAST_SENT", { matchId, callerId: userId, callSessionId: m.callSessionId });
+      console.log("[CALL_RERING] REBROADCAST_SENT", { matchId, callerId: userId, callSessionId });
       await broadcastCallEvent(matchId, {
         type: "call:ring",
         matchId,
         callerId: userId,
         callerName,
-        callSessionId: m.callSessionId,
+        callSessionId,
         isVideo: req.body?.isVideo === true,
       });
       res.json({ status: "rebroadcast" });
@@ -5073,22 +5083,15 @@ export async function registerRoutes(
       }
       if (!row) return res.status(404).json({ valid: false, reason: "call_not_found" });
 
-      const isParticipant = row.user1_id === userId || row.user2_id === userId;
       const callerId = row.call_initiator_id;
       const calleeId = callerId === row.user1_id ? row.user2_id : row.user1_id;
       const startedAtMs = row.call_started_at ? new Date(row.call_started_at).getTime() : Number.NaN;
       const ageMs = Number.isFinite(startedAtMs) ? Date.now() - startedAtMs : Number.POSITIVE_INFINITY;
-      const reason =
-        !isParticipant ? "not_participant"
-        : row.call_session_id !== callSessionId ? "session_replaced"
-        : !callerId ? "missing_caller"
-        : callerId === userId ? "current_user_is_caller"
-        : calleeId !== userId ? "callee_mismatch"
-        : row.call_answered ? "already_answered"
-        : row.call_completed ? "already_completed"
-        : !row.call_started_at ? "not_ringing"
-        : ageMs < 0 || ageMs > CALL_STALE_RINGING_MS ? "expired"
-        : null;
+      const reason = getIncomingCallAuthorityFailure(row, {
+        matchId,
+        userId,
+        callSessionId,
+      });
       if (reason) {
         console.log("[CALL_VERIFY] INCOMING_REJECTED", {
           matchId,

@@ -1,7 +1,11 @@
+import { incomingCallAuthority } from "./incoming-call-authority";
+
 /**
  * Tracks call session IDs "armed" by live events in this browser session.
  *
- * ONLY sessions in this set may trigger ringtone, ringback, or overlay mounts.
+ * This set tracks call sessions eligible for ordinary call-state detection.
+ * Incoming UI/audio additionally require an exact backend-verified authority
+ * grant; armed-session state alone never authorizes an incoming ring.
  * Polled/cached DB data alone — even with callStartedAt > APP_LOAD_TIME — can
  * NEVER arm a session. This is the definitive guard preventing stale DB rows
  * from triggering audio or overlays when the user opens Connections/Matches.
@@ -33,6 +37,7 @@ let _loginTime: number = Date.now();
 
 export function setLoginTime(ts: number): void {
   _loginTime = ts;
+  incomingCallAuthority.invalidate("login_time_changed");
   console.log("[LIVE_CALL] login time updated", { loginTime: new Date(ts).toISOString() });
 }
 
@@ -117,10 +122,9 @@ export function isArmedSession(sessionId: string | null | undefined): boolean {
 }
 
 /**
- * Arm a session that was confirmed live by the user tapping a push notification
- * for an incoming call.  This bypasses the APP_LOAD_TIME guard in the
- * incomingCall memo because the call started before the app was open
- * (callStartedAt < APP_LOAD_TIME by definition) yet is genuinely active.
+ * Arm a session restored from a push notification after exact incoming-call
+ * backend verification. This bypasses the APP_LOAD_TIME guard in the incoming
+ * memo because the call started before the app was opened.
  */
 export function armSessionFromPush(sessionId: string | null | undefined): void {
   if (!sessionId) return;
@@ -130,9 +134,8 @@ export function armSessionFromPush(sessionId: string | null | undefined): void {
 }
 
 /**
- * Returns true only if this session was armed by a push notification tap.
- * Used by the incomingCall memo and the pre-load ring guard to bypass the
- * APP_LOAD_TIME check for sessions that are provably live.
+ * Returns true only if this exact session was restored from a push after
+ * successful backend verification. Used by startup handling for that session.
  */
 export function isPushArmedSession(sessionId: string | null | undefined): boolean {
   if (!sessionId) return false;
@@ -140,11 +143,13 @@ export function isPushArmedSession(sessionId: string | null | undefined): boolea
 }
 
 export function clearAllArmedSessions(): void {
-  if (_armedSessionIds.size === 0 && _paidCallSessionIds.size === 0 && _videoCallSessionIds.size === 0 && _pushArmedSessionIds.size === 0) return;
+  const hadSessions = _armedSessionIds.size > 0 || _paidCallSessionIds.size > 0 || _videoCallSessionIds.size > 0 || _pushArmedSessionIds.size > 0;
   _armedSessionIds.clear();
   _paidCallSessionIds.clear();
   _videoCallSessionIds.clear();
   _pushArmedSessionIds.clear();
+  incomingCallAuthority.invalidate("armed_sessions_cleared");
+  if (!hadSessions) return;
   console.log("[LIVE_CALL] all sessions disarmed (logout/reset)");
   notifyArmChange();
 }

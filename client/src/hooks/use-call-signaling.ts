@@ -3,6 +3,10 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession, markSessionEndedForMatch } from "@/lib/cancelled-calls";
 import { armCallSession, disarmCallSession, markSessionAsVideo, isPushArmedSession, getLoginTime } from "@/lib/live-call-sessions";
 import { stopIncomingRingtoneForSession } from "@/lib/call-audio";
+import { stopCallSoundsForSession } from "@/lib/call-audio";
+import { incomingCallAuthority } from "@/lib/incoming-call-authority";
+import { verifyIncomingCall } from "@/lib/verify-incoming-call";
+import { canApplyAnsweredSignal } from "@/lib/call-signal-validation";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 import { acceptAvailabilityVersion } from "@/lib/call-availability-version";
@@ -43,25 +47,22 @@ let callRingHandler: ((active: boolean) => void) | null = null;
 const recentlyProcessed = new Set<string>();
 const latestRingCandidateByMatch = new Map<string, string>();
 
-async function verifyIncomingCall(
+async function readAnsweredCall(
   matchId: string,
-  callSessionId: string | null,
 ): Promise<any | null> {
-  if (!callSessionId) return null;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 3_000);
   try {
     const response = await apiRequest(
-      "POST",
-      `/api/matches/${matchId}/call/verify-incoming`,
-      { callSessionId },
+      "GET",
+      `/api/matches/${encodeURIComponent(matchId)}`,
+      undefined,
       { signal: controller.signal },
     );
     return await response.json();
   } catch (error) {
     console.warn("[CALL_STARTUP] startup_call_server_revalidated", {
       matchId,
-      callSessionId,
       startup_call_server_revalidated: false,
       startup_call_rejected_reason: error instanceof Error && error.name === "AbortError"
         ? "verification_timeout"
@@ -71,39 +72,6 @@ async function verifyIncomingCall(
   } finally {
     window.clearTimeout(timeout);
   }
-}
-
-function rejectIncomingCandidate(matchId: string, callSessionId: string | null, reason: string) {
-  console.log("[CALL_STARTUP] startup_call_rejected_reason", {
-    matchId,
-    callSessionId,
-    startup_call_rejected_reason: reason,
-  });
-  if (callSessionId) {
-    markCallSessionCancelled(matchId, callSessionId);
-    disarmCallSession(callSessionId);
-    stopIncomingRingtoneForSession(callSessionId, "incoming_server_rejected");
-  }
-  const stillLatest = !!callSessionId && latestRingCandidateByMatch.get(matchId) === callSessionId;
-  if (stillLatest) callRingHandler?.(false);
-  const clearIfExactSession = (old: any) => {
-    if (!old || old.callSessionId !== callSessionId) return old;
-    return {
-      ...old,
-      callStartedAt: null,
-      callInitiatorId: null,
-      callAnswered: false,
-      callCompleted: false,
-      callSessionId: null,
-      callConnectedAt: null,
-    };
-  };
-  queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, old =>
-    Array.isArray(old)
-      ? old.map((match: any) => match.id === matchId ? clearIfExactSession(match) : match)
-      : old
-  );
-  queryClient.setQueryData<any>(["/api/matches", matchId], clearIfExactSession);
 }
 
 export function setCallEndedHandler(handler: ((matchId: string, callSessionId?: string | null) => void) | null) {
@@ -123,6 +91,10 @@ export function clearDedupeForMatch(matchId: string) {
 }
 
 function processEndSignal(matchId: string, reason: string, callSessionId?: string | null) {
+  if (callSessionId) {
+    incomingCallAuthority.terminal(matchId, callSessionId, reason);
+    stopCallSoundsForSession(callSessionId, reason);
+  }
   // Include callSessionId in the dedup key so that two sequential calls on the
   // same match can both produce an end signal within the 10 s window.  Without
   // the session ID, the second call's ended/declined/cancelled signal would be
@@ -147,6 +119,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
     prevKeyRef.current = key;
 
     if (!userId || matchIds.length === 0) return;
+    let disposed = false;
 
     const currentIds = new Set(matchIds);
 
@@ -164,7 +137,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 
       onCompatibilityBroadcast(channels, "call-signal", async ({ payload }) => {
         console.log("[CALL_SIGNAL] BROADCAST_RECEIVED", { matchId, payloadType: payload?.type, senderId: payload?.userId || payload?.callerId, isSelf: (payload?.userId || payload?.callerId) === userId });
-        if (!payload) return;
+        if (!payload || disposed || payload.matchId !== matchId) return;
         const event = payload as CallSignalEvent;
         if (event.type === "call:availability") {
           const availability = event;
@@ -294,6 +267,8 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         if (event.type === "call:ring") {
           const ring = event as any;
           const ringSessionId = ring.callSessionId ?? null;
+          if (typeof ringSessionId !== "string" || !ringSessionId
+            || typeof ring.callerId !== "string" || !ring.callerId) return;
           const ringDiagId = typeof ring.startCallDiagId === "string" ? ring.startCallDiagId : null;
           const ringAttempt = typeof ring.startCallAttempt === "number" ? ring.startCallAttempt : 0;
           const ringReceivedAt = Date.now();
@@ -462,28 +437,16 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             // Realtime is a prompt to verify, not call authority. Fail closed
             // unless the server confirms this exact session is still an
             // unanswered incoming call for the authenticated user.
-            const verification = await verifyIncomingCall(matchId, ringSessionId);
-            if (!verification) {
+            const candidate = { matchId, callSessionId: ringSessionId, callerId: ring.callerId, calleeId: userId };
+            const grant = await incomingCallAuthority.verify(candidate, verifyIncomingCall, () => !disposed);
+            if (!grant) {
               // Fail silent, but do not permanently cancel a possibly-live call.
               // A later rering can retry the bounded verification.
               reportRingProgress("incoming_guard_decision", "stale", "presweep_deferred");
               return;
             }
-            if (
-              !verification.valid
-              || verification.callSessionId !== ringSessionId
-              || verification.calleeId !== userId
-              || verification.callerId !== ring.callerId
-            ) {
-              rejectIncomingCandidate(
-                matchId,
-                ringSessionId,
-                verification.reason ?? "server_verification_failed",
-              );
-              reportRingProgress("incoming_guard_decision", "stale", "session_cancelled");
-              return;
-            }
-            if (latestRingCandidateByMatch.get(matchId) !== ringSessionId) {
+            if (disposed || !incomingCallAuthority.get(ringSessionId, candidate)
+              || latestRingCandidateByMatch.get(matchId) !== ringSessionId) {
               console.log("[CALL_STARTUP] startup_call_rejected_reason", {
                 matchId,
                 callSessionId: ringSessionId,
@@ -502,8 +465,8 @@ export function useCallSignaling(matchIds: string[], userId: string) {
               matchId,
               callSessionId: ringSessionId,
               startup_call_server_revalidated: true,
-              startup_call_status: verification.status,
-              startup_call_age_ms: verification.ageMs,
+              startup_call_status: "ringing",
+              startup_call_age_ms: 90_000 - (grant.expiresAt - Date.now()),
             });
             // Only the exact server-confirmed session may trigger overlays/audio.
             console.log("[CALL_SIGNAL] RING_ARM_DECISION", {
@@ -540,9 +503,9 @@ export function useCallSignaling(matchIds: string[], userId: string) {
               if (!old || !Array.isArray(old)) return old;
               return old.map((m: any) => m.id === matchId ? {
                 ...m,
-                callStartedAt: m.callStartedAt || new Date().toISOString(),
-                callInitiatorId: m.callInitiatorId || ring.callerId,
-                callSessionId: m.callSessionId || ring.callSessionId,
+                callStartedAt: new Date(grant.expiresAt - 90_000).toISOString(),
+                callInitiatorId: grant.callerId,
+                callSessionId: grant.callSessionId,
                 // callAnswered reset rule:
                 //   SAME session rering  → preserve existing value so a stale
                 //     ring arriving after the callee answered (e.g. Supabase
@@ -558,7 +521,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 callAnswered: (m.callSessionId && m.callSessionId === ring.callSessionId)
                   ? (m.callAnswered ?? false)
                   : false,
-                callCompleted: m.callCompleted ?? false,
+                callCompleted: false,
               } : m);
             });
             // Also patch the DETAIL cache ["/api/matches", matchId] — messaging.tsx
@@ -569,13 +532,13 @@ export function useCallSignaling(matchIds: string[], userId: string) {
               if (!old || Array.isArray(old)) return old;
               return {
                 ...old,
-                callStartedAt: old.callStartedAt || new Date().toISOString(),
-                callInitiatorId: old.callInitiatorId || ring.callerId,
-                callSessionId: old.callSessionId || ring.callSessionId,
+                callStartedAt: new Date(grant.expiresAt - 90_000).toISOString(),
+                callInitiatorId: grant.callerId,
+                callSessionId: grant.callSessionId,
                 callAnswered: (old.callSessionId && old.callSessionId === ring.callSessionId)
                   ? (old.callAnswered ?? false)
                   : false,
-                callCompleted: old.callCompleted ?? false,
+                callCompleted: false,
               };
             });
             const patchedMatches = queryClient.getQueryData<any[]>(["/api/matches"]);
@@ -622,6 +585,20 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             console.log("[CALL_SIGNAL] PRE_SWEEP_ANSWERED_BLOCKED", { matchId, callSessionId: answeredSid?.slice(0, 8) });
             return;
           }
+          const currentList = queryClient.getQueryData<any[]>(["/api/matches"]);
+          const currentDetail = queryClient.getQueryData<any>(["/api/matches", matchId]);
+          const current = currentList?.find((m: any) => m.id === matchId) ?? currentDetail;
+          if (!answeredSid || current?.callSessionId !== answeredSid || current.callInitiatorId !== userId
+            || isCallSessionCancelled(matchId, answeredSid)) return;
+          const generation = incomingCallAuthority.getGeneration();
+          const authoritative = await readAnsweredCall(matchId);
+          const latest = queryClient.getQueryData<any[]>(["/api/matches"])?.find((m: any) => m.id === matchId)
+            ?? queryClient.getQueryData<any>(["/api/matches", matchId]);
+          if (disposed || generation !== incomingCallAuthority.getGeneration()
+            || latest?.callSessionId !== answeredSid || isCallSessionCancelled(matchId, answeredSid)
+            || !canApplyAnsweredSignal(matchId, userId, event as any, authoritative)) return;
+          incomingCallAuthority.terminal(matchId, answeredSid, "answered");
+          stopCallSoundsForSession(answeredSid, "answered");
           armCallSession(answeredSid);
           // If the startup sweep marked this session as startup-cancelled-only
           // (caller-side), lift the block now so answeredCall can mount the overlay.
@@ -632,10 +609,10 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           const answeredPatch = { callAnswered: true };
           queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
             if (!old || !Array.isArray(old)) return old;
-            return old.map((m: any) => m.id === matchId ? { ...m, ...answeredPatch } : m);
+            return old.map((m: any) => m.id === matchId && m.callSessionId === answeredSid ? { ...m, ...answeredPatch } : m);
           });
           queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
-            if (!old || Array.isArray(old)) return old;
+            if (!old || Array.isArray(old) || old.callSessionId !== answeredSid) return old;
             return { ...old, ...answeredPatch };
           });
         } else if (event.type === "call:declined") {
@@ -739,6 +716,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
     }
 
     return () => {
+      disposed = true;
       for (const [id, ch] of subscribedChannels.entries()) {
         console.log("[CALL_STATE] subscription removed", { matchId: id, reason: "effect_cleanup" });
         removeCompatibilityPair(ch);

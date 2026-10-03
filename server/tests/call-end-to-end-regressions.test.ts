@@ -59,7 +59,10 @@ describe("end-to-end call regressions", () => {
   });
 
   it("keeps the authoritative ringtone alive across overlay and tab transitions", () => {
-    expect(ringtone).toContain('window.setInterval(() => startIncomingRingtone(sessionId), 500)');
+    expect(ringtone).toContain("const ringtoneOwners = new Map");
+    expect(ringtone).toContain("nextOwner.retry = setInterval");
+    expect(ringtone).toContain("queueMicrotask");
+    expect(ringtone).toContain('stopCallSoundsForSession(sessionId, "ring_owner_released")');
     expect(ringtone).not.toContain('stopIncomingRingtone("effect_cleanup")');
     expect(callAudio).toContain("_ringtoneSessionId === sessionId");
     expect(appLayout).not.toContain("nav_tab_click");

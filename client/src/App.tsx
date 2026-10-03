@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
 import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED, API_BASE, IS_CROSS_ORIGIN_DEPLOY, refreshAuthToken, requireApiBase } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -63,10 +63,25 @@ if (typeof window !== "undefined") {
   }
 }
 import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
-import { stopAllNonVoiceCallAudio, stopAllCallSounds, registerCallAudioUnlock, unregisterCallAudioUnlock } from "@/lib/call-audio";
-import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange, isPaidCallSession, isVideoCallSession, armSessionFromPush, isPushArmedSession, setLoginTime } from "@/lib/live-call-sessions";
+import { stopAllNonVoiceCallAudio, stopAllCallSounds, stopCallSoundsForSession, registerCallAudioUnlock, unregisterCallAudioUnlock } from "@/lib/call-audio";
+import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange, isPaidCallSession, isVideoCallSession, armSessionFromPush, isPushArmedSession } from "@/lib/live-call-sessions";
+import { incomingCallAuthority, type IncomingCallCandidate } from "@/lib/incoming-call-authority";
+import { verifyIncomingCall } from "@/lib/verify-incoming-call";
+import { canVerifyIncomingAgainstCachedMatch, projectVerifiedIncomingMatch } from "@/lib/incoming-call-app-helpers";
+import {
+  commitIncomingAnswer,
+  canVerifyCancelledIncomingCandidate,
+  clearStartupCancellationAfterGrant,
+  findRetainedIncomingCandidate,
+  hasExactIncomingAuthority,
+  makeIncomingCandidate,
+  mergeIncomingCandidates,
+  revalidateAfterFreshStartupScan,
+  resetStartupAfterBfcache,
+  reverifyOnAuthorityGenerationChange,
+} from "@/lib/incoming-call-app-helpers";
 import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
-import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match, UserSettings } from "@shared/schema";
 import { resolvePersistedOnboardingStep } from "@shared/onboarding-compatibility";
 import { Loader2, Mail, CheckCircle, AlertCircle } from "lucide-react";
@@ -355,8 +370,31 @@ function clearCallFromCache(
 // proves the call is still active.
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 
+function getIncomingAuthorityRecoveryCandidates(): IncomingCallCandidate[] {
+  return incomingCallAuthority.getRecoveryCandidates();
+}
 
 function CallDetectors({ userId }: { userId: string }) {
+  const authSessionKey = typeof window !== "undefined"
+    ? (() => { try { return window.localStorage.getItem("lulou_session_id") ?? ""; } catch { return ""; } })()
+    : "";
+  const hiddenIncomingCandidatesRef = useRef<IncomingCallCandidate[]>([]);
+  const [authorityTick, setAuthorityTick] = useState(0);
+  const [authorityGeneration, setAuthorityGeneration] = useState(() => incomingCallAuthority.getGeneration());
+  const lastRecoveryGenerationRef = useRef(-1);
+  // Establish the authenticated identity before passive effects install call
+  // subscriptions. The incoming memo remains closed until this exact identity
+  // has a server-verified grant.
+  useLayoutEffect(() => {
+    hiddenIncomingCandidatesRef.current = [];
+    incomingCallAuthority.setIdentity(userId, authSessionKey);
+    if (typeof document !== "undefined") {
+      incomingCallAuthority.setForeground(document.visibilityState === "visible");
+    }
+    setAuthorityGeneration(incomingCallAuthority.getGeneration());
+    setAuthorityTick(tick => tick + 1);
+  }, [userId, authSessionKey]);
+
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
   // Maps matchId → the callSessionId that ended, so isEndedCall can distinguish
   // "same call still ending" from "new call starting on same match".
@@ -373,6 +411,9 @@ function CallDetectors({ userId }: { userId: string }) {
   // first-load staleness sweep has run and cleared any ghost call state.
   const [startupVerified, setStartupVerified] = useState(false);
   const startupDoneRef = useRef(false);
+  const resumeNeedsFreshScanRef = useRef(false);
+  const bfcachePreviousDataUpdatedAtRef = useRef<number | null>(null);
+  const bfcacheFreshFetchStartedRef = useRef(false);
 
   // ── Push-notification incoming-call arm ────────────────────────────────────
   // When the user opens the app by tapping an incoming-call push notification,
@@ -417,9 +458,22 @@ function CallDetectors({ userId }: { userId: string }) {
   // so overlay visibility and audio state stay in sync with the arming state.
   const [armedTick, setArmedTick] = useState(0);
   useEffect(() => {
-    setOnArmChange(() => setArmedTick(t => t + 1));
+    setOnArmChange(() => {
+      setArmedTick(t => t + 1);
+      setAuthorityGeneration(incomingCallAuthority.getGeneration());
+    });
     return () => setOnArmChange(null);
   }, []);
+  useEffect(() => incomingCallAuthority.subscribe((sessionId, reason) => {
+    setAuthorityTick(tick => tick + 1);
+    setAuthorityGeneration(incomingCallAuthority.getGeneration());
+    // An answer ends incoming authority but the now-active call remains armed.
+    if (reason !== "verified" && reason !== "answered") disarmCallSession(sessionId);
+  }), []);
+  useEffect(() => {
+    const generation = incomingCallAuthority.getGeneration();
+    setAuthorityGeneration(current => current === generation ? current : generation);
+  });
 
   // hasActiveCallRef: tracks whether any call overlay is currently showing.
   // Updated on every render (before effects run) so the location effect always
@@ -430,13 +484,14 @@ function CallDetectors({ userId }: { userId: string }) {
   useEffect(() => {
     // A genuine incoming call is global and must keep ringing across tabs.
     // Only clear audio and armed sessions when no authoritative call is active.
-    if (!hasActiveCallRef.current && !hasRingRef.current) {
+    const hasVerifiedIncoming = incomingCallAuthority.snapshot().length > 0;
+    if (!hasActiveCallRef.current && !hasRingRef.current && !hasVerifiedIncoming) {
       stopAllNonVoiceCallAudio("navigation_without_live_call");
       clearAllArmedSessions();
     }
     console.log("[CALL_AUDIO_GUARD] navigation evaluated", {
       location,
-      preservedLiveCall: hasActiveCallRef.current || hasRingRef.current,
+      preservedLiveCall: hasActiveCallRef.current || hasRingRef.current || hasVerifiedIncoming,
     });
   }, [location]);
 
@@ -515,43 +570,6 @@ function CallDetectors({ userId }: { userId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── bfcache restore guard ────────────────────────────────────────────────
-  // When the browser restores this page from the back-forward cache (back/forward
-  // navigation, tab restore), React effects do NOT re-run.  This means:
-  //   • _armedSessionIds (module-level Set) retains any sessions that were armed
-  //     before the page was hidden — a stale armed session would pass isArmedSession()
-  //     and let IncomingCallOverlay mount with ringEnabled=true → ringtone plays.
-  //   • startupDoneRef.current remains true → the startup sweep won't re-run.
-  //   • startupVerified remains true → forcedIncomingMatch is live immediately.
-  // Fixing this requires a window "pageshow" listener (the only event that fires on
-  // bfcache restore).  Because this useEffect's closure persists in the bfcache, the
-  // registered listener runs on restore even though React effects don't re-run.
-  useEffect(() => {
-    const handlePageShow = (e: PageTransitionEvent) => {
-      if (!e.persisted) return; // normal load — React effects handle this already
-      console.log("[BFCACHE] page restored from bfcache — resetting call state");
-      // 1. Disarm all sessions so no overlay can mount until the sweep re-runs.
-      clearAllArmedSessions();
-      // 2. Stop any audio that was playing before the page was hidden.
-      stopAllCallSounds("bfcache_pageshow");
-      // 3. Reset startup sweep so re-arming is blocked until next /api/matches sweep.
-      resetStartupSweep();
-      startupDoneRef.current = false;
-      // 4. Hide overlays until sweep confirms which (if any) call is live.
-      setStartupVerified(false);
-      // 5. Refresh the login-time boundary so the call-signaling login-time guard
-      //    uses the current time, not the time of the original SIGNED_IN.  Without
-      //    this, a call that started after the original login (during the bfcached
-      //    session) would pass the loginTime check on the next rering, because
-      //    _loginTime was never updated after the bfcache hide.
-      setLoginTime(Date.now());
-      // 6. Force a fresh /api/matches fetch so the startup sweep re-runs immediately.
-      qc.invalidateQueries({ queryKey: ["/api/matches"] });
-    };
-    window.addEventListener("pageshow", handlePageShow);
-    return () => window.removeEventListener("pageshow", handlePageShow);
-  }, [qc]);
-
   // Register ring-state handler: pauses polling while ring is active (Bug 2 fix).
   // Uses a ref so the interval function always reads the current value without
   // needing to be recreated on every render.
@@ -563,7 +581,11 @@ function CallDetectors({ userId }: { userId: string }) {
     return () => setCallRingHandler(null);
   }, []);
 
-  const { data: matches } = useQuery<MatchWithProfile[]>({
+  const {
+    data: matches,
+    dataUpdatedAt: matchesDataUpdatedAt,
+    fetchStatus: matchesFetchStatus,
+  } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
     // Realtime call signals (useCallSignaling) handle call detection instantly.
     // 5 s poll ensures missed "cancel/end" signals resolve within 5 s instead
@@ -590,6 +612,231 @@ function CallDetectors({ userId }: { userId: string }) {
     return matchIdsStableRef.current;
   }, [matches]);
   useCallSignaling(matchIds, userId);
+
+  const incomingLifecycleRef = useRef({
+    alive: true,
+    retryTimers: new Set<ReturnType<typeof setTimeout>>(),
+  });
+  useEffect(() => {
+    const lifecycle = incomingLifecycleRef.current;
+    lifecycle.alive = true;
+    return () => {
+      lifecycle.alive = false;
+      for (const timer of lifecycle.retryTimers) clearTimeout(timer);
+      lifecycle.retryTimers.clear();
+    };
+  }, []);
+
+  const isCurrentIncomingCandidate = useCallback((candidate: IncomingCallCandidate, generation: number) => {
+    if (!incomingLifecycleRef.current.alive || generation !== incomingCallAuthority.getGeneration()
+      || (typeof document !== "undefined" && document.visibilityState !== "visible")
+      || candidate.calleeId !== userId || candidate.callerId === candidate.calleeId) return false;
+    const rows = qc.getQueryData<MatchWithProfile[]>(["/api/matches"]) ?? [];
+    const match = rows.find(row => row.id === candidate.matchId)
+      ?? qc.getQueryData<MatchWithProfile>(["/api/matches", candidate.matchId]);
+    const cancelled = isCallSessionCancelled(candidate.matchId, candidate.callSessionId);
+    const startupOnly = isStartupCancelledOnly(candidate.matchId, candidate.callSessionId);
+    if (!canVerifyCancelledIncomingCandidate(cancelled, startupOnly)) return false;
+    if (endedMatchIdsRef.current.has(candidate.matchId)) {
+      const endedSid = endedMatchIdsRef.current.get(candidate.matchId);
+      if (!endedSid || endedSid === candidate.callSessionId) return false;
+    }
+    const retainedCandidate = findRetainedIncomingCandidate(
+      candidate,
+      getIncomingAuthorityRecoveryCandidates(),
+    );
+    // A generation reset can invalidate a first verification before /api/matches
+    // contains its row. The retained exact candidate may still be server-checked;
+    // no UI/audio can show until a fresh authority grant and matching row exist.
+    if (!match) {
+      return retainedCandidate !== null
+        || incomingCallAuthority.get(candidate.callSessionId, candidate) !== null;
+    }
+    return canVerifyIncomingAgainstCachedMatch(match, candidate, retainedCandidate !== null);
+  }, [qc, userId]);
+
+  const verifyAndArmIncoming = useCallback((
+    candidate: IncomingCallCandidate,
+    source: "push" | "resume",
+    attempt = 0,
+    generation = incomingCallAuthority.getGeneration(),
+  ): void => {
+    const lifecycle = incomingLifecycleRef.current;
+    const isCurrent = () => isCurrentIncomingCandidate(candidate, generation);
+    const scheduleRetry = () => {
+      if (attempt >= 2 || !lifecycle.alive || generation !== incomingCallAuthority.getGeneration()) return;
+      const timer = setTimeout(() => {
+        lifecycle.retryTimers.delete(timer);
+        verifyAndArmIncoming(candidate, source, attempt + 1, generation);
+      }, 2_000);
+      lifecycle.retryTimers.add(timer);
+    };
+    if (!isCurrent()) {
+      if (source === "resume" && lifecycle.alive
+        && generation === incomingCallAuthority.getGeneration()
+        && (typeof document === "undefined" || document.visibilityState === "visible")) {
+        hiddenIncomingCandidatesRef.current = hiddenIncomingCandidatesRef.current.filter(saved =>
+          saved.matchId !== candidate.matchId || saved.callSessionId !== candidate.callSessionId);
+      }
+      return;
+    }
+
+    let verifierReturnedUnavailable = false;
+    let verifierReturnedResponse = false;
+    void incomingCallAuthority.verify(candidate, async exactCandidate => {
+      const result = await verifyIncomingCall(exactCandidate);
+      verifierReturnedResponse = result !== null;
+      verifierReturnedUnavailable = result === null;
+      return result;
+    }, isCurrent).then(async grant => {
+      if (!lifecycle.alive || !isCurrent()) return;
+      const forgetResumeCandidate = () => {
+        hiddenIncomingCandidatesRef.current = hiddenIncomingCandidatesRef.current.filter(saved =>
+          saved.matchId !== candidate.matchId || saved.callSessionId !== candidate.callSessionId);
+      };
+      if (grant && incomingCallAuthority.get(candidate.callSessionId, candidate)) {
+        const rows = qc.getQueryData<MatchWithProfile[]>(["/api/matches"]) ?? [];
+        let row = rows.find(match => match.id === candidate.matchId)
+          ?? qc.getQueryData<MatchWithProfile>(["/api/matches", candidate.matchId]);
+        if (!row || row.callSessionId !== candidate.callSessionId || row.callInitiatorId !== candidate.callerId) {
+          // Metadata may prompt verification without a cached row, but cannot
+          // expose UI or pause polling until the actual match is obtained.
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3_000);
+          try {
+            const response = await apiRequest("GET", `/api/matches/${encodeURIComponent(candidate.matchId)}`, undefined, { signal: controller.signal });
+            row = await response.json();
+          } catch {
+            scheduleRetry();
+            return;
+          } finally { clearTimeout(timeout); }
+          if (!row || row.callSessionId !== candidate.callSessionId || row.callInitiatorId !== candidate.callerId) {
+            scheduleRetry();
+            return;
+          }
+        }
+        if (!isCurrent() || !incomingCallAuthority.get(candidate.callSessionId, candidate) || !row) return;
+        const projected = projectVerifiedIncomingMatch(row, grant);
+        if (!projected) return;
+        qc.setQueryData(["/api/matches", candidate.matchId], projected);
+        qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, previous => {
+          if (!Array.isArray(previous)) return previous;
+          const found = previous.some(match => match.id === candidate.matchId);
+          return found ? previous.map(match => match.id === candidate.matchId ? projected : match) : [...previous, projected];
+        });
+        clearStartupCancellationAfterGrant(candidate, grant, clearStartupCancelledSession);
+        forgetResumeCandidate();
+        if (source === "push") armSessionFromPush(candidate.callSessionId);
+        else armCallSession(candidate.callSessionId);
+        hasRingRef.current = true;
+        if (pushCallSidRef.current === candidate.callSessionId) pushCallSidRef.current = null;
+        return;
+      }
+
+      if (verifierReturnedResponse && !verifierReturnedUnavailable) {
+        forgetResumeCandidate();
+        if (source === "push" && pushCallSidRef.current === candidate.callSessionId) {
+          pushCallSidRef.current = null;
+        }
+        return;
+      }
+      // A transiently unavailable verify endpoint (or a coalesced verification
+      // whose verifier callback ran elsewhere) must not authorize ringing, but
+      // leave the candidate eligible for a bounded retry.
+      scheduleRetry();
+    });
+  }, [isCurrentIncomingCandidate]);
+
+  const captureIncomingCandidates = useCallback((): IncomingCallCandidate[] => mergeIncomingCandidates(
+    incomingCallAuthority.snapshot().map(({ matchId, callSessionId, callerId, calleeId }) =>
+      ({ matchId, callSessionId, callerId, calleeId })),
+    getIncomingAuthorityRecoveryCandidates(),
+  ), []);
+
+  const revalidateAfterResume = useCallback((candidates: IncomingCallCandidate[]) => {
+    incomingCallAuthority.setForeground(true);
+    const generation = incomingCallAuthority.getGeneration();
+    lastRecoveryGenerationRef.current = generation;
+    const eligibleCandidates = mergeIncomingCandidates(candidates, getIncomingAuthorityRecoveryCandidates());
+    hiddenIncomingCandidatesRef.current = mergeIncomingCandidates(
+      hiddenIncomingCandidatesRef.current,
+      eligibleCandidates,
+    );
+    for (const candidate of eligibleCandidates) verifyAndArmIncoming(candidate, "resume", 0, generation);
+    const pushSid = pushCallSidRef.current;
+    if (pushSid) {
+      const rows = qc.getQueryData<MatchWithProfile[]>(["/api/matches"]) ?? [];
+      const match = rows.find(row => row.callSessionId === pushSid);
+      const candidate = makeIncomingCandidate(match, userId);
+      if (candidate?.callSessionId === pushSid) {
+        verifyAndArmIncoming(candidate, "push", 0, generation);
+      }
+    }
+  }, [qc, userId, verifyAndArmIncoming]);
+
+  useEffect(() => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    if (resumeNeedsFreshScanRef.current || !startupDoneRef.current) return;
+    // This is generation-driven, not matches-driven: ordinary verified ticks
+    // must never schedule another recovery verification.
+    const generation = incomingCallAuthority.getGeneration();
+    const recoveryCandidates = getIncomingAuthorityRecoveryCandidates();
+    hiddenIncomingCandidatesRef.current = mergeIncomingCandidates(
+      hiddenIncomingCandidatesRef.current,
+      recoveryCandidates,
+    );
+    reverifyOnAuthorityGenerationChange(
+      lastRecoveryGenerationRef,
+      generation,
+      recoveryCandidates,
+      (candidate, candidateGeneration) => verifyAndArmIncoming(candidate, "resume", 0, candidateGeneration),
+    );
+  }, [authorityGeneration, startupVerified, userId, authSessionKey, verifyAndArmIncoming]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        // Snapshot while grants are still live; setForeground(false) then
+        // invalidates them synchronously and the audio listener stops their tones.
+        const allCandidates = [
+          ...hiddenIncomingCandidatesRef.current,
+          ...captureIncomingCandidates(),
+        ];
+        hiddenIncomingCandidatesRef.current = [...new Map(
+          allCandidates.map(candidate => [`${candidate.matchId}:${candidate.callSessionId}`, candidate] as const),
+        ).values()];
+        hasRingRef.current = false;
+        incomingCallAuthority.setForeground(false);
+        return;
+      }
+      if (resumeNeedsFreshScanRef.current) return;
+      const candidates = hiddenIncomingCandidatesRef.current;
+      revalidateAfterResume(candidates);
+    };
+    if (document.visibilityState !== "visible") onVisibilityChange();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [captureIncomingCandidates, revalidateAfterResume]);
+
+  // A bfcache restore is also a foreground transition. Revoke and revalidate
+  // only incoming grants; do not reset legitimate connected calls or ringback.
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      console.log("[BFCACHE] page restored — revalidating incoming call authority");
+      const candidates = mergeIncomingCandidates(hiddenIncomingCandidatesRef.current, captureIncomingCandidates());
+      hiddenIncomingCandidatesRef.current = candidates;
+      resumeNeedsFreshScanRef.current = true;
+      bfcachePreviousDataUpdatedAtRef.current = qc.getQueryState(["/api/matches"])?.dataUpdatedAt ?? 0;
+      bfcacheFreshFetchStartedRef.current = false;
+      hasRingRef.current = false;
+      incomingCallAuthority.setForeground(false);
+      resetStartupAfterBfcache(startupDoneRef, setStartupVerified, resetStartupSweep);
+      qc.invalidateQueries({ queryKey: ["/api/matches"] });
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, [captureIncomingCandidates, qc, revalidateAfterResume]);
 
   const rerMatch = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted && m.callInitiatorId === userId)) return false;
@@ -631,6 +878,7 @@ function CallDetectors({ userId }: { userId: string }) {
       const ts = new Date().toISOString();
       console.log("[CALL_TIMING] RERING_ATTEMPT", { matchId: rerMatchId, callSessionId: rerSessionId, ts });
       apiRequest("POST", `/api/matches/${rerMatchId}/call/rering`, {
+        callSessionId: rerSessionId,
         isVideo: isVideoCallSession(rerSessionId),
       })
         .then(() => console.log("[CALL_TIMING] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId, ts: new Date().toISOString() }))
@@ -643,6 +891,10 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const markCallEnded = useCallback((matchId: string, callSessionId?: string | null, reason?: string) => {
     console.log("[CALL_SESSION] CALL_SESSION_CLEANUP_REASON", { matchId, callSessionId, reason: reason || "signal_or_hangup" });
+    if (callSessionId) {
+      incomingCallAuthority.terminal(matchId, callSessionId, reason || "terminal");
+      stopCallSoundsForSession(callSessionId, reason || "terminal");
+    }
     // Disarm the session immediately so no subsequent DB poll can re-trigger the
     // overlay or audio for this dead session. clearCallFromCache (below) also
     // calls markCallSessionCancelled, which is a second line of defence.
@@ -704,6 +956,9 @@ function CallDetectors({ userId }: { userId: string }) {
     if (!matches) return;
 
     let hadStale = false;
+    let verifiedPushCandidate: IncomingCallCandidate | null = null;
+    const deferPushUntilFreshScan = resumeNeedsFreshScanRef.current;
+    const recoveryCandidates = getIncomingAuthorityRecoveryCandidates();
 
     for (const m of matches) {
       if (!m.callStartedAt || !m.callSessionId) continue;
@@ -713,13 +968,10 @@ function CallDetectors({ userId }: { userId: string }) {
       // path (server-verified receiver ring, local caller start, or push restore).
       // Do not let a later startup sweep/poll disarm that exact live session.
       if (isArmedSession(m.callSessionId)) continue;
-      // Already handled (either startup-cancelled or user-cancelled) — skip.
-      // BUT: if the 5 s poll re-added callStartedAt to the cache (because the
-      // server DB row wasn't cleared yet), the first sweep run called
-      // clearCallFromCache but subsequent runs hit this `continue` and left
-      // the stale data in the cache indefinitely.  Re-clear the cache entry
-      // so stale callStartedAt never persists between polls.
-      if (isCallSessionCancelled(m.id, m.callSessionId)) {
+      const cancelled = isCallSessionCancelled(m.id, m.callSessionId);
+      const startupOnlyCancellation = isStartupCancelledOnly(m.id, m.callSessionId);
+      // A terminal/user cancellation always wins over retained recovery metadata.
+      if (!canVerifyCancelledIncomingCandidate(cancelled, startupOnlyCancellation)) {
         if (m.callStartedAt) {
           clearCallFromCache(qc, m.id);
           console.log("[CALL_BOOT] re-clearing stale cancelled call from cache", {
@@ -729,41 +981,45 @@ function CallDetectors({ userId }: { userId: string }) {
         continue;
       }
 
-      // Only block calls that were ringing BEFORE this browser session started.
       const callStartMs = new Date(m.callStartedAt).getTime();
-      if (callStartMs >= APP_LOAD_TIME) continue;
-
       const ageMs = Date.now() - callStartMs;
       const isCallerSide = m.callInitiatorId === userId;
+      const incomingCandidate = makeIncomingCandidate(m, userId);
+      const retainedCandidate = findRetainedIncomingCandidate(incomingCandidate, recoveryCandidates);
 
-      // ── Push-notification arm ──────────────────────────────────────────────
-      // If this is already push-armed (set on a previous sweep run), preserve
-      // it — never startup-cancel a session that was confirmed live by a push tap.
-      if (isPushArmedSession(m.callSessionId)) {
-        console.log("[CALL_RING] push-armed session preserved in startup sweep", { matchId: m.id, sessionId: m.callSessionId.slice(0, 8), ageMs });
+      // A retained grant/pending candidate is authority-scoped, but it is not
+      // current authority after a generation change. Preserve its exact row so
+      // the fresh scan can reverify it; UI/audio stay blocked until a new grant.
+      if (retainedCandidate && ageMs >= 0 && ageMs < CALL_STALE_RINGING_MS) {
+        hiddenIncomingCandidatesRef.current = mergeIncomingCandidates(
+          hiddenIncomingCandidatesRef.current,
+          [retainedCandidate],
+        );
         continue;
       }
 
-      // First-time detection: user just opened the app from a push notification.
-      // The push param encodes the expected callSessionId — if it matches this
-      // match's session AND the call is still active AND < 90 s old, arm it.
-      if (
-        pushCallSidRef.current !== null &&
-        m.callSessionId === pushCallSidRef.current &&
-        !m.callAnswered &&
-        !m.callCompleted &&
-        !isCallerSide &&      // push ring is only for the RECEIVER
-        ageMs < 90_000
-      ) {
-        console.log("[CALL_RING] app opened with active call — arming session via push", {
-          matchId: m.id,
-          sessionId: m.callSessionId.slice(0, 8),
-          ageMs,
-        });
-        armSessionFromPush(m.callSessionId);
-        hasRingRef.current = true;
-        pushCallSidRef.current = null; // consume — only arm once
-        continue; // do NOT startup-cancel this session
+      // The push URL identifies an exact candidate, never authority. Do not
+      // destructively sweep it before the fresh scan can verify its identity.
+      if (callStartMs < APP_LOAD_TIME
+        && pushCallSidRef.current === m.callSessionId
+        && incomingCandidate
+        && ageMs >= 0
+        && ageMs < CALL_STALE_RINGING_MS) {
+        verifiedPushCandidate = incomingCandidate;
+        continue;
+      }
+
+      // Calls started after this browser session are not startup-stale.
+      if (callStartMs >= APP_LOAD_TIME) {
+        if (cancelled && m.callStartedAt) clearCallFromCache(qc, m.id);
+        continue;
+      }
+
+      // A startup-only block can be lifted by the positive server verification
+      // above; until then keep it blocked and retain the stale-cache cleanup.
+      if (cancelled) {
+        if (m.callStartedAt) clearCallFromCache(qc, m.id);
+        continue;
       }
 
       hadStale = true;
@@ -819,10 +1075,17 @@ function CallDetectors({ userId }: { userId: string }) {
       //   loop above — only the sweep-complete signal is held back.
       const qs = qc.getQueryState(["/api/matches"]);
       const networkStillPending = qs?.fetchStatus === "fetching";
-      if (networkStillPending) {
+      if (resumeNeedsFreshScanRef.current && matchesFetchStatus === "fetching") {
+        bfcacheFreshFetchStartedRef.current = true;
+      }
+      const bfcacheScanStillPending = resumeNeedsFreshScanRef.current
+        && (!qs || !bfcacheFreshFetchStartedRef.current || matchesFetchStatus === "fetching"
+          || qs.dataUpdatedAt <= (bfcachePreviousDataUpdatedAtRef.current ?? 0));
+      if (networkStillPending || bfcacheScanStillPending) {
         console.log("[CALL_BOOT] startup sweep deferred — network fetch still pending (cache hit)", {
           matchCount: matches.length,
           fetchStatus: qs?.fetchStatus,
+          bfcacheScanStillPending,
         });
         return;
       }
@@ -833,8 +1096,24 @@ function CallDetectors({ userId }: { userId: string }) {
       // calls have been marked startup-cancelled above, so rerings that arrive
       // from this point are safe to process.
       markStartupSweepComplete();
+      if (resumeNeedsFreshScanRef.current) {
+        bfcachePreviousDataUpdatedAtRef.current = null;
+        bfcacheFreshFetchStartedRef.current = false;
+        revalidateAfterFreshStartupScan(
+          startupDoneRef,
+          resumeNeedsFreshScanRef,
+          hiddenIncomingCandidatesRef,
+          revalidateAfterResume,
+        );
+      }
     }
-  }, [matches, userId, qc]);
+    // Verify push candidates only after the startup sweep's network scan. A
+    // persisted restore already revalidates its retained/push candidates above.
+    if (startupDoneRef.current && !deferPushUntilFreshScan && verifiedPushCandidate
+      && pushCallSidRef.current === verifiedPushCandidate.callSessionId) {
+      verifyAndArmIncoming(verifiedPushCandidate, "push");
+    }
+  }, [matches, matchesDataUpdatedAt, matchesFetchStatus, userId, qc, verifyAndArmIncoming, revalidateAfterResume]);
 
   // ── Null-initiator recovery ───────────────────────────────────────────────
   // When the startup sweep clears callInitiatorId to null (or it's missing for
@@ -943,21 +1222,35 @@ function CallDetectors({ userId }: { userId: string }) {
     return false;
   };
 
+  const hasVerifiedIncomingAuthority = (m: MatchWithProfile): boolean => {
+    if (!m.callSessionId || !m.callInitiatorId) return false;
+    const candidate: IncomingCallCandidate = {
+      matchId: m.id,
+      callSessionId: m.callSessionId,
+      callerId: m.callInitiatorId,
+      calleeId: userId,
+    };
+    return [m.user1Id, m.user2Id].includes(userId)
+      && [m.user1Id, m.user2Id].includes(m.callInitiatorId)
+      && hasExactIncomingAuthority(candidate, (sessionId, expected) =>
+        incomingCallAuthority.get(sessionId, expected));
+  };
+
   const incomingCall = useMemo(() => matches?.find(m => {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
     if (!m.callSessionId) return false;
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
+    // Generic armed state and cached/polled rows are never incoming authority.
+    if (!hasVerifiedIncomingAuthority(m)) return false;
     // ── Bug 2 fix (part A): block calls that started before this page load.
     // The rering mechanism in use-call-signaling will call clearStartupCancelledSession
-    // once a live rering arrives, which increments cancelledTick and re-runs this memo.
+    // once a verified live rering arrives, which increments cancelledTick and re-runs this memo.
     // Without callStartedAt >= APP_LOAD_TIME the memo would pass stale DB data through
     // before the startup sweep (a useEffect) has a chance to mark it as cancelled.
     //
-    // Push-notification exception: when the user opens the app by tapping an
-    // incoming-call push notification, the call necessarily started BEFORE this
-    // app session (callStartedAt < APP_LOAD_TIME). The startup sweep detects the
-    // ?push_call_sid URL param and arms the session via armSessionFromPush().
-    // That session must bypass this guard — it is provably live, not stale.
+    // Push-notification exception: a tap identifies the exact older session,
+    // but the startup sweep only arms it after verifyIncomingCall grants
+    // authority. That verified session may bypass this page-load boundary.
     if (new Date(m.callStartedAt).getTime() < APP_LOAD_TIME) {
       if (!isPushArmedSession(m.callSessionId) && !isArmedSession(m.callSessionId)) return false;
       // Current-browser armed sessions were restored by a live authority path.
@@ -966,11 +1259,9 @@ function CallDetectors({ userId }: { userId: string }) {
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
     // ── Live-session guard ────────────────────────────────────────────────────
-    // Only sessions armed by a genuine Realtime call:ring event may reach this
-    // point. A stale DB row (callStartedAt > APP_LOAD_TIME but call already ended
-    // and server not yet cleared) is blocked here, preventing ringtone from
-    // starting when the user opens Connections/Matches and the poll returns
-    // stale data.
+    // A genuine incoming session must be armed AND have a live exact authority
+    // grant. A stale DB row (call already ended but server not yet cleared) is
+    // blocked here, including when opening Connections/Matches.
     if (!isArmedSession(m.callSessionId)) {
       console.log("[LIVE_CALL] STALE_CALL_BLOCKED incomingCall — not armed by Realtime event", { matchId: m.id, sessionId: m.callSessionId?.slice(0, 8) });
       return false;
@@ -983,7 +1274,7 @@ function CallDetectors({ userId }: { userId: string }) {
     }
     const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
-  }), [matches, userId, isEndedCall, dismissedCallKey, cancelledTick, armedTick]);
+  }), [matches, userId, isEndedCall, dismissedCallKey, cancelledTick, armedTick, authorityTick]);
 
   const answeredCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
@@ -1177,7 +1468,8 @@ function CallDetectors({ userId }: { userId: string }) {
   //
   const receiverActiveCall = activeCall &&
     activeCall.callInitiatorId !== userId &&
-    !activeCall.callAnswered
+    !activeCall.callAnswered &&
+    hasVerifiedIncomingAuthority(activeCall)
     ? activeCall : null;
 
   const incomingMatchForUI = incomingCall ?? receiverActiveCall ?? null;
@@ -1204,6 +1496,7 @@ function CallDetectors({ userId }: { userId: string }) {
     if (!activeCall) return null;
     if (activeCall.callInitiatorId === userId) return null; // caller, not receiver
     if (activeCall.callAnswered === true) return null; // authoritative answer already accepted
+    if (!hasVerifiedIncomingAuthority(activeCall)) return null;
     const sessionKey = `${activeCall.id}:${activeCall.callSessionId}`;
     if (locallyAnsweredKey === sessionKey) return null; // receiver pressed Answer here
     // Receiver hasn't pressed Answer on this device — show green+red buttons
@@ -1299,8 +1592,14 @@ function CallDetectors({ userId }: { userId: string }) {
                         matchId: answeredMatch.id,
                         sessionId: answeredMatch.callSessionId,
                       });
-                      setLocallyAnsweredCall(answeredMatch);
-                      setLocallyAnsweredKey(`${answeredMatch.id}:${answeredMatch.callSessionId}`);
+                      commitIncomingAnswer(
+                        answeredMatch,
+                        (matchId, sessionId, reason) => incomingCallAuthority.terminal(matchId, sessionId, reason),
+                        answered => {
+                          setLocallyAnsweredCall(answered);
+                          setLocallyAnsweredKey(`${answered.id}:${answered.callSessionId}`);
+                        },
+                      );
                     }}
                   />
                 </CallOverlayErrorBoundary>

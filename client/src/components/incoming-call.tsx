@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { Profile, Match } from "@shared/schema";
 import { isCallSessionCancelled, markCallSessionCancelled } from "@/lib/cancelled-calls";
 import { isArmedSession } from "@/lib/live-call-sessions";
+import { incomingCallAuthority, type IncomingCallCandidate } from "@/lib/incoming-call-authority";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { cleanupCallAudio, isAudioUnlocked, onAudioUnlocked, unlockAudioNow } from "@/lib/call-audio";
 import { calleePresubscribe, calleePresubSendReady } from "@/hooks/use-webrtc";
@@ -21,6 +22,35 @@ import {
 } from "@/lib/call-availability-diagnostics";
 
 type MatchWithProfile = Match & { profile: Profile };
+
+type AnswerRequestContext = IncomingCallCandidate & {
+  generation: number;
+  userId: string;
+  sessionId: string;
+  user1Id: string;
+  user2Id: string;
+  answeredRevocationSeen: boolean;
+  unsubscribe?: () => void;
+};
+
+type AnswerMutationResult =
+  | { status: "accepted"; context: AnswerRequestContext; data: any }
+  | { status: "ignored"; context: AnswerRequestContext };
+
+class AnswerMutationError extends Error {
+  constructor(message: string, readonly answerContext: AnswerRequestContext) {
+    super(message);
+    this.name = "AnswerMutationError";
+  }
+}
+
+function getApplicationSessionId(): string {
+  try {
+    return typeof localStorage === "undefined" ? "" : localStorage.getItem("lulou_session_id") ?? "";
+  } catch {
+    return "";
+  }
+}
 
 type IncomingCallProps = {
   match: MatchWithProfile;
@@ -35,6 +65,63 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const overlayRef = useRef<HTMLDivElement>(null);
+  const answerIdentityRef = useRef({
+    matchId: match.id,
+    callSessionId: match.callSessionId ?? "",
+    callerId: match.callInitiatorId ?? "",
+    user1Id: match.user1Id,
+    user2Id: match.user2Id,
+    userId: user?.id ?? "",
+  });
+  answerIdentityRef.current = {
+    matchId: match.id,
+    callSessionId: match.callSessionId ?? "",
+    callerId: match.callInitiatorId ?? "",
+    user1Id: match.user1Id,
+    user2Id: match.user2Id,
+    userId: user?.id ?? "",
+  };
+
+  const isAnswerContextCurrent = (context: AnswerRequestContext): boolean => {
+    const current = answerIdentityRef.current;
+    return incomingCallAuthority.getGeneration() === context.generation
+      && current.matchId === context.matchId
+      && current.callSessionId === context.callSessionId
+      && current.callerId === context.callerId
+      && current.user1Id === context.user1Id
+      && current.user2Id === context.user2Id
+      && current.userId === context.calleeId
+      && context.userId === context.calleeId
+      && getApplicationSessionId() === context.sessionId;
+  };
+
+  const hasAnswerAuthority = (context: AnswerRequestContext): boolean => {
+    const grant = incomingCallAuthority.get(context.callSessionId);
+    if (!grant) return context.answeredRevocationSeen;
+    return grant.generation === context.generation
+      && grant.matchId === context.matchId
+      && grant.callSessionId === context.callSessionId
+      && grant.callerId === context.callerId
+      && grant.calleeId === context.calleeId;
+  };
+
+  const isAnswerContextLive = (context: AnswerRequestContext): boolean =>
+    isAnswerContextCurrent(context)
+    && hasAnswerAuthority(context)
+    && isArmedSession(context.callSessionId)
+    && !isCallSessionCancelled(context.matchId, context.callSessionId);
+
+  const isExactAnsweredMatch = (data: any, context: AnswerRequestContext): boolean => {
+    const isExactPair = (data?.user1Id === context.callerId && data?.user2Id === context.calleeId)
+      || (data?.user2Id === context.callerId && data?.user1Id === context.calleeId);
+    return data?.id === context.matchId
+      && data?.callSessionId === context.callSessionId
+      && data?.callInitiatorId === context.callerId
+      && isExactPair
+      && data?.callAnswered === true
+      && !!data?.callStartedAt
+      && data?.callCompleted !== true;
+  };
 
   // ── Role detection (debug) ─────────────────────────────────────────────────
   // IncomingCallOverlay should ONLY mount when the current user is the receiver.
@@ -187,6 +274,21 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
 
   const answerCall = useMutation({
     mutationFn: async () => {
+      // Bind this request to the exact incoming-call authority and authenticated
+      // browser session that exist when the request starts. Auth can reset and
+      // re-arm the same match/session while this POST is still in flight.
+      const context: AnswerRequestContext = {
+        generation: incomingCallAuthority.getGeneration(),
+        matchId: match.id,
+        callSessionId: match.callSessionId ?? "",
+        callerId: match.callInitiatorId ?? "",
+        calleeId: user?.id ?? "",
+        userId: user?.id ?? "",
+        sessionId: getApplicationSessionId(),
+        user1Id: match.user1Id,
+        user2Id: match.user2Id,
+        answeredRevocationSeen: false,
+      };
       // ── [CALL_ANSWER] green button clicked ────────────────────────────────
       console.log("[CALL_CONNECT] answer clicked", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
       console.log("[CALL_ANSWER] GREEN_BUTTON_CLICKED", {
@@ -201,10 +303,52 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       silenceRing();
       console.log("[CALL_ANSWER] ring_silenced", { matchId: match.id });
       if (actedRef.current) {
-        console.error("[CALL_ANSWER] ALREADY_ACTED — duplicate button press, throwing", { matchId: match.id });
-        throw new Error("already_acted");
+        console.error("[CALL_ANSWER] ALREADY_ACTED — duplicate button press ignored", { matchId: match.id });
+        return { status: "ignored", context } satisfies AnswerMutationResult;
       }
       actedRef.current = true;
+      const intendedCallerId = context.calleeId === match.user1Id
+        ? match.user2Id
+        : context.calleeId === match.user2Id ? match.user1Id : null;
+      const candidate: IncomingCallCandidate = {
+        matchId: context.matchId,
+        callSessionId: context.callSessionId,
+        callerId: context.callerId,
+        calleeId: context.calleeId,
+      };
+      const grant = context.callSessionId
+        ? incomingCallAuthority.get(context.callSessionId, candidate)
+        : null;
+      if (
+        !context.callSessionId ||
+        !context.callerId ||
+        !context.calleeId ||
+        !context.sessionId ||
+        intendedCallerId !== context.callerId ||
+        context.callerId === context.calleeId ||
+        !isAnswerContextCurrent(context) ||
+        !grant ||
+        grant.generation !== context.generation ||
+        !isArmedSession(context.callSessionId) ||
+        isCallSessionCancelled(match.id, match.callSessionId)
+      ) {
+        console.warn("[CALL_ANSWER] answer request ignored without exact live authority", {
+          matchId: context.matchId,
+          callSessionId: context.callSessionId,
+        });
+        return { status: "ignored", context } satisfies AnswerMutationResult;
+      }
+
+      context.unsubscribe = incomingCallAuthority.subscribe((sessionId, reason) => {
+        if (sessionId === context.callSessionId && reason === "answered") {
+          context.answeredRevocationSeen = true;
+        }
+      });
+      const cleanupAnswerAuthorityListener = () => {
+        context.unsubscribe?.();
+        context.unsubscribe = undefined;
+      };
+
       const acceptedAt = new Date().toISOString();
       console.log("[CALL_TIMING] ACCEPT_PRESSED", {
         matchId: match.id,
@@ -222,54 +366,84 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, role: "receiver" });
       console.log("[CALL_ANSWER] calling_answer_api", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
       reportAnswerDiagnostic(match.callSessionId, "answer_api_sent", { outcome: "started" });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {
-        callSessionId: match.callSessionId,
-        diagnosticId: getIncomingCallDiagnosticId(match.callSessionId),
-      });
-      reportAnswerDiagnostic(match.callSessionId, "answer_api_response", {
-        httpStatus: res.status,
-        outcome: res.ok ? "success" : "error",
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
-        console.error("[CALL_ANSWER] FAILURE_REASON: answer API failed", {
-          matchId: match.id,
-          status: res.status,
-          body,
+      try {
+        const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {
+          callSessionId: match.callSessionId,
+          diagnosticId: getIncomingCallDiagnosticId(match.callSessionId),
         });
-        throw new Error(body?.message || `HTTP ${res.status}`);
-      }
-      console.log("[CALL_TIMING] ANSWER_API_OK", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
-      console.log("[CALL_ANSWER] answer_api_ok", { matchId: match.id, status: res.status, ts: new Date().toISOString() });
-      const data = await res.json();
-      if (
-        data?.callSessionId !== match.callSessionId ||
-        !data?.callStartedAt ||
-        data?.callCompleted === true ||
-        !isArmedSession(match.callSessionId) ||
-        isCallSessionCancelled(match.id, match.callSessionId)
-      ) {
-        console.error("[CALL_ANSWER] answer response no longer represents a live session", {
-          matchId: match.id,
-          expectedSessionId: match.callSessionId,
-          responseSessionId: data?.callSessionId,
+        if (!isAnswerContextCurrent(context)) {
+          cleanupAnswerAuthorityListener();
+          return { status: "ignored", context } satisfies AnswerMutationResult;
+        }
+        reportAnswerDiagnostic(match.callSessionId, "answer_api_response", {
+          httpStatus: res.status,
+          outcome: res.ok ? "success" : "error",
         });
-        throw new Error("This call is no longer available");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+          if (!isAnswerContextCurrent(context)) {
+            cleanupAnswerAuthorityListener();
+            return { status: "ignored", context } satisfies AnswerMutationResult;
+          }
+          console.error("[CALL_ANSWER] FAILURE_REASON: answer API failed", {
+            matchId: match.id,
+            status: res.status,
+            body,
+          });
+          throw new AnswerMutationError(body?.message || `HTTP ${res.status}`, context);
+        }
+        console.log("[CALL_TIMING] ANSWER_API_OK", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
+        console.log("[CALL_ANSWER] answer_api_ok", { matchId: match.id, status: res.status, ts: new Date().toISOString() });
+        const data = await res.json();
+        if (
+          data?.callSessionId !== match.callSessionId ||
+          !isAnswerContextCurrent(context) ||
+          !isExactAnsweredMatch(data, context) ||
+          !isArmedSession(match.callSessionId) ||
+          isCallSessionCancelled(match.id, match.callSessionId) ||
+          !hasAnswerAuthority(context)
+        ) {
+          cleanupAnswerAuthorityListener();
+          return { status: "ignored", context } satisfies AnswerMutationResult;
+        }
+        return { status: "accepted", context, data } satisfies AnswerMutationResult;
+      } catch (error) {
+        if (error instanceof AnswerMutationError) throw error;
+        if (!isAnswerContextCurrent(context)) {
+          cleanupAnswerAuthorityListener();
+          return { status: "ignored", context } satisfies AnswerMutationResult;
+        }
+        throw new AnswerMutationError(error instanceof Error ? error.message : String(error), context);
       }
-      return data;
     },
-    onSuccess: (data) => {
+    onSuccess: (result: AnswerMutationResult) => {
+      if (result.status !== "accepted") {
+        result.context.unsubscribe?.();
+        result.context.unsubscribe = undefined;
+        return;
+      }
+      const { context, data } = result;
+      if (
+        !isAnswerContextLive(context) ||
+        !isExactAnsweredMatch(data, context)
+      ) {
+        context.unsubscribe?.();
+        context.unsubscribe = undefined;
+        return;
+      }
+      context.unsubscribe?.();
+      context.unsubscribe = undefined;
       console.log("[CALL_ANSWER] onSuccess_start — broadcasting call:answered and updating cache", {
-        matchId: match.id,
-        callSessionId: match.callSessionId,
+        matchId: context.matchId,
+        callSessionId: context.callSessionId,
         responseData: data,
         ts: new Date().toISOString(),
       });
-      broadcastCallSignal(match.id, {
+      broadcastCallSignal(context.matchId, {
         type: "call:answered",
-        matchId: match.id,
-        userId: user!.id,
-        callSessionId: match.callSessionId,
+        matchId: context.matchId,
+        userId: context.calleeId,
+        callSessionId: context.callSessionId,
       } as any);
       const answeredMatch: MatchWithProfile = {
         ...match,
@@ -290,7 +464,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       // so the signal goes out without waiting for useWebRTC to mount and subscribe
       // — eliminating the main source of "Channel: idle / Ready sent: 0" delays.
       if (answeredMatch.callSessionId) {
-        calleePresubSendReady(match.id, answeredMatch.callSessionId, user!.id);
+        calleePresubSendReady(context.matchId, answeredMatch.callSessionId, context.calleeId);
       }
       // Notify App.tsx that the receiver has answered on this device so
       // matchForIncoming transitions to null and ActiveCallOverlay can mount.
@@ -302,11 +476,19 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       });
       onDismiss();
       console.log("[CALL_ANSWER] onDismiss_called — IncomingCallOverlay will unmount, ActiveCallOverlay should mount", {
-        matchId: match.id,
+        matchId: context.matchId,
         ts: new Date().toISOString(),
       });
     },
     onError: (error: Error) => {
+      const context = error instanceof AnswerMutationError ? error.answerContext : null;
+      if (context && (!isAnswerContextLive(context) || context.answeredRevocationSeen)) {
+        context.unsubscribe?.();
+        context.unsubscribe = undefined;
+        return;
+      }
+      context?.unsubscribe?.();
+      if (context) context.unsubscribe = undefined;
       console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
       console.error("[CALL_ANSWER] FAILURE_REASON: answer mutation error", { matchId: match.id, error: error.message });
       markCallSessionCancelled(match.id, match.callSessionId);
