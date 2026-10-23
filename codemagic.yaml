@@ -1,0 +1,122 @@
+# Compile-only validation. Do not launch or distribute this credential-free app.
+# No triggering events, integrations, secret groups, signing, or publishing.
+workflows:
+  ios-simulator:
+    name: Lulou unsigned iOS Simulator
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      node: "22.22.0"
+      npm: "10.9.4"
+      xcode: "26.3"
+    scripts:
+      - name: Verify isolated source and pinned configuration
+        script: |
+          #!/bin/bash
+          set -euo pipefail
+          test "${CM_BRANCH:-}" = "build/ios-codemagic-simulator"
+          test -z "$(git status --porcelain)"
+          test "$(node --version)" = "v22.22.0"
+          test "$(npm --version)" = "10.9.4"
+          test "$(xcodebuild -version | head -n 1)" = "Xcode 26.3"
+          mkdir -p build/logs
+          git rev-parse HEAD > build/logs/source-commit.txt
+          xcodebuild -version > build/logs/xcode-version.txt
+          swift --version > build/logs/swift-version.txt
+          node <<'NODE'
+          const fs = require("node:fs");
+          const assert = require("node:assert/strict");
+          const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+          for (const name of ["@capacitor/cli", "@capacitor/core", "@capacitor/ios"]) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, "8.4.3");
+            assert.equal(lock.packages[""].dependencies?.[name] ?? lock.packages[""].devDependencies?.[name],
+              manifest.dependencies?.[name] ?? manifest.devDependencies?.[name]);
+          }
+          assert(!fs.readFileSync("package-lock.json", "utf8").includes("package-firewall.replit.internal"));
+          for (const dir of [".", "client"]) {
+            assert(!fs.readdirSync(dir).some(name => /^\.env(?:\.|$)/.test(name) && !name.endsWith(".example")),
+              "Environment files are not allowed in this compile-only workflow");
+          }
+          for (const path of [
+            "capacitor.config.ts", "vite.config.ts", "client/index.html",
+            "ios/App/App.xcodeproj/project.pbxproj",
+            "ios/App/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme",
+            "ios/App/CapApp-SPM/Package.swift"
+          ]) assert(fs.existsSync(path), `Missing required source: ${path}`);
+          NODE
+      - name: Install exact npm dependencies without lifecycle scripts
+        script: |
+          #!/bin/bash
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund 2>&1 | tee build/logs/npm-ci.log
+          node <<'NODE'
+          const assert = require("node:assert/strict");
+          for (const name of ["@capacitor/cli", "@capacitor/core", "@capacitor/ios"]) {
+            assert.equal(require(`${name}/package.json`).version, "8.4.3");
+          }
+          NODE
+          npm ls @capacitor/cli @capacitor/core @capacitor/ios --offline \
+            2>&1 | tee build/logs/capacitor-versions.log
+          git diff --exit-code -- package.json package-lock.json pnpm-lock.yaml
+      - name: Build frontend only and sync Capacitor without inherited credentials
+        script: |
+          #!/bin/bash
+          set -euo pipefail
+          # Deliberately do not invoke npm run build, backend scripts, or migrations.
+          env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" \
+            CI=true NODE_ENV=production \
+            node node_modules/vite/bin/vite.js build \
+            2>&1 | tee build/logs/frontend-build.log
+          env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" CI=true \
+            node node_modules/@capacitor/cli/bin/capacitor sync ios \
+            2>&1 | tee build/logs/capacitor-sync.log
+          node <<'NODE'
+          const fs = require("node:fs");
+          const assert = require("node:assert/strict");
+          const config = JSON.parse(fs.readFileSync("ios/App/App/capacitor.config.json", "utf8"));
+          assert.equal(config.appId, "com.lulou.dating");
+          assert.equal(config.appName, "Lulou");
+          assert.equal(config.webDir, "dist/public");
+          assert(!config.server?.url, "Remote native server URL is forbidden");
+          const spm = fs.readFileSync("ios/App/CapApp-SPM/Package.swift", "utf8");
+          assert(spm.includes('exact: "8.4.3"'), "Unexpected Swift package version");
+          assert(fs.existsSync("dist/public/index.html"));
+          assert(fs.existsSync("ios/App/App/public/index.html"));
+          NODE
+      - name: Verify shared App scheme and resolve Swift packages
+        script: |
+          #!/bin/bash
+          set -euo pipefail
+          xcodebuild -list -json -project ios/App/App.xcodeproj \
+            2>build/logs/xcode-list.stderr.log | tee build/logs/xcode-list.json
+          node <<'NODE'
+          const fs = require("node:fs");
+          const assert = require("node:assert/strict");
+          const list = JSON.parse(fs.readFileSync("build/logs/xcode-list.json", "utf8"));
+          assert(list.project?.schemes?.includes("App"), "Shared App scheme not discoverable");
+          NODE
+          xcodebuild -resolvePackageDependencies \
+            -project ios/App/App.xcodeproj -scheme App \
+            -clonedSourcePackagesDir "$PWD/build/SourcePackages" \
+            2>&1 | tee build/logs/swift-package-resolution.log
+      - name: Build unsigned Debug Simulator application
+        script: |
+          #!/bin/bash
+          set -euo pipefail
+          xcodebuild build \
+            -project ios/App/App.xcodeproj -scheme App \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$PWD/build/DerivedData" \
+            -clonedSourcePackagesDir "$PWD/build/SourcePackages" \
+            -disableAutomaticPackageResolution \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build/logs/ios-simulator-build.log
+          test -d build/DerivedData/Build/Products/Debug-iphonesimulator/App.app
+          git diff --exit-code -- package.json package-lock.json pnpm-lock.yaml
+    artifacts:
+      - build/DerivedData/Build/Products/Debug-iphonesimulator/*.app
+      - build/DerivedData/Build/Products/Debug-iphonesimulator/*.dSYM
+      - build/logs/**
+      - ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
