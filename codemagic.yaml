@@ -98,7 +98,7 @@ workflows:
           NODE
           xcodebuild -resolvePackageDependencies \
             -project ios/App/App.xcodeproj -scheme App \
-            -clonedSourcePackagesDir "$PWD/build/SourcePackages" \
+            -clonedSourcePackagesDirPath "$PWD/build/SourcePackages" \
             2>&1 | tee build/logs/swift-package-resolution.log
       - name: Build unsigned Debug Simulator application
         script: |
@@ -109,7 +109,7 @@ workflows:
             -configuration Debug -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$PWD/build/DerivedData" \
-            -clonedSourcePackagesDir "$PWD/build/SourcePackages" \
+            -clonedSourcePackagesDirPath "$PWD/build/SourcePackages" \
             -disableAutomaticPackageResolution \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee build/logs/ios-simulator-build.log
